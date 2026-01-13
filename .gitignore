@@ -52,11 +52,17 @@ logs/
 # Jupyter Notebook
 .ipynb_checkpoints
 
-# Model caches
-models/
+# Model caches (downloaded model files, not source code)
 *.bin
 *.pt
 *.pth
+*.ckpt
+*.safetensors
+*.onnx
+
+# Hugging Face cache
+.cache/huggingface/
+.cache/torch/
 
 # OS
 .DS_Store
