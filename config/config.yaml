@@ -1,0 +1,57 @@
+vector_db:
+  provider: milvus # Options: milvus, chromadb
+  collection_name: documents
+  distance_metric: cosine # Options: cosine, l2, ip
+
+  # Milvus settings (used when provider=milvus)
+  host: localhost
+  port: 19530
+  index_type: IVF_FLAT # Options: IVF_FLAT, IVF_SQ8, HNSW
+  nlist: 1024 # Number of cluster units (for IVF indexes)
+  nprobe: 10 # Number of clusters to search
+
+  # ChromaDB settings (used when provider=chromadb)
+  persist_directory: ./data/vector_db
+
+embedding:
+  provider: huggingface # Options: huggingface, openai, gemini, qwen
+  model_name: sentence-transformers/all-MiniLM-L6-v2
+  # Examples:
+  # - HuggingFace: sentence-transformers/all-MiniLM-L6-v2
+  # - OpenAI: text-embedding-ada-002, text-embedding-3-large
+  # - Gemini: models/embedding-001
+  # - Qwen: text-embedding-v2
+  batch_size: 32
+  device: cpu # For HuggingFace only (cpu, cuda, mps)
+
+chunking:
+  strategy: recursive # Options: recursive, fixed, semantic
+  chunk_size: 1000
+  chunk_overlap: 200
+  separators: ["\n\n", "\n", ". ", " ", ""]
+
+retrieval:
+  top_k: 5
+  similarity_threshold: 0.7
+  enable_reranking: false
+  rerank_top_k: 10
+
+llm:
+  provider: openai # Options: openai, anthropic, gemini
+  model: gpt-3.5-turbo
+  # Examples:
+  # - OpenAI: gpt-3.5-turbo, gpt-4, gpt-4-turbo-preview
+  # - Anthropic: claude-3-opus-20240229, claude-3-sonnet-20240229
+  # - Gemini: gemini-pro, gemini-pro-vision
+  temperature: 0.7
+  max_tokens: 512
+
+ingestion:
+  supported_formats: [".txt", ".pdf", ".docx", ".md", ".html"]
+  batch_size: 10
+  max_workers: 4
+
+logging:
+  level: INFO
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: ./logs/rag_pipeline.log
