@@ -1,17 +1,17 @@
 vector_db:
-  provider: milvus # Options: milvus, chromadb
   collection_name: documents
   distance_metric: cosine # Options: cosine, l2, ip
 
-  # Milvus settings (used when provider=milvus)
+  # Milvus mode
+  use_lite: false # true: Milvus Lite (no Docker), false: Milvus Server (requires Docker)
+  lite_db_path: ./data/vector_db/milvus.db # Path for Milvus Lite database file
+
+  # Milvus Server settings (used when use_lite=false)
   host: localhost
   port: 19530
   index_type: IVF_FLAT # Options: IVF_FLAT, IVF_SQ8, HNSW
   nlist: 1024 # Number of cluster units (for IVF indexes)
   nprobe: 10 # Number of clusters to search
-
-  # ChromaDB settings (used when provider=chromadb)
-  persist_directory: ./data/vector_db
 
 embedding:
   provider: qwen # Options: huggingface, openai, gemini, qwen

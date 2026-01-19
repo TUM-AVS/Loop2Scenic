@@ -15,20 +15,20 @@ load_dotenv()
 
 
 class VectorDBConfig(BaseModel):
-    """Vector database configuration."""
-    provider: str = "milvus"
+    """Milvus vector database configuration."""
     collection_name: str = "documents"
     distance_metric: str = "cosine"
     
-    # Milvus settings
+    # Milvus mode selection
+    use_lite: bool = True  # True: Milvus Lite (no Docker), False: Milvus Server (Docker)
+    lite_db_path: str = "./data/vector_db/milvus.db"  # Used when use_lite=True
+    
+    # Milvus Server settings (used when use_lite=False)
     host: str = "localhost"
     port: str = "19530"  # Accepts int or str, converts to str
     index_type: str = "IVF_FLAT"
     nlist: int = 1024
     nprobe: int = 10
-    
-    # ChromaDB settings
-    persist_directory: str = "./data/vector_db"
     
     @field_validator('port', mode='before')
     @classmethod

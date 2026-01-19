@@ -5,7 +5,7 @@ Base class for LLM generators.
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
 
-from langchain.schema import Document
+from langchain_core.documents import Document
 
 from .prompts import PromptTemplate
 

@@ -6,12 +6,10 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Union
 
-from langchain.schema import Document
-
 from .config import Config, get_config
 from .ingestion import DocumentProcessor, DocumentLoader, DocumentChunker
 from .embedding import get_embedder
-from .vectorstore import ChromaVectorStore, MilvusVectorStore
+from .vectorstore import MilvusVectorStore
 from .retrieval import Retriever
 from .generation import get_generator, PromptTemplate
 from .utils import setup_logging
@@ -88,40 +86,41 @@ class RAGPipeline:
             **embedder_kwargs
         )
         
-        # Vector store
-        if self.config.vector_db.provider == "milvus":
-            # Milvus configuration
+        # Vector store - Milvus only (supports both Lite and Server modes)
+        use_lite = getattr(self.config.vector_db, "use_lite", True)
+        
+        if use_lite:
+            # Milvus Lite (no Docker required)
+            connection_args = {
+                "uri": getattr(self.config.vector_db, "lite_db_path", "./data/vector_db/milvus.db")
+            }
+            logger.info(f"Using Milvus Lite mode (no Docker): {connection_args['uri']}")
+        else:
+            # Milvus Server (requires Docker)
             connection_args = {
                 "host": getattr(self.config.vector_db, "host", "localhost"),
                 "port": getattr(self.config.vector_db, "port", "19530")
             }
-            
-            index_params = {
-                "metric_type": self.config.vector_db.distance_metric.upper(),
-                "index_type": getattr(self.config.vector_db, "index_type", "IVF_FLAT"),
-                "params": {"nlist": getattr(self.config.vector_db, "nlist", 1024)}
-            }
-            
-            search_params = {
-                "metric_type": self.config.vector_db.distance_metric.upper(),
-                "params": {"nprobe": getattr(self.config.vector_db, "nprobe", 10)}
-            }
-            
-            self.vectorstore = MilvusVectorStore(
-                embedder=self.embedder,
-                collection_name=self.config.vector_db.collection_name,
-                connection_args=connection_args,
-                index_params=index_params,
-                search_params=search_params
-            )
-        else:
-            # ChromaDB (default)
-            self.vectorstore = ChromaVectorStore(
-                embedder=self.embedder,
-                persist_directory=self.config.vector_db.persist_directory,
-                collection_name=self.config.vector_db.collection_name,
-                distance_metric=self.config.vector_db.distance_metric
-            )
+            logger.info(f"Using Milvus Server mode: {connection_args['host']}:{connection_args['port']}")
+        
+        index_params = {
+            "metric_type": self.config.vector_db.distance_metric.upper(),
+            "index_type": getattr(self.config.vector_db, "index_type", "IVF_FLAT"),
+            "params": {"nlist": getattr(self.config.vector_db, "nlist", 1024)}
+        }
+        
+        search_params = {
+            "metric_type": self.config.vector_db.distance_metric.upper(),
+            "params": {"nprobe": getattr(self.config.vector_db, "nprobe", 10)}
+        }
+        
+        self.vectorstore = MilvusVectorStore(
+            embedder=self.embedder,
+            collection_name=self.config.vector_db.collection_name,
+            connection_args=connection_args,
+            index_params=index_params,
+            search_params=search_params
+        )
         
         # Retrieval
         self.retriever = Retriever(

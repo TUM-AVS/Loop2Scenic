@@ -9,7 +9,7 @@ from langchain.text_splitter import (
     RecursiveCharacterTextSplitter,
     CharacterTextSplitter,
 )
-from langchain.schema import Document
+from langchain_core.documents import Document
 
 logger = logging.getLogger(__name__)
 

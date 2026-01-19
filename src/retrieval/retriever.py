@@ -5,7 +5,7 @@ Document retrieval with advanced filtering and ranking.
 import logging
 from typing import Dict, List, Optional, Any
 
-from langchain.schema import Document
+from langchain_core.documents import Document
 
 from ..vectorstore.chroma_store import ChromaVectorStore
 

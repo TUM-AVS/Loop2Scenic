@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from langchain.schema import Document
+from langchain_core.documents import Document
 from tqdm import tqdm
 
 from .document_loader import DocumentLoader

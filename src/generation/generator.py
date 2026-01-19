@@ -5,7 +5,7 @@ Main generator that wraps LLM models.
 import logging
 from typing import List, Dict, Any, Optional
 
-from langchain.schema import Document
+from langchain_core.documents import Document
 
 from .base import BaseGenerator
 from .prompts import DEFAULT_QA_PROMPT, PromptTemplate
