@@ -3,19 +3,19 @@ Base class for embedding models.
 """
 
 from abc import ABC, abstractmethod
-from typing import List
+from typing import List, Dict, Any
 
 
 class BaseEmbeddingModel(ABC):
     """Abstract base class for embedding models."""
 
     @abstractmethod
-    def encode(self, texts: List[str]) -> List[List[float]]:
+    def encode(self, inputs: List[Dict[str, Any]]) -> List[List[float]]:
         """
-        Encode texts into embeddings.
+        Encode arbitrary inputs into embeddings.
         
         Args:
-            texts: List of texts to encode
+            inputs: List of inputs to encode
             
         Returns:
             List of embedding vectors

@@ -3,12 +3,11 @@ Main embedder that wraps embedding models.
 """
 
 import logging
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 from langchain.embeddings.base import Embeddings
 
 from .base import BaseEmbedder
-from .models import OpenAIEmbedder, HuggingFaceEmbedder
 from .models.base_model import BaseEmbeddingModel
 
 logger = logging.getLogger(__name__)
@@ -53,32 +52,41 @@ class Embedder(BaseEmbedder):
         
         # Initialize the appropriate model
         if self.provider == "huggingface":
-            model_name = model_name or "sentence-transformers/all-MiniLM-L6-v2"
-            self.model = HuggingFaceEmbedder(
-                model_name=model_name,
-                device=device,
-                **kwargs
-            )
+            pass
+            # model_name = model_name or "sentence-transformers/all-MiniLM-L6-v2"
+            # self.model = HuggingFaceEmbedder(
+            #     model_name=model_name,
+            #     device=device,
+            #     **kwargs
+            # )
             
         elif self.provider == "openai":
-            model_name = model_name or "text-embedding-ada-002"
-            self.model = OpenAIEmbedder(
-                model_name=model_name,
-                **kwargs
-            )
+            pass
+            # model_name = model_name or "text-embedding-ada-002"
+            # self.model = OpenAIEmbedder(
+            #     model_name=model_name,
+            #     **kwargs
+            # )
             
         elif self.provider == "gemini":
-            from .models.gemini_model import GeminiEmbedder
-            model_name = model_name or "models/embedding-001"
-            self.model = GeminiEmbedder(
-                model_name=model_name,
-                **kwargs
-            )
+            pass
+            # from .models.gemini_model import GeminiEmbedder
+            # model_name = model_name or "models/embedding-001"
+            # self.model = GeminiEmbedder(
+            #     model_name=model_name,
+            #     **kwargs
+            # )
             
         elif self.provider == "qwen":
             from .models.qwen_model import QwenEmbedder
-            model_name = model_name or "text-embedding-v2"
+            # Qwen requires model_path for offline models
+            if "model_path" not in kwargs:
+                raise ValueError(
+                    "model_path is required for Qwen offline models. "
+                    "Example: model_path='./models/Qwen3-VL-Embedding'"
+                )
             self.model = QwenEmbedder(
+                model_path=kwargs.pop("model_path"),
                 model_name=model_name,
                 **kwargs
             )
@@ -94,25 +102,25 @@ class Embedder(BaseEmbedder):
         
         logger.info(f"Embedder initialized with {provider} model")
 
-    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+    def embed_documents(self, inputs: List[Dict[str, Any]]) -> List[List[float]]:
         """Encode documents in batches."""
-        if not texts:
+        if not inputs:
             return []
         
-        logger.info(f"Encoding {len(texts)} documents")
+        logger.info(f"Encoding {len(inputs)} documents")
         
         # Batch processing
         all_embeddings = []
-        for i in range(0, len(texts), self.batch_size):
-            batch = texts[i:i + self.batch_size]
+        for i in range(0, len(inputs), self.batch_size):
+            batch = inputs[i:i + self.batch_size]
             embeddings = self.model.encode(batch)
             all_embeddings.extend(embeddings)
         
         return all_embeddings
 
-    def embed_query(self, text: str) -> List[float]:
+    def embed_query(self, input: Dict[str, Any]) -> List[float]:
         """Encode a single query."""
-        return self.model.encode([text])[0]
+        return self.model.encode([input])[0]
 
     def get_embedding_dimension(self) -> int:
         """Get embedding dimension."""

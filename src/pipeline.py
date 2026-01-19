@@ -76,11 +76,16 @@ class RAGPipeline:
         )
         
         # Embedding
+        embedder_kwargs = {}
+        if hasattr(self.config.embedding, 'model_path') and self.config.embedding.model_path:
+            embedder_kwargs['model_path'] = self.config.embedding.model_path
+        
         self.embedder = get_embedder(
             provider=self.config.embedding.provider,
             model_name=self.config.embedding.model_name,
             device=self.config.embedding.device,
-            batch_size=self.config.embedding.batch_size
+            batch_size=self.config.embedding.batch_size,
+            **embedder_kwargs
         )
         
         # Vector store

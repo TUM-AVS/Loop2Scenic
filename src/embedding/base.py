@@ -3,19 +3,19 @@ Base class for embedding models.
 """
 
 from abc import ABC, abstractmethod
-from typing import List
+from typing import List, Dict, Any
 
 
 class BaseEmbedder(ABC):
     """Abstract base class for embedding models."""
 
     @abstractmethod
-    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+    def embed_documents(self, inputs: List[Dict[str, Any]]) -> List[List[float]]:
         """
         Generate embeddings for a list of documents.
         
         Args:
-            texts: List of text strings to embed
+            inputs: List of inputs to embed
             
         Returns:
             List of embedding vectors
@@ -23,12 +23,12 @@ class BaseEmbedder(ABC):
         pass
 
     @abstractmethod
-    def embed_query(self, text: str) -> List[float]:
+    def embed_query(self, input: Dict[str, Any]) -> List[float]:
         """
         Generate embedding for a single query.
         
         Args:
-            text: Query text to embed
+            input: Query input to embed
             
         Returns:
             Embedding vector

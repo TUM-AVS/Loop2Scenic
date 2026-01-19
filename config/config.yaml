@@ -14,15 +14,17 @@ vector_db:
   persist_directory: ./data/vector_db
 
 embedding:
-  provider: huggingface # Options: huggingface, openai, gemini, qwen
-  model_name: sentence-transformers/all-MiniLM-L6-v2
+  provider: qwen # Options: huggingface, openai, gemini, qwen
+  model_name: Qwen3-VL-Embedding-2B
+  model_path: ./models/Qwen3-VL-Embedding-2B
   # Examples:
   # - HuggingFace: sentence-transformers/all-MiniLM-L6-v2
   # - OpenAI: text-embedding-ada-002, text-embedding-3-large
   # - Gemini: models/embedding-001
-  # - Qwen: text-embedding-v2
-  batch_size: 32
-  device: cpu # For HuggingFace only (cpu, cuda, mps)
+  # - Qwen: Qwen3-VL-Embedding (offline, requires model_path)
+  #   Example: model_path: ./models/Qwen3-VL-Embedding
+  batch_size: 4
+  device: cuda # For HuggingFace only (cpu, cuda, mps)
 
 chunking:
   strategy: recursive # Options: recursive, fixed, semantic

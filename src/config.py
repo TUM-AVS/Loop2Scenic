@@ -4,10 +4,10 @@ Configuration management for the RAG pipeline.
 
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -22,22 +22,31 @@ class VectorDBConfig(BaseModel):
     
     # Milvus settings
     host: str = "localhost"
-    port: str = "19530"
+    port: str = "19530"  # Accepts int or str, converts to str
     index_type: str = "IVF_FLAT"
     nlist: int = 1024
     nprobe: int = 10
     
     # ChromaDB settings
     persist_directory: str = "./data/vector_db"
+    
+    @field_validator('port', mode='before')
+    @classmethod
+    def convert_port_to_string(cls, v):
+        """Convert port to string if it's an integer."""
+        if isinstance(v, int):
+            return str(v)
+        return v
 
 
 class EmbeddingConfig(BaseModel):
     """Embedding model configuration."""
-    provider: str = "huggingface"  # huggingface, openai
+    provider: str = "huggingface"  # huggingface, openai, gemini, qwen
     model_name: str = "sentence-transformers/all-MiniLM-L6-v2"
+    model_path: Optional[str] = None  # Required for Qwen models, optional for others
     dimension: int = 384
     batch_size: int = 32
-    device: str = "cpu"  # For HuggingFace models
+    device: str = "cpu"  # For HuggingFace models (cpu, cuda, mps)
 
 
 class ChunkingConfig(BaseModel):
@@ -139,3 +148,7 @@ def get_config(config_path: Optional[str] = None) -> Config:
         return Config.from_yaml()
     except FileNotFoundError:
         return Config.from_env()
+
+if __name__ == "__main__":
+    config = get_config()
+    print(f"Using config: {config}")
