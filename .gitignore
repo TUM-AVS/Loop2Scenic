@@ -53,7 +53,7 @@ logs/
 .ipynb_checkpoints
 
 # Model caches (downloaded model files, not source code)
-models/
+/models/
 *.bin
 *.pt
 *.pth
