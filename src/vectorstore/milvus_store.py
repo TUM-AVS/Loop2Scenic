@@ -199,7 +199,17 @@ class MilvusVectorStore:
                 })
         else:
             # Multimodal dictionaries (text, images, videos)
-            embeddings = self.embedder.embed_documents(documents)
+            # Filter documents to only include fields for embedding (text, instruction, image, video)
+            # Exclude metadata fields like folder_path
+            embedding_inputs = []
+            for doc_dict in documents:
+                embedding_dict = {
+                    k: v for k, v in doc_dict.items()
+                    if k in ["text", "instruction", "image", "video"]
+                }
+                embedding_inputs.append(embedding_dict)
+            
+            embeddings = self.embedder.embed_documents(embedding_inputs)
             
             # Convert embeddings to lists if they are tensors
             embeddings_list = []
@@ -224,9 +234,9 @@ class MilvusVectorStore:
                 elif not text_content and "video" in doc_dict:
                     text_content = f"[Video: {doc_dict['video']}]"
                 
-                # Build metadata from dict (exclude certain keys)
+                # Build metadata from dict (exclude embedding fields, keep folder_path and other metadata)
                 metadata = {k: v for k, v in doc_dict.items() 
-                           if k not in ["text", "image", "video", "embedding"]}
+                           if k not in ["text", "instruction", "image", "video", "embedding"]}
                 
                 data.append({
                     "id": doc_id,
