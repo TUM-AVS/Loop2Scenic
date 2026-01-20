@@ -38,7 +38,7 @@ services:
       retries: 3
 
   milvus:
-    container_name: milvus-standalone
+    container_name: milvus-standalone1
     image: milvusdb/milvus:v2.3.3
     command: ["milvus", "run", "standalone"]
     security_opt:

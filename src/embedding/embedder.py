@@ -3,6 +3,7 @@ Main embedder that wraps embedding models.
 """
 
 import logging
+import torch
 from typing import List, Optional, Dict, Any
 
 from langchain.embeddings.base import Embeddings
@@ -109,12 +110,39 @@ class Embedder(BaseEmbedder):
         
         logger.info(f"Encoding {len(inputs)} documents")
         
+        # Check if any inputs contain videos (which require more memory)
+        has_videos = any("video" in inp and inp.get("video") for inp in inputs)
+        
+        # For video inputs, process one at a time to avoid OOM
+        # For text/image only, use batch_size
+        effective_batch_size = 1 if has_videos else self.batch_size
+        
+        if has_videos:
+            logger.info("Detected video inputs - processing one at a time to manage GPU memory")
+        
         # Batch processing
         all_embeddings = []
-        for i in range(0, len(inputs), self.batch_size):
-            batch = inputs[i:i + self.batch_size]
+        for i in range(0, len(inputs), effective_batch_size):
+            batch = inputs[i:i + effective_batch_size]
+            
+            # Process batch
             embeddings = self.model.encode(batch)
-            all_embeddings.extend(embeddings)
+            
+            # Convert PyTorch tensors to CPU lists to free GPU memory immediately
+            processed_embeddings = []
+            for emb in embeddings:
+                if isinstance(emb, torch.Tensor):
+                    processed_embeddings.append(emb.cpu().tolist())
+                elif hasattr(emb, 'tolist'):
+                    processed_embeddings.append(emb.tolist())
+                else:
+                    processed_embeddings.append(emb)
+            
+            all_embeddings.extend(processed_embeddings)
+            
+            # Clear CUDA cache after each batch to free fragmented memory
+            if torch.cuda.is_available() and has_videos:
+                torch.cuda.empty_cache()
         
         return all_embeddings
 

@@ -118,24 +118,6 @@ embedder = Embedder(
 
 print("Embedder initialized successfully")
 
-# inputs = [{
-#     "text": "A woman playing with her dog on a beach at sunset.",
-#     "instruction": "Retrieve images or text relevant to the user's query.",
-# }, {
-#     "text": "A woman shares a joyful moment with her golden retriever on a sun-drenched beach at sunset, as the dog offers its paw in a heartwarming display of companionship and trust."
-# }, {
-#     "image": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg"
-# }, {
-#     "text": "A woman shares a joyful moment with her golden retriever on a sun-drenched beach at sunset, as the dog offers its paw in a heartwarming display of companionship and trust.", 
-#     "image": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg"
-# }, {
-#     "text": "A cute cat.",
-#     "instruction": "Retrieve images or text relevant to the user's query.",
-#     "image": "https://media.istockphoto.com/id/1443562748/de/foto/s%C3%BC%C3%9Fe-ingwerkatze.jpg?s=1024x1024&w=is&k=20&c=heo_zqB7Y1h0PCHdJIakdqddnHCX9JsbzZMs2skLt70="
-# }]
-
-# # 5 embeddings will take about 20 min
-
 # Test put the embeddings into the vector store
 # Build connection args from config
 if config.vector_db.use_lite:
@@ -155,14 +137,22 @@ vector_store = MilvusVectorStore(
 )
 print("Collection stats before adding documents:", vector_store.get_collection_stats())
 
-vector_store.add_documents(inputs)
+# vector_store.add_documents(inputs)
 
 # See the collection stats
 print("Collection stats after adding documents:", vector_store.get_collection_stats())
 
 # Test retrieve the embeddings from the vector store
-# results = vector_store.similarity_search_with_score(query={"text":"Find me a .", "image":"D:/study/Thesis/3-Code/ads-mrag/data/raw/image2.png"}, k=1)
-# print(results)
+# results = vector_store.similarity_search_with_score(query={"text":"Find me a video of a car turning left."}, k=2)
+# got example 1 and 5 (false)
+
+# results = vector_store.similarity_search_with_score(query={"text":"Find me a video similar to this image.", "image":"/home/dellpro2/chenli/ads-mrag/ads-mrag/data/raw/testimage.png"}, k=1)
+# got example 2 (correct)
+
+results = vector_store.similarity_search_with_score(query={"text":"Find me a video similar to this video.", 
+                                                            "video":"/home/dellpro2/chenli/ads-mrag/ads-mrag/data/raw/testvideo.mp4"}, k=1)
+# got example 5 (false)                                               
+print(results)
 
 # drop the collection
 # vector_store.reset_collection()

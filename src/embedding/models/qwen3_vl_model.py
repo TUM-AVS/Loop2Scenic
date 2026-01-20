@@ -170,8 +170,8 @@ class Qwen3VLEmbedder():
         default_instruction: str = "Represent the user's input.",
         **kwargs
     ):
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        print(f"Using device for Qwen3VLForEmbedding: {device}")
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"Using device for Qwen3VLForEmbedding: {self.device}")
 
         self.max_length = max_length
         self.min_pixels = min_pixels
@@ -182,13 +182,35 @@ class Qwen3VLEmbedder():
 
         self.default_instruction = default_instruction
 
+        # Use float16 for CUDA to reduce memory usage (approximately 50% reduction)
+        torch_dtype = kwargs.pop('torch_dtype', None)
+        if torch_dtype is None and self.device.type == "cuda":
+            torch_dtype = torch.float16
+            logger.info("Using float16 precision to reduce GPU memory usage")
+        
+        # Load model with lower precision if specified
+        model_kwargs = {k: v for k, v in kwargs.items() if k not in ['device_map']}
+        if torch_dtype:
+            model_kwargs['torch_dtype'] = torch_dtype
+        
         self.model = Qwen3VLForEmbedding.from_pretrained(
-            model_name_or_path, trust_remote_code=True, **kwargs
-        ).to(device)
+            model_name_or_path, trust_remote_code=True, **model_kwargs
+        )
+        
+        # Move to device after loading
+        if self.device.type == "cuda":
+            # Use device_map for better memory management if not already specified
+            if 'device_map' not in kwargs:
+                self.model = self.model.to(self.device)
+            # Ensure model is in eval mode
+            self.model.eval()
+        else:
+            self.model = self.model.to(self.device)
+            self.model.eval()
+        
         self.processor = Qwen3VLProcessor.from_pretrained(
             model_name_or_path, padding_side='right'
         )
-        self.model.eval()
 
     @torch.no_grad()
     def forward(self, inputs: Dict[str, Any]) -> Dict[str, torch.Tensor]:
@@ -390,7 +412,7 @@ class Qwen3VLEmbedder():
         ) for ele in inputs]
 
         processed_inputs = self._preprocess_inputs(conversations)
-        processed_inputs = {k: v.to(self.model.device) for k, v in processed_inputs.items()}
+        processed_inputs = {k: v.to(self.device) for k, v in processed_inputs.items()}
 
         outputs = self.forward(processed_inputs)
         embeddings = self._pooling_last(outputs['last_hidden_state'], outputs['attention_mask'])
@@ -398,5 +420,9 @@ class Qwen3VLEmbedder():
         # Normalize the embeddings if specified
         if normalize:
             embeddings = F.normalize(embeddings, p=2, dim=-1)
+
+        # Clear CUDA cache after processing to free memory (especially important for videos)
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
         return embeddings
