@@ -65,6 +65,16 @@ class RetrievalConfig(BaseModel):
     rerank_top_k: int = 10
 
 
+class RerankingConfig(BaseModel):
+    """Reranking model configuration."""
+    model_path: Optional[str] = None  # Path to local reranker model directory
+    model_name: Optional[str] = None  # Model name identifier
+    device: Optional[str] = None  # Device to run the model on (cpu, cuda, etc.)
+    torch_dtype: Optional[str] = None  # Data type for the model (fp16, fp32, bf16, etc.)
+    instruction: str = "Retrieval relevant image or text with user's query"  # Instruction text
+    fps: float = 1.0  # Frames per second for video processing
+
+
 class LLMConfig(BaseModel):
     """LLM configuration."""
     provider: str = "openai"
@@ -96,6 +106,7 @@ class Config(BaseModel):
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     chunking: ChunkingConfig = Field(default_factory=ChunkingConfig)
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
+    reranking: RerankingConfig = Field(default_factory=RerankingConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     ingestion: IngestionConfig = Field(default_factory=IngestionConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)

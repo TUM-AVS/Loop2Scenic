@@ -102,25 +102,25 @@ class RAGPipeline:
                 "port": getattr(self.config.vector_db, "port", "19530")
             }
             logger.info(f"Using Milvus Server mode: {connection_args['host']}:{connection_args['port']}")
-        
-        index_params = {
-            "metric_type": self.config.vector_db.distance_metric.upper(),
-            "index_type": getattr(self.config.vector_db, "index_type", "IVF_FLAT"),
-            "params": {"nlist": getattr(self.config.vector_db, "nlist", 1024)}
-        }
-        
-        search_params = {
-            "metric_type": self.config.vector_db.distance_metric.upper(),
-            "params": {"nprobe": getattr(self.config.vector_db, "nprobe", 10)}
-        }
-        
-        self.vectorstore = MilvusVectorStore(
-            embedder=self.embedder,
-            collection_name=self.config.vector_db.collection_name,
-            connection_args=connection_args,
-            index_params=index_params,
-            search_params=search_params
-        )
+            
+            index_params = {
+                "metric_type": self.config.vector_db.distance_metric.upper(),
+                "index_type": getattr(self.config.vector_db, "index_type", "IVF_FLAT"),
+                "params": {"nlist": getattr(self.config.vector_db, "nlist", 1024)}
+            }
+            
+            search_params = {
+                "metric_type": self.config.vector_db.distance_metric.upper(),
+                "params": {"nprobe": getattr(self.config.vector_db, "nprobe", 10)}
+            }
+            
+            self.vectorstore = MilvusVectorStore(
+                embedder=self.embedder,
+                collection_name=self.config.vector_db.collection_name,
+                connection_args=connection_args,
+                index_params=index_params,
+                search_params=search_params
+            )
         
         # Retrieval
         self.retriever = Retriever(

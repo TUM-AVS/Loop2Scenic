@@ -9,6 +9,7 @@ import logging  # noqa: E402
 from src.embedding.embedder import Embedder  # noqa: E402
 from src.config import get_config  # noqa: E402
 from src.vectorstore.milvus_store import MilvusVectorStore  # noqa: E402
+from src.retrieval.models.qwen_vl_reranker import QwenVLReranker
 
 logger = logging.getLogger(__name__)
 
@@ -106,41 +107,41 @@ print(len(inputs), "Inputs loaded successfully")
 # Load configuration from config/config.yaml
 config = get_config()  # Loads from config/config.yaml by default
 
-# Initialize embedder with config
-# For Qwen models, model_path is required
-embedder = Embedder(
-    provider=config.embedding.provider,
-    model_name=config.embedding.model_name,
-    model_path=getattr(config.embedding, 'model_path', None),  # Qwen requires this
-    device=config.embedding.device,
-    batch_size=config.embedding.batch_size
-)
+# # Initialize embedder with config
+# # For Qwen models, model_path is required
+# embedder = Embedder(
+#     provider=config.embedding.provider,
+#     model_name=config.embedding.model_name,
+#     model_path=getattr(config.embedding, 'model_path', None),  # Qwen requires this
+#     device=config.embedding.device,
+#     batch_size=config.embedding.batch_size
+# )
 
-print("Embedder initialized successfully")
+# print("Embedder initialized successfully")
 
-# Test put the embeddings into the vector store
-# Build connection args from config
-if config.vector_db.use_lite:
-    connection_args = {"uri": config.vector_db.lite_db_path}
-    print(f"Using Milvus Lite: {connection_args['uri']}")
-else:
-    connection_args = {
-        "host": config.vector_db.host,
-        "port": config.vector_db.port
-    }
-    print(f"Using Milvus Server: {connection_args['host']}:{connection_args['port']}")
+# # Test put the embeddings into the vector store
+# # Build connection args from config
+# if config.vector_db.use_lite:
+#     connection_args = {"uri": config.vector_db.lite_db_path}
+#     print(f"Using Milvus Lite: {connection_args['uri']}")
+# else:
+#     connection_args = {
+#         "host": config.vector_db.host,
+#         "port": config.vector_db.port
+#     }
+#     print(f"Using Milvus Server: {connection_args['host']}:{connection_args['port']}")
 
-vector_store = MilvusVectorStore(
-    embedder=embedder, 
-    collection_name="avs",
-    connection_args=connection_args  # Pass connection args!
-)
-print("Collection stats before adding documents:", vector_store.get_collection_stats())
+# vector_store = MilvusVectorStore(
+#     embedder=embedder, 
+#     collection_name="avs",
+#     connection_args=connection_args  # Pass connection args!
+# )
+# print("Collection stats before adding documents:", vector_store.get_collection_stats())
 
-# vector_store.add_documents(inputs)
+# # vector_store.add_documents(inputs)
 
-# See the collection stats
-print("Collection stats after adding documents:", vector_store.get_collection_stats())
+# # See the collection stats
+# print("Collection stats after adding documents:", vector_store.get_collection_stats())
 
 # Test retrieve the embeddings from the vector store
 # results = vector_store.similarity_search_with_score(query={"text":"Find me a video of a car turning left."}, k=2)
@@ -149,10 +150,22 @@ print("Collection stats after adding documents:", vector_store.get_collection_st
 # results = vector_store.similarity_search_with_score(query={"text":"Find me a video similar to this image.", "image":"/home/dellpro2/chenli/ads-mrag/ads-mrag/data/raw/testimage.png"}, k=1)
 # got example 2 (correct)
 
-results = vector_store.similarity_search_with_score(query={"text":"Find me a video similar to this video.", 
-                                                            "video":"/home/dellpro2/chenli/ads-mrag/ads-mrag/data/raw/testvideo.mp4"}, k=1)
-# got example 5 (false)                                               
-print(results)
+# results = vector_store.similarity_search_with_score(query={"text":"Find me a video similar to this video.", 
+#                                                             "video":"/home/dellpro2/chenli/ads-mrag/ads-mrag/data/raw/testvideo.mp4"}, k=1)
+# # got example 5 (false)                                               
+# print(results)
+
+print("Reranking the results...")
+print("reranker configurations:")
+print(f"model_path: {config.reranking.model_path}")
+print(f"model_name: {config.reranking.model_name}")
+# use the reranker to rerank the results
+reranker = QwenVLReranker(
+    model_path=config.reranking.model_path,
+)
+# reranked_results = reranker.rerank(query={"text":"Find me a video similar to this video.", 
+#                                           "video":"/home/dellpro2/chenli/ads-mrag/ads-mrag/data/raw/testvideo.mp4"}, documents=results, k=1)
+# print(reranked_results)
 
 # drop the collection
 # vector_store.reset_collection()

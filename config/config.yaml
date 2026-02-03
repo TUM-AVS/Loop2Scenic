@@ -38,6 +38,12 @@ retrieval:
   enable_reranking: false
   rerank_top_k: 10
 
+reranking:
+  model_path: ./models/Qwen3-VL-Reranker-2B
+  model_name: Qwen3-VL-Reranker-2B
+  device: cuda
+  torch_dtype: fp16
+
 llm:
   provider: openai # Options: openai, anthropic, gemini
   model: gpt-3.5-turbo

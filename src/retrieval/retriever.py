@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Any
 
 from langchain_core.documents import Document
 
-from ..vectorstore.chroma_store import ChromaVectorStore
+from ..vectorstore.milvus_store import MilvusVectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ class Retriever:
 
     def __init__(
         self,
-        vectorstore: ChromaVectorStore,
+        vectorstore: MilvusVectorStore,
         top_k: int = 5,
         similarity_threshold: Optional[float] = None,
         enable_reranking: bool = False
@@ -28,7 +28,7 @@ class Retriever:
         Initialize retriever.
         
         Args:
-            vectorstore: ChromaVectorStore instance
+            vectorstore: MilvusVectorStore instance
             top_k: Number of documents to retrieve
             similarity_threshold: Minimum similarity score threshold
             enable_reranking: Whether to enable reranking (future feature)
@@ -148,43 +148,3 @@ class Retriever:
             metadata_filter=metadata_filter,
             return_scores=return_scores
         )
-
-    def format_results(
-        self,
-        results: List[Document] | List[tuple[Document, float]],
-        include_metadata: bool = True
-    ) -> str:
-        """
-        Format retrieval results as a readable string.
-        
-        Args:
-            results: List of Documents or (Document, score) tuples
-            include_metadata: Whether to include metadata in output
-            
-        Returns:
-            Formatted string
-        """
-        if not results:
-            return "No results found."
-        
-        output = []
-        
-        # Check if results include scores
-        has_scores = isinstance(results[0], tuple)
-        
-        for i, item in enumerate(results, 1):
-            if has_scores:
-                doc, score = item
-                output.append(f"\n--- Result {i} (Score: {score:.4f}) ---")
-            else:
-                doc = item
-                output.append(f"\n--- Result {i} ---")
-            
-            output.append(doc.page_content[:500])  # First 500 chars
-            
-            if include_metadata and doc.metadata:
-                output.append(f"\nMetadata: {doc.metadata}")
-            
-            output.append("")
-        
-        return "\n".join(output)
