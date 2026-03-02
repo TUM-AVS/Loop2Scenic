@@ -78,3 +78,10 @@ class QwenEmbedder(BaseEmbeddingModel):
     def dimension(self) -> int:
         """Get embedding dimension."""
         return self._dimension
+
+    def to(self, device: str):
+        """Move the underlying model to a specific device."""
+        logger.info(f"Moving QwenEmbedder to {device}")
+        # Check if the internal embedder has a .model attribute (common in these wrappers)
+        self.embedder.to(device)
+        return self

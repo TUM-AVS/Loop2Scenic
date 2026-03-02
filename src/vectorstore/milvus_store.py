@@ -153,7 +153,7 @@ class MilvusVectorStore:
             documents: Either:
                 - List of Document objects with page_content and metadata
                 - List of dictionaries with keys like:
-                  {"text": "...", "image": "...", "video": "...", "instruction": "..."}
+                  {"text": "...", "image": "...", "video": "...", "instruction": "...", "folder_path": "..."}
             ids: Optional list of IDs for the documents
             
         Returns:

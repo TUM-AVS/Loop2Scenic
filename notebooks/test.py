@@ -16,6 +16,7 @@ project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
 
 import logging  # noqa: E402
+import torch  # noqa: E402
 from src.embedding.embedder import Embedder  # noqa: E402
 from src.config import get_config  # noqa: E402
 from src.vectorstore.milvus_store import MilvusVectorStore  # noqa: E402
@@ -169,7 +170,7 @@ def build_rag_pipeline(config, collection_name="avs"):
     return embedder, vector_store, reranker
 
 
-def main(add_documents=True):
+def main(add_documents=False, clear_collection=False):
     """
     Main RAG pipeline execution.
     
@@ -189,7 +190,18 @@ def main(add_documents=True):
     stats_before = vector_store.get_collection_stats()
     logger.info(f"  Total documents: {stats_before.get('total_documents', 0)}")
     
-    # Add documents to vector store if requested
+
+    # Clear collection
+    if clear_collection:
+        logger.info("Clearing collection...")
+        vector_store.reset_collection()
+        logger.info("Collection cleared successfully")
+        logger.info("Collection stats after clearing:")
+        stats_after = vector_store.get_collection_stats()
+        logger.info(f"  Total documents: {stats_after.get('total_documents', 0)}")
+        return
+    
+    # Add documents to vector store
     if add_documents:
         # Load scenario data
         logger.info("Loading scenario data...")
@@ -209,16 +221,17 @@ def main(add_documents=True):
         logger.info("Collection stats after adding documents:")
         stats_after = vector_store.get_collection_stats()
         logger.info(f"  Total documents: {stats_after.get('total_documents', 0)}")
+        return
     else:
         logger.info("Skipping document indexing (add_documents=False)")
         logger.info("Using existing documents in vector store")
     
     # Example queries for testing
     example_queries = [
-        {"text": "Find me a video of a car turning left."},
+        # {"text": "Find me a video with yield action."},
         # Uncomment and modify paths as needed:
-        # {"text": "Find me a video similar to this image.", "image": "path/to/testimage.png"},
-        # {"text": "Find me a video similar to this video.", "video": "path/to/testvideo.mp4"},
+        # {"text": "Find me a video similar to this image.", "image": "/home/dellpro2/chenli/ads-mrag/ads-mrag/data/raw/testimage.png"},
+        {"text": "Please check the ego car behavior in this video, and find me a video has the same ego car behavior.", "video": "/home/dellpro2/chenli/ads-mrag/ads-mrag/data/raw/testvideo.mp4"},
     ]
     
     # Perform retrieval for each query
@@ -233,13 +246,16 @@ def main(add_documents=True):
             query=query,
             k=config.retrieval.top_k
         )
+
+        # Move the embedder to CPU and clear cuda cache
+        embedder.model.to('cpu') 
+        torch.cuda.empty_cache()
         
         logger.info(f"Retrieved {len(results)} documents")
         for j, (doc, score) in enumerate(results, 1):
             logger.info(f"  Result {j}: Score={score:.4f}")
-            logger.info(f"    Text: {doc.page_content[:100]}...")
-            if doc.metadata.get("video"):
-                logger.info(f"    Video: {doc.metadata['video']}")
+            if doc.metadata.get("folder_path"):
+                logger.info(f"    Folder path: {doc.metadata['folder_path']}")
         
         # Rerank if reranker is available
         if reranker and results:
@@ -253,9 +269,8 @@ def main(add_documents=True):
             logger.info(f"Reranked {len(reranked_results)} documents")
             for j, (doc, score) in enumerate(reranked_results, 1):
                 logger.info(f"  Reranked Result {j}: Score={score:.4f}")
-                logger.info(f"    Text: {doc.page_content[:100]}...")
-                if doc.metadata.get("video"):
-                    logger.info(f"    Video: {doc.metadata['video']}")
+                if doc.metadata.get("folder_path"):
+                    logger.info(f"    Folder path: {doc.metadata['folder_path']}")
 
 
 if __name__ == "__main__":

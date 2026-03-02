@@ -54,6 +54,7 @@ class QwenVLReranker(BaseReranker):
             model_name_or_path=self.model_path,
             **kwargs
         )
+        self.instruction = instruction
         print(f"QwenVLReranker initialized successfully with model: {self.model_path}")
 
     def _document_to_dict(self, doc: Document) -> dict[str, Any]:
@@ -162,8 +163,6 @@ class QwenVLReranker(BaseReranker):
         
         # Get parameters from kwargs or use defaults
         instruction = kwargs.get("instruction", self.instruction)
-        fps = kwargs.get("fps", self.fps)
-        max_frames = kwargs.get("max_frames", self.max_frames)
         
         # Convert query to dictionary format
         query_dict = self._query_to_dict(query)
@@ -181,11 +180,7 @@ class QwenVLReranker(BaseReranker):
             "instruction": instruction,
             "query": query_dict,
             "documents": doc_dicts,
-            "fps": fps
         }
-        
-        if max_frames is not None:
-            inputs["max_frames"] = max_frames
         
         # Get scores from the reranker model
         try:

@@ -159,6 +159,17 @@ class Embedder(BaseEmbedder):
         """Get LangChain-compatible embeddings object."""
         return self._embeddings
 
+    def to(self, device: str):
+        """Pass the device move command down to the underlying model provider."""
+        if hasattr(self, 'model') and hasattr(self.model, 'to'):
+            self.model.to(device)
+            # If moving to CPU, clear cache immediately
+            if device == 'cpu' and torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        else:
+            logger.error(f"Provider {self.provider} model does not support .to() method")
+        return self
+
 
 def get_embedder(
     provider: str = "huggingface",

@@ -212,6 +212,22 @@ class Qwen3VLEmbedder():
             model_name_or_path, padding_side='right'
         )
 
+    def to(self, device: str):
+        """Move the underlying model to a specific device."""
+        # Use print if logger isn't configured for this file yet
+        print(f"DEBUG: Moving Qwen3VLEmbedder to {device}") 
+        logger.info(f"Moving Qwen3VLEmbedder to {device}")
+        
+        # 1. Update the tracking variable so process() knows where to send inputs
+        self.device = torch.device(device)
+        
+        # 2. Physically move the weights
+        self.model = self.model.to(device)
+        
+        # 3. Standard practice for eval mode
+        self.model.eval()
+        return self
+
     @torch.no_grad()
     def forward(self, inputs: Dict[str, Any]) -> Dict[str, torch.Tensor]:
         outputs = self.model(**inputs)

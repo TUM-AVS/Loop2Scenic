@@ -1,0 +1,5 @@
+The cuda tool kit is 13.0  (nvcc version 13.0) - this should be compatible to the pytorch version
+The CUDA version is 13.0 - this is the hardware version
+
+The conda environment can have its own cuda tool kit, we can install it via command: conda install -c nvidia cuda-toolkit=13.0
+When the cuda tool kit and torch version are compatible, the error will happen: nvrtc: error: failed to open libnvrtc-builtins.so.13.0.
