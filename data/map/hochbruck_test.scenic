@@ -1,9 +1,11 @@
+# config remote carla address
+param carla_address = '10.243.27.4'
+param carla_port = 2000
+
 ## 1. SET MAP AND MODEL
 # Point Scenic to your custom OpenDRIVE file
-param map = 'data/map/hockbruck.xodr'
-
-# Setting carla_map to None tells CARLA to auto-generate the 3D road mesh
-param carla_map = None 
+param carla_map = 'OpenDriveMap' 
+param use2DMap = True
 
 # Import the CARLA driving domain
 model scenic.simulators.carla.model
