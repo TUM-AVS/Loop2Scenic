@@ -11,6 +11,8 @@ for autonomous driving scenarios, including:
 
 import sys
 from pathlib import Path
+import csv
+from datetime import datetime
 
 project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
@@ -28,7 +30,6 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
 
 def load_scenario_data_from_raw(data_raw_path=None):
     """
@@ -61,60 +62,129 @@ def load_scenario_data_from_raw(data_raw_path=None):
         return []
     
     results = []
+    scenarios_with_missing_files = []  # Track scenarios with missing files
     
     # Iterate through all subdirectories in data/raw
     for subfolder in data_raw_path.iterdir():
         if not subfolder.is_dir():
             continue
-        
-        # Check for required files
-        code_scenic_path = subfolder / "code.scenic"
-        description_path = subfolder / "description.txt"
-        video_path = subfolder / "video.mp4"
-        
-        # Skip if any required file is missing
-        if not code_scenic_path.exists():
-            logger.warning(f"Missing code.scenic in {subfolder}")
-            continue
-        if not description_path.exists():
-            logger.warning(f"Missing description.txt in {subfolder}")
-            continue
-        if not video_path.exists():
-            logger.warning(f"Missing video.mp4 in {subfolder}")
-            continue
-        
-        # Read code.scenic content
+        for subsubfolder in subfolder.iterdir():
+            if not subsubfolder.is_dir():
+                continue
+            
+            # Check for required files
+            code_scenic_path = subsubfolder / "code.scenic"
+            description_path = subsubfolder / "description.txt"
+            video_path = subsubfolder / "video.mp4"
+            
+            # Track missing files for this scenario
+            missing_files = []
+            if not code_scenic_path.exists():
+                missing_files.append("code.scenic")
+                logger.warning(f"Missing code.scenic in {subsubfolder}")
+            if not description_path.exists():
+                missing_files.append("description.txt")
+                logger.warning(f"Missing description.txt in {subsubfolder}")
+            if not video_path.exists():
+                missing_files.append("video.mp4")
+                logger.warning(f"Missing video.mp4 in {subsubfolder}")
+            
+            # If any files are missing, record it and skip processing
+            if missing_files:
+                scenarios_with_missing_files.append({
+                    "folder": str(subsubfolder),
+                    "missing_files": missing_files
+                })
+                continue
+            
+            # Read code.scenic content
+            try:
+                with open(code_scenic_path, 'r', encoding='utf-8') as f:
+                    code_scenic_content = f.read().strip()
+            except Exception as e:
+                logger.error(f"Error reading code.scenic from {subsubfolder}: {e}")
+                scenarios_with_missing_files.append({
+                    "folder": str(subsubfolder),
+                    "missing_files": ["code.scenic (read error)"]
+                })
+                continue
+            
+            # Read description.txt content
+            try:
+                with open(description_path, 'r', encoding='utf-8') as f:
+                    description_content = f.read().strip()
+            except Exception as e:
+                logger.error(f"Error reading description.txt from {subsubfolder}: {e}")
+                scenarios_with_missing_files.append({
+                    "folder": str(subsubfolder),
+                    "missing_files": ["description.txt (read error)"]
+                })
+                continue
+            
+            # Get absolute paths
+            video_absolute_path = str(video_path.resolve())
+            folder_absolute_path = subsubfolder.resolve().as_posix()
+            
+            # Create dictionary structure
+            scenario_dict = {
+                "text": f"Here is a autonomous driving scenario, the description is {description_content}, and related scenic code is {code_scenic_content}",
+                "instruction": "Retrieve images or text or vedio relevant to the user's query",
+                "video": video_absolute_path,
+                "folder_path": folder_absolute_path
+            }
+            
+            results.append(scenario_dict)
+    
+    # Save scenarios with missing files to CSV
+    if scenarios_with_missing_files:
+        # Create CSV filename with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        csv_path = data_raw_path / f"missing_files_report_{timestamp}.csv"
         try:
-            with open(code_scenic_path, 'r', encoding='utf-8') as f:
-                code_scenic_content = f.read().strip()
+            with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
+                fieldnames = ['scenario_folder', 'missing_files', 'reason', 'timestamp']
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                
+                writer.writeheader()
+                for scenario in scenarios_with_missing_files:
+                    missing_files_str = ', '.join(scenario['missing_files'])
+                    reason = f"Not processed - Missing required files: {missing_files_str}"
+                    writer.writerow({
+                        'scenario_folder': scenario['folder'],
+                        'missing_files': missing_files_str,
+                        'reason': reason,
+                        'timestamp': datetime.now().isoformat()
+                    })
+            
+            logger.info(f"Missing files report saved to: {csv_path}")
+            print(f"\n{'='*80}")
+            print(f"SUMMARY: {len(scenarios_with_missing_files)} scenario(s) have missing files:")
+            print(f"{'='*80}")
+            for i, scenario in enumerate(scenarios_with_missing_files, 1):
+                print(f"\n{i}. {scenario['folder']}")
+                print(f"   Missing files: {', '.join(scenario['missing_files'])}")
+            print(f"\n{'='*80}")
+            print(f"Total scenarios processed successfully: {len(results)}")
+            print(f"Total scenarios with missing files: {len(scenarios_with_missing_files)}")
+            print(f"Missing files report saved to: {csv_path}")
+            print(f"{'='*80}\n")
         except Exception as e:
-            logger.error(f"Error reading code.scenic from {subfolder}: {e}")
-            continue
-        
-        # Read description.txt content
-        try:
-            with open(description_path, 'r', encoding='utf-8') as f:
-                description_content = f.read().strip()
-        except Exception as e:
-            logger.error(f"Error reading description.txt from {subfolder}: {e}")
-            continue
-        
-        # Get absolute paths
-        video_absolute_path = str(video_path.resolve())
-        folder_absolute_path = subfolder.resolve().as_posix()
-        
-        # Create dictionary structure
-        scenario_dict = {
-            "text": f"Here is a autonomous driving scenario, the description is {description_content}, and related scenic code is {code_scenic_content}",
-            "instruction": "Retrieve images or text or vedio relevant to the user's query",
-            "video": video_absolute_path,
-            "folder_path": folder_absolute_path
-        }
-        
-        results.append(scenario_dict)
+            logger.error(f"Error saving missing files report to CSV: {e}")
+            print(f"\n{'='*80}")
+            print(f"SUMMARY: {len(scenarios_with_missing_files)} scenario(s) have missing files:")
+            print(f"{'='*80}")
+            for i, scenario in enumerate(scenarios_with_missing_files, 1):
+                print(f"\n{i}. {scenario['folder']}")
+                print(f"   Missing files: {', '.join(scenario['missing_files'])}")
+            print(f"\n{'='*80}")
+            print(f"Total scenarios processed successfully: {len(results)}")
+            print(f"Total scenarios with missing files: {len(scenarios_with_missing_files)}")
+            print(f"Error saving CSV report: {e}")
+            print(f"{'='*80}\n")
+    else:
+        print(f"\n✓ All scenarios have all required files. Processed {len(results)} scenario(s) successfully.\n")
     
     return results
-
 
 def build_rag_pipeline(config, collection_name="avs"):
     """
@@ -188,7 +258,7 @@ def main(add_documents=False, clear_collection=False):
     # Check collection stats before adding documents
     logger.info("Collection stats before adding documents:")
     stats_before = vector_store.get_collection_stats()
-    logger.info(f"  Total documents: {stats_before.get('total_documents', 0)}")
+    logger.info(f"  Total documents: {stats_before.get('document_count', 0)}")
     
 
     # Clear collection
@@ -212,10 +282,72 @@ def main(add_documents=False, clear_collection=False):
             logger.warning("No documents loaded. Exiting.")
             return
         
-        # Add documents to vector store
-        logger.info("Adding documents to vector store...")
-        vector_store.add_documents(documents)
-        logger.info("Documents added successfully")
+        # Add documents to vector store one at a time with error handling
+        logger.info("Adding documents to vector store (one at a time)...")
+        failed_documents = []
+        successful_count = 0
+        
+        for idx, doc in enumerate(documents, 1):
+            try:
+                logger.info(f"Adding document {idx}/{len(documents)}: {doc.get('folder_path', 'Unknown')}")
+                vector_store.add_documents([doc])
+                successful_count += 1
+                logger.info(f"Successfully added document {idx}")
+            except Exception as e:
+                error_msg = str(e)
+                logger.error(f"Failed to add document {idx}: {error_msg}")
+                failed_documents.append({
+                    'index': idx,
+                    'folder_path': doc.get('folder_path', 'Unknown'),
+                    'error': error_msg,
+                    'timestamp': datetime.now().isoformat()
+                })
+        
+        # Log failed documents to CSV file under data/raw
+        if failed_documents:
+            data_raw_path = project_root / "data" / "raw"
+            data_raw_path.mkdir(parents=True, exist_ok=True)
+            
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            failed_log_path = data_raw_path / f"failed_documents_{timestamp}.csv"
+            
+            try:
+                with open(failed_log_path, 'w', newline='', encoding='utf-8') as csvfile:
+                    fieldnames = ['index', 'folder_path', 'error', 'timestamp']
+                    writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                    
+                    writer.writeheader()
+                    for failed_doc in failed_documents:
+                        writer.writerow(failed_doc)
+                
+                logger.warning(f"Failed to add {len(failed_documents)} document(s). Log saved to: {failed_log_path}")
+                print(f"\n{'='*80}")
+                print(f"SUMMARY: {len(failed_documents)} document(s) failed to add:")
+                print(f"{'='*80}")
+                for failed_doc in failed_documents:
+                    print(f"\n  Index {failed_doc['index']}: {failed_doc['folder_path']}")
+                    print(f"    Error: {failed_doc['error']}")
+                print(f"\n{'='*80}")
+                print(f"Total documents processed successfully: {successful_count}")
+                print(f"Total documents failed: {len(failed_documents)}")
+                print(f"Failed documents log saved to: {failed_log_path}")
+                print(f"{'='*80}\n")
+            except Exception as e:
+                logger.error(f"Error saving failed documents log to CSV: {e}")
+                print(f"\n{'='*80}")
+                print(f"SUMMARY: {len(failed_documents)} document(s) failed to add:")
+                print(f"{'='*80}")
+                for failed_doc in failed_documents:
+                    print(f"\n  Index {failed_doc['index']}: {failed_doc['folder_path']}")
+                    print(f"    Error: {failed_doc['error']}")
+                print(f"\n{'='*80}")
+                print(f"Total documents processed successfully: {successful_count}")
+                print(f"Total documents failed: {len(failed_documents)}")
+                print(f"Error saving CSV log: {e}")
+                print(f"{'='*80}\n")
+        else:
+            logger.info(f"All {successful_count} documents added successfully")
+            print(f"\n✓ All {successful_count} document(s) added successfully.\n")
         
         # Check collection stats after adding documents
         logger.info("Collection stats after adding documents:")
@@ -231,7 +363,7 @@ def main(add_documents=False, clear_collection=False):
         # {"text": "Find me a video with yield action."},
         # Uncomment and modify paths as needed:
         # {"text": "Find me a video similar to this image.", "image": "/home/dellpro2/chenli/ads-mrag/ads-mrag/data/raw/testimage.png"},
-        {"text": "Please check the ego car behavior in this video, and find me a video has the same ego car behavior.", "video": "/home/dellpro2/chenli/ads-mrag/ads-mrag/data/raw/testvideo.mp4"},
+        {"text": "Please check the ego car behavior in this video, and find me a video has the same ego car behavior.", "video": "/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testvideo.mp4"},
     ]
     
     # Perform retrieval for each query
