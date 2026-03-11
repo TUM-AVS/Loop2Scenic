@@ -2,6 +2,7 @@
 Multimodal document extractor for extracting text, images, videos, and other content from directories.
 """
 
+import json
 import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Union, Any
@@ -52,6 +53,7 @@ class MultimodalDocumentInterpreter:
             - instruction (str): Instruction text for multimodal documents
             - folder_path (str): Absolute path to the folder
             - description (str, optional): Content from description.txt file
+            - description_json (str, optional): Content from new_description.json file, only exists when use_new_description is True
             - scenic_code (str, optional): Content from code.scenic file
             - text (str, optional): Combined text from other text files
             - video (str, optional): Path to video file if found
@@ -83,7 +85,7 @@ class MultimodalDocumentInterpreter:
         logger.info(f"Extracting content from {len(subdirs)} subdirectories")
         
         for subdir in subdirs:
-            doc_dict = self._extract_dict_from_folder(subdir) # extract content from folder
+            doc_dict = self._extract_dict_from_folder(subdir, use_new_description=use_new_description) # extract content from folder
             if doc_dict:
                 documents.append(doc_dict)
         
@@ -104,7 +106,7 @@ class MultimodalDocumentInterpreter:
                 - instruction (str): Instruction text for multimodal documents
                 - folder_path (str): Absolute path to the folder
                 - description (str, optional): Content from description.txt file or new_description.txt file
-                - scenic_code (str, optional): Content from code.scenic file
+                - description_json (str, optional): Content from new_description.json file, only exists when use_new_description is True
                 - text (str, optional): Combined text from other text files
                 - video (str, optional): Path to video file if found
                 - image (str, optional): Path to image file if found
@@ -134,6 +136,23 @@ class MultimodalDocumentInterpreter:
                         doc_dict["description"] = content
             except Exception as e:
                 logger.warning(f"Error reading {description_path}: {e}")
+
+        # if use_new_description is True, then extract the new_description.json file
+        if use_new_description:
+            new_description_path = folder_path / "new_description.json"
+            if new_description_path.exists() and new_description_path.is_file():
+                try:
+                    with open(new_description_path, 'r', encoding='utf-8') as f:
+                        # json.load() parses the file directly into a Python dictionary
+                        content = json.load(f)
+                        
+                        if content: # Ensures the dictionary isn't empty
+                            doc_dict["description_json"] = content
+                            
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Malformed JSON in {new_description_path}: {e}")
+                except Exception as e:
+                    logger.warning(f"Error reading {new_description_path}: {e}")
         
         # Extract code.scenic separately
         scenic_path = folder_path / "code.scenic"
@@ -186,8 +205,8 @@ class MultimodalDocumentInterpreter:
             # Use the first image file found (can be extended to support multiple images)
             doc_dict["image"] = str(image_files[0].resolve())
         
-        # Only return if we have some content
-        if "description" in doc_dict or "scenic_code" in doc_dict or "text" in doc_dict or "video" in doc_dict or "image" in doc_dict:
+        # Only return if we have description
+        if "description" in doc_dict:
             return doc_dict
         
         return None

@@ -6,6 +6,7 @@ import logging
 import os
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Union
+import json
 
 from .config import Config, get_config
 from .vlm import get_vlm_service
@@ -160,14 +161,55 @@ class RAGPipeline:
         """
         scenarios_dicts = self.multimodal_interpreter.extract_from_directory(directory_path)
         for scenario_dict in scenarios_dicts:
-            scenario_description = self.multimodal_interpreter.get_layer_model_description_by_vlm(scenario_dict, self.vlm_service)
-            logger.info(f"The scenario description is: {scenario_description}")
+            # 1. Get the raw string output from the VLM
+            scenario_description_str = self.multimodal_interpreter.get_layer_model_description_by_vlm(
+                scenario_dict, self.vlm_service
+            )
+            logger.info(f"The raw VLM output is: {scenario_description_str}")
+
+            # 2. Parse the string into a Python dictionary
+            try:
+                scenario_data = json.loads(scenario_description_str)
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse JSON from VLM output: {e}. Skipping this scenario.")
+                logger.debug(f"Raw malformed output: {scenario_description_str}")
+                continue  # Skip to the next scenario if the VLM failed to output valid JSON
+
+            # 3. Flatten the JSON into plain text for optimal embedding
+            text_parts = []
+            text_parts.append(f"Scenario: {scenario_data.get('Scenario', '')}")
+            text_parts.append(f"The ego vehicle is {scenario_data.get('Ego', '')}")
             
-            if not os.path.exists(scenario_dict.get("folder_path")):
-                os.makedirs(scenario_dict.get("folder_path"))
-            new_description_path = Path(scenario_dict.get("folder_path")) / "new_description.txt"
-            with open(new_description_path, "w") as f:
-                f.write(scenario_description) # save the scenario description into the folder path's new_description.txt file
+            adversarials = scenario_data.get('Adversarials', [])
+            if adversarials:
+                text_parts.append(f"Adversarial objects: {' '.join(adversarials)}")
+            else:
+                text_parts.append("There are no adversarials.")
+                
+            text_parts.append(f"Spatial Relation: {scenario_data.get('Spatial Relation', '')}")
+            
+            reqs = scenario_data.get('Requirement and restrictions', '')
+            if reqs:
+                text_parts.append(f"Requirements and restrictions: {reqs}")
+                
+            flattened_text = " ".join(text_parts)
+
+            # 4. Ensure the folder exists
+            folder_path = scenario_dict.get("folder_path")
+            if not os.path.exists(folder_path):
+                os.makedirs(folder_path)
+
+            # 5. Save the structured JSON file (for LLM context/metadata)
+            json_path = Path(folder_path) / "new_description.json"
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(scenario_data, f, indent=4)
+
+            # 6. Save the flattened plain text file (for Vector Embedding)
+            text_path = Path(folder_path) / "new_description.txt"
+            with open(text_path, "w", encoding="utf-8") as f:
+                f.write(flattened_text)
+                
+            logger.info(f"Successfully saved JSON and Text descriptions to {folder_path}")
 
     def ingest_scenarios(self, directory_path: Union[str, Path]):
         """
