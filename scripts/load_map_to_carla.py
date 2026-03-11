@@ -2,7 +2,10 @@ import carla
 
 # 1. Connect to your remote CARLA server
 client = carla.Client('10.243.27.4', 2000)
-client.set_timeout(120.0) # Give it extra time for a big map
+client.set_timeout(10.0) # Set to 10 seconds just for this test
+
+# ADD THIS LINE: Ask the server what version it is running
+print(f"Connected to CARLA Server Version: {client.get_server_version()}")
 
 # 2. Read your generated OpenDRIVE file
 xodr_path = r"data\map\small.xodr"
