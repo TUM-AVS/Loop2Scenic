@@ -300,20 +300,16 @@ class RAGPipeline:
         doc_ids = self.vectorstore.add_documents(scenarios_dicts)
         return doc_ids
 
-    def query_without_reranking(self, query_text: str, query_image: str, query_video: str):
+    def query_without_reranking(self, query_dict: Dict[str, Any]):
         """
         Query the vector store.
         
         Args:
-            query_text: Query text
-            query_image: Query image
-            query_video: Query video
+            query_dict: Query dictionary, including text, image, video
+
+        Returns:
+            List of (Document, score) tuples
         """
-        query_dict = {
-            "text": query_text,
-            "image": query_image,
-            "video": query_video
-        }
         query_embedding = self.embedder.embed_query(query_dict)
         results = self.vectorstore.similarity_search_with_score(query_embedding)
         return results

@@ -2,10 +2,8 @@
 Script to query the RAG pipeline.
 
 Usage:
-    python scripts/query_pipeline.py --query "Your question here" --tags tag1,tag2
+    python scripts/query_pipeline.py
 """
-
-import argparse
 import sys
 from pathlib import Path
 
@@ -16,19 +14,7 @@ from src.pipeline import RAGPipeline
 from src.utils import setup_logging
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Query the RAG pipeline"
-    )
-    parser.add_argument(
-        "--query",
-        type=str,
-        required=True,
-        help="Query string"
-    )
-    
-    args = parser.parse_args()
-    
+def main(): 
     # Setup logging
     setup_logging(level="INFO")
     
@@ -36,9 +22,13 @@ def main():
     print("Initializing RAG Pipeline...")
     pipeline = RAGPipeline()
     
-    # Query
-    print(f"\nQuery: {args.query}")
-    results = pipeline.query_without_reranking(args.query)
+    # Query, you can comment out the unused part
+    query_dict = {
+        "text": "What is the main finding of the scenario?",
+        "image": "/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testimage.png",
+        "video": "/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testvideo.mp4"
+    }
+    results = pipeline.query_without_reranking(query_dict)
     for doc, score in results:
         print(f"Match found in folder: {doc.id}")
         print(f"Metadata: {doc.metadata}")
