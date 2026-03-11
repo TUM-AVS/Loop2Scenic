@@ -60,6 +60,16 @@ def main():
     print(f"\n✓ Successfully processed {len(scenarios_dicts)} scenarios")
     print("✓ Scenario descriptions saved to new_description.txt files")
 
+    # Embed scenarios
+    print("Step 2: Embedding scenarios...")
+    scenarios_dicts = pipeline.embed_scenarios(scenarios_dicts)
+    print(f"First scenario dictionary: {scenarios_dicts[0]}")
+
+    # Add documents to vector store
+    print("Step 3: Adding documents to vector store...")
+    doc_ids = pipeline.add_documents_to_vector_store(scenarios_dicts)
+    print(f"\n✓ Successfully added {len(doc_ids)} documents to vector store")
+
 
 if __name__ == "__main__":
     main()

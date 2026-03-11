@@ -5,7 +5,7 @@ Main RAG pipeline orchestration.
 import logging
 import os
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Union
+from typing import Any, Dict, List, Optional, Union
 import json
 
 from .config import Config, get_config
@@ -14,7 +14,7 @@ from .ingestion import MultimodalDocumentInterpreter
 from .embedding import get_embedder
 from .vectorstore import MilvusVectorStore
 from .retrieval import Retriever
-from .generation import get_generator, PromptTemplate
+from .generation import get_generator
 from .utils import setup_logging
 
 logger = logging.getLogger(__name__)
@@ -58,10 +58,18 @@ class RAGPipeline:
 
     def _initialize_components(self):
         """Initialize all pipeline components."""
+        self._initialize_vlm_service()
+        self._initialize_multimodal_interpreter()
+        self._initialize_embedder()
+        self._initialize_vector_store()
+        # self._initialize_retriever()
+        # self._initialize_generator()
 
+    def _initialize_vlm_service(self):
+        """Initialize VLM (Vision Language Model) service."""
         logger.info("Initializing VLM Service...")
 
-        # 1. Define your core System Prompt (Instruction) here
+        # Define core System Prompt (Instruction) for scenario extraction
         scenario_extraction_instruction = (
             "You are an expert autonomous driving scenario analyzer. Your task is to extract "
             "the high-level logical structure of a driving scenario by analyzing the provided "
@@ -69,88 +77,119 @@ class RAGPipeline:
             "Output ONLY a valid JSON object. Do not include markdown or conversational text.\n"
         )
         
-        # 2. Dump the Pydantic config to a dictionary
+        # Dump the Pydantic config to a dictionary
         # Note: Use .model_dump() for Pydantic v2, or .dict() if you are on Pydantic v1
         vlm_kwargs = self.config.vlm.model_dump()
         
-        # 3. Override the default instruction inside the dictionary with our specific RAG prompt
+        # Override the default instruction with our specific scenario extraction prompt
         vlm_kwargs['default_instruction'] = scenario_extraction_instruction
         
-        # 4. Initialize the service in ONE single step
+        # Initialize the service
         # **vlm_kwargs will automatically map 'provider', 'temperature', etc., to the correct arguments
         self.vlm_service = get_vlm_service(**vlm_kwargs)
         
-        # 5. Log the success (accessing the provider from the config)
         logger.info(f"VLM Service initialized successfully with {self.config.vlm.provider}.")
-        
-        # Scenario processing
+
+    def _initialize_multimodal_interpreter(self):
+        """Initialize multimodal document interpreter."""
+        logger.info("Initializing Multimodal Document Interpreter...")
         self.multimodal_interpreter = MultimodalDocumentInterpreter()
+        logger.info("Multimodal Document Interpreter initialized successfully.")
+
+    def _initialize_embedder(self):
+        """Initialize embedding model."""
+        logger.info("Initializing Embedder...")
         
-        # # Embedding
-        # embedder_kwargs = {}
-        # if hasattr(self.config.embedding, 'model_path') and self.config.embedding.model_path:
-        #     embedder_kwargs['model_path'] = self.config.embedding.model_path
+        embedder_kwargs = {}
+        if hasattr(self.config.embedding, 'model_path') and self.config.embedding.model_path:
+            embedder_kwargs['model_path'] = self.config.embedding.model_path
         
-        # self.embedder = get_embedder(
-        #     provider=self.config.embedding.provider,
-        #     model_name=self.config.embedding.model_name,
-        #     device=self.config.embedding.device,
-        #     batch_size=self.config.embedding.batch_size,
-        #     **embedder_kwargs
-        # )
+        self.embedder = get_embedder(
+            provider=self.config.embedding.provider,
+            model_name=self.config.embedding.model_name,
+            device=self.config.embedding.device,
+            batch_size=self.config.embedding.batch_size,
+            **embedder_kwargs
+        )
         
-        # # Vector store - Milvus only (supports both Lite and Server modes)
-        # use_lite = getattr(self.config.vector_db, "use_lite", True)
+        logger.info(f"Embedder initialized successfully with {self.config.embedding.provider}.")
+
+    def _initialize_vector_store(self):
+        """Initialize vector store (Milvus)."""
+        logger.info("Initializing Vector Store...")
         
-        # if use_lite:
-        #     # Milvus Lite (no Docker required)
-        #     connection_args = {
-        #         "uri": getattr(self.config.vector_db, "lite_db_path", "./data/vector_db/milvus.db")
-        #     }
-        #     logger.info(f"Using Milvus Lite mode (no Docker): {connection_args['uri']}")
-        # else:
-        #     # Milvus Server (requires Docker)
-        #     connection_args = {
-        #         "host": getattr(self.config.vector_db, "host", "localhost"),
-        #         "port": getattr(self.config.vector_db, "port", "19530")
-        #     }
-        #     logger.info(f"Using Milvus Server mode: {connection_args['host']}:{connection_args['port']}")
+        if not hasattr(self, 'embedder'):
+            raise ValueError("Embedder must be initialized before vector store. Call _initialize_embedder() first.")
+        
+        # Milvus supports both Lite and Server modes
+        use_lite = getattr(self.config.vector_db, "use_lite", True)
+        
+        if use_lite:
+            # Milvus Lite (no Docker required)
+            connection_args = {
+                "uri": getattr(self.config.vector_db, "lite_db_path", "./data/vector_db/milvus.db")
+            }
+            logger.info(f"Using Milvus Lite mode (no Docker): {connection_args['uri']}")
+            index_params = None
+            search_params = None
+        else:
+            # Milvus Server (requires Docker)
+            connection_args = {
+                "host": getattr(self.config.vector_db, "host", "localhost"),
+                "port": getattr(self.config.vector_db, "port", "19530")
+            }
+            logger.info(f"Using Milvus Server mode: {connection_args['host']}:{connection_args['port']}")
             
-        #     index_params = {
-        #         "metric_type": self.config.vector_db.distance_metric.upper(),
-        #         "index_type": getattr(self.config.vector_db, "index_type", "IVF_FLAT"),
-        #         "params": {"nlist": getattr(self.config.vector_db, "nlist", 1024)}
-        #     }
+            index_params = {
+                "metric_type": self.config.vector_db.distance_metric.upper(),
+                "index_type": getattr(self.config.vector_db, "index_type", "IVF_FLAT"),
+                "params": {"nlist": getattr(self.config.vector_db, "nlist", 1024)}
+            }
             
-        #     search_params = {
-        #         "metric_type": self.config.vector_db.distance_metric.upper(),
-        #         "params": {"nprobe": getattr(self.config.vector_db, "nprobe", 10)}
-        #     }
-            
-        #     self.vectorstore = MilvusVectorStore(
-        #         embedder=self.embedder,
-        #         collection_name=self.config.vector_db.collection_name,
-        #         connection_args=connection_args,
-        #         index_params=index_params,
-        #         search_params=search_params
-        #     )
+            search_params = {
+                "metric_type": self.config.vector_db.distance_metric.upper(),
+                "params": {"nprobe": getattr(self.config.vector_db, "nprobe", 10)}
+            }
         
-        # # Retrieval
-        # self.retriever = Retriever(
-        #     vectorstore=self.vectorstore,
-        #     top_k=self.config.retrieval.top_k,
-        #     similarity_threshold=self.config.retrieval.similarity_threshold,
-        #     enable_reranking=self.config.retrieval.enable_reranking
-        # )
+        self.vectorstore = MilvusVectorStore(
+            embedder=self.embedder,
+            collection_name=self.config.vector_db.collection_name,
+            connection_args=connection_args,
+            index_params=index_params,
+            search_params=search_params
+        )
         
-        # # Generation
-        # self.generator = get_generator(
-        #     provider=self.config.llm.provider,
-        #     model=self.config.llm.model,
-        #     temperature=self.config.llm.temperature,
-        #     max_tokens=self.config.llm.max_tokens,
-        #     streaming=self.config.llm.streaming
-        # )
+        logger.info("Vector Store initialized successfully.")
+
+    def _initialize_retriever(self):
+        """Initialize retriever."""
+        logger.info("Initializing Retriever...")
+        
+        if not hasattr(self, 'vectorstore'):
+            raise ValueError("Vector store must be initialized before retriever. Call _initialize_vector_store() first.")
+        
+        self.retriever = Retriever(
+            vectorstore=self.vectorstore,
+            top_k=self.config.retrieval.top_k,
+            similarity_threshold=self.config.retrieval.similarity_threshold,
+            enable_reranking=self.config.retrieval.enable_reranking
+        )
+        
+        logger.info("Retriever initialized successfully.")
+
+    def _initialize_generator(self):
+        """Initialize LLM generator."""
+        logger.info("Initializing Generator...")
+        
+        self.generator = get_generator(
+            provider=self.config.llm.provider,
+            model=self.config.llm.model,
+            temperature=self.config.llm.temperature,
+            max_tokens=self.config.llm.max_tokens,
+            streaming=self.config.llm.streaming
+        )
+        
+        logger.info(f"Generator initialized successfully with {self.config.llm.provider}.")
 
     def interpret_scenarios(self, directory_path: Union[str, Path]):
         """
@@ -225,122 +264,50 @@ class RAGPipeline:
         scenarios_dicts = self.multimodal_interpreter.extract_from_directory(directory_path, use_new_description=True)
         logger.info(f"The first scenario dictionary: {scenarios_dicts[0]}")
         return scenarios_dicts
-        # doc_ids = self.vectorstore.add_documents(scenarios_dicts)
-        # return doc_ids
 
-    # def ingest_documents(
-    #     self,
-    #     source: Union[str, Path],
-    #     metadata: Optional[Dict] = None,
-    #     tags: Optional[List[str]] = None,
-    #     is_directory: bool = False,
-    #     recursive: bool = True
-    # ) -> List[str]:
-    #     """
-    #     Ingest documents into the vector store.
+    def embed_scenarios(self, scenarios_dicts: List[Dict[str, any]]):
+        """
+        Embed scenarios.
         
-    #     Args:
-    #         source: File or directory path
-    #         metadata: Additional metadata
-    #         tags: List of tags for filtering
-    #         is_directory: Whether source is a directory
-    #         recursive: Whether to search subdirectories (for directories)
-            
-    #     Returns:
-    #         List of document IDs
-    #     """
-    #     logger.info(f"Ingesting documents from: {source}")
-        
-    #     # Process documents
-    #     if is_directory:
-    #         chunks = self.processor.process_directory(
-    #             directory_path=source,
-    #             metadata=metadata,
-    #             tags=tags,
-    #             recursive=recursive
-    #         )
-    #     else:
-    #         chunks = self.processor.process_file(
-    #             file_path=source,
-    #             metadata=metadata,
-    #             tags=tags
-    #         )
-        
-    #     if not chunks:
-    #         logger.warning("No chunks to ingest")
-    #         return []
-        
-    #     # Add to vector store
-    #     doc_ids = self.vectorstore.add_documents(chunks)
-        
-    #     logger.info(f"Ingested {len(doc_ids)} document chunks")
-        
-    #     return doc_ids
+        Args:
+            scenarios_dicts: List of scenario dictionaries
+        """
 
-    # def query(
-    #     self,
-    #     query: str,
-    #     filter_tags: Optional[List[str]] = None,
-    #     top_k: Optional[int] = None,
-    #     return_sources: bool = False,
-    #     custom_prompt: Optional[PromptTemplate] = None
-    # ) -> Union[str, Dict[str, Any]]:
-    #     """
-    #     Query the RAG pipeline.
-        
-    #     Args:
-    #         query: Query string
-    #         filter_tags: Optional tags to filter by
-    #         top_k: Number of documents to retrieve
-    #         return_sources: Whether to return source information
-    #         custom_prompt: Custom prompt template
-            
-    #     Returns:
-    #         Generated response or dictionary with response and metadata
-    #     """
-    #     logger.info(f"Processing query: '{query[:50]}...'")
-        
-    #     # Retrieve relevant documents
-    #     context_docs = self.retriever.retrieve(
-    #         query=query,
-    #         top_k=top_k,
-    #         filter_tags=filter_tags,
-    #         return_scores=False
-    #     )
-        
-    #     if not context_docs:
-    #         response = "I couldn't find any relevant information to answer your question."
-    #         if return_sources:
-    #             return {"response": response, "sources": [], "num_sources": 0}
-    #         return response
-        
-    #     # Generate response
-    #     if return_sources:
-    #         result = self.generator.generate_with_metadata(
-    #             query=query,
-    #             context_documents=context_docs,
-    #             prompt_template=custom_prompt
-    #         )
-    #         return result
-    #     else:
-    #         response = self.generator.generate(
-    #             query=query,
-    #             context_documents=context_docs,
-    #             prompt_template=custom_prompt
-    #         )
-    #         return response
+        # get the fields
+        content_fields = ["description", "image", "video"]
+        scenarios_dicts_with_content = []
+        for scenario_dict in scenarios_dicts:
+            scenario_dict_with_content = {}
+            for field in content_fields:
+                scenario_dict_with_content[field] = scenario_dict.get(field, "")
+            scenarios_dicts_with_content.append(scenario_dict_with_content)
+        embeddings = self.embedder.embed_documents(scenarios_dicts_with_content)
+        for scenario_dict, embedding in zip(scenarios_dicts, embeddings):
+            scenario_dict["embedding"] = embedding
+            scenario_dict["metadata"] = scenario_dict.get("description_json", {})
+        return scenarios_dicts
 
-    # def get_stats(self) -> Dict[str, Any]:
-    #     """
-    #     Get pipeline statistics.
+    def add_documents_to_vector_store(self, scenarios_dicts: List[Dict[str, any]]):
+        """
+        Add documents to the vector store.
         
-    #     Returns:
-    #         Dictionary with statistics
-    #     """
-    #     return self.vectorstore.get_collection_stats()
+        Args:
+            scenarios_dicts: List of scenario dictionaries
+        """
+        doc_ids = self.vectorstore.add_documents(scenarios_dicts)
+        return doc_ids
 
-    # def reset(self):
-    #     """Reset the vector store (delete all documents)."""
-    #     logger.warning("Resetting vector store")
-    #     self.vectorstore.reset_collection()
-    #     logger.info("Vector store reset complete")
+    def get_stats(self) -> Dict[str, Any]:
+        """
+        Get pipeline statistics.
+        
+        Returns:
+            Dictionary with statistics
+        """
+        return self.vectorstore.get_collection_stats()
+
+    def reset(self):
+        """Reset the vector store (delete all documents)."""
+        logger.warning("Resetting vector store")
+        self.vectorstore.reset_collection()
+        logger.info("Vector store reset complete")

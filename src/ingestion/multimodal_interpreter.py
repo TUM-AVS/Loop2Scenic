@@ -5,7 +5,7 @@ Multimodal document extractor for extracting text, images, videos, and other con
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Union, Any
+from typing import Dict, List, Optional, Union
 
 from ..vlm import VLMService
 from ..prompt import load_prompt

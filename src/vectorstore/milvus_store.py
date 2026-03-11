@@ -140,14 +140,13 @@ class MilvusVectorStore:
     def add_documents(
         self,
         documents: List[Dict[str, any]],
-        ids: Optional[List[str]] = None
     ) -> List[str]:
         """
         Add documents to the vector store.
 
         Args:
             documents: List of dictionaries with keys like:
-                  {"text": "...", "image": "...", "video": "...", "instruction": "...", "folder_path": "..."}
+                  {"id": "...", "embedding": "...", "metadata": "..."}
             ids: Optional list of IDs for the documents
         """
         if not documents:
@@ -156,9 +155,22 @@ class MilvusVectorStore:
         
         logger.info(f"Adding {len(documents)} documents to vector store")
         
-        # Generate IDs if not provided
-        if ids is None:
-            ids = [str(uuid4()) for _ in documents]
+        def generate_id(document: Dict[str, Any]) -> str:
+            """
+            Generate an ID using the folder name. 
+            Falls back to a UUID if no folder path is provided.
+            """
+            folder_path = document.get("folder_path")
+            
+            if folder_path:
+                # Path().name cleanly extracts just the final folder name 
+                # e.g., "/data/scenarios/scene_01" -> "scene_01"
+                return Path(folder_path).name
+                
+            # Lazy fallback: Only generates a UUID if folder_path was None or empty
+            return str(uuid4())
+        
+        ids = [generate_id(doc_dict) for doc_dict in documents]
         
         # Multimodal dictionaries (text, images, videos)
         data = []
@@ -166,8 +178,7 @@ class MilvusVectorStore:
                 data.append({
                     "id": doc_id,
                     "embedding": doc_dict["embedding"],
-                    "text": doc_dict["text"],
-                    "metadata": doc_dict.get("folder_path", {})
+                    "metadata": doc_dict.get("metadata", {})
                 })
         
         # Insert into collection
