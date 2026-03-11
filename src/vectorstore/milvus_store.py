@@ -5,7 +5,7 @@ Supports both Milvus Lite (no Docker) and Milvus Server modes.
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Union
 from uuid import uuid4
 
 from langchain_core.documents import Document
@@ -139,36 +139,16 @@ class MilvusVectorStore:
 
     def add_documents(
         self,
-        documents: List[Any],  # Can be List[Document] or List[Dict[str, Any]]
+        documents: List[Dict[str, any]],
         ids: Optional[List[str]] = None
     ) -> List[str]:
         """
         Add documents to the vector store.
-        
-        Supports two input formats:
-        1. List of Document objects (text only)
-        2. List of dictionaries with multimodal data (text, images, videos)
-        
+
         Args:
-            documents: Either:
-                - List of Document objects with page_content and metadata
-                - List of dictionaries with keys like:
+            documents: List of dictionaries with keys like:
                   {"text": "...", "image": "...", "video": "...", "instruction": "...", "folder_path": "..."}
             ids: Optional list of IDs for the documents
-            
-        Returns:
-            List of document IDs
-            
-        Examples:
-            # Text documents
-            docs = [Document(page_content="text", metadata={"tags": ["tag1"]})]
-            
-            # Multimodal documents
-            docs = [
-                {"text": "A dog on beach", "instruction": "Retrieve relevant content"},
-                {"image": "path/to/image.jpg"},
-                {"text": "cat", "image": "cat.jpg"}
-            ]
         """
         if not documents:
             logger.warning("No documents to add")
@@ -180,69 +160,14 @@ class MilvusVectorStore:
         if ids is None:
             ids = [str(uuid4()) for _ in documents]
         
-        # Check input format: Document objects or dictionaries
-        is_document_objects = isinstance(documents[0], Document)
-        
-        if is_document_objects:
-            # Traditional Document objects (text only)
-            texts = [doc.page_content for doc in documents]
-            embeddings = self.embedder.embed_documents(texts)
-            
-            # Prepare data
-            data = []
-            for doc_id, doc, embedding in zip(ids, documents, embeddings):
+        # Multimodal dictionaries (text, images, videos)
+        data = []
+        for doc_id, doc_dict in zip(ids, documents):
                 data.append({
                     "id": doc_id,
-                    "embedding": embedding,
-                    "text": doc.page_content,
-                    "metadata": doc.metadata
-                })
-        else:
-            # Multimodal dictionaries (text, images, videos)
-            # Filter documents to only include fields for embedding (text, instruction, image, video)
-            # Exclude metadata fields like folder_path
-            embedding_inputs = []
-            for doc_dict in documents:
-                embedding_dict = {
-                    k: v for k, v in doc_dict.items()
-                    if k in ["text", "instruction", "image", "video"]
-                }
-                embedding_inputs.append(embedding_dict)
-            
-            embeddings = self.embedder.embed_documents(embedding_inputs)
-            
-            # Convert embeddings to lists if they are tensors
-            embeddings_list = []
-            for emb in embeddings:
-                if hasattr(emb, 'cpu'):
-                    # PyTorch tensor
-                    embeddings_list.append(emb.cpu().tolist())
-                elif hasattr(emb, 'tolist'):
-                    # Numpy array
-                    embeddings_list.append(emb.tolist())
-                else:
-                    # Already a list
-                    embeddings_list.append(emb)
-            
-            # Prepare data
-            data = []
-            for doc_id, doc_dict, embedding in zip(ids, documents, embeddings_list):
-                # Extract text representation (prioritize text field)
-                text_content = doc_dict.get("text", "")
-                if not text_content and "image" in doc_dict:
-                    text_content = f"[Image: {doc_dict['image']}]"
-                elif not text_content and "video" in doc_dict:
-                    text_content = f"[Video: {doc_dict['video']}]"
-                
-                # Build metadata from dict (exclude embedding fields, keep folder_path and other metadata)
-                metadata = {k: v for k, v in doc_dict.items() 
-                           if k not in ["text", "instruction", "image", "video", "embedding"]}
-                
-                data.append({
-                    "id": doc_id,
-                    "embedding": embedding,
-                    "text": text_content,
-                    "metadata": metadata
+                    "embedding": doc_dict["embedding"],
+                    "text": doc_dict["text"],
+                    "metadata": doc_dict.get("folder_path", {})
                 })
         
         # Insert into collection

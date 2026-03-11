@@ -1,8 +1,8 @@
 """
-Script to ingest documents into the vector store.
+Script to ingest scenarios into the vector store.
 
 Usage:
-    python scripts/ingest_documents.py --source <path> --tags <tag1,tag2>
+    python scripts/ingest_documents.py --source <directory_path>
 """
 
 import argparse
@@ -18,29 +18,13 @@ from src.utils import setup_logging
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Ingest documents into the RAG pipeline"
+        description="Ingest scenarios into the RAG pipeline"
     )
     parser.add_argument(
         "--source",
         type=str,
         required=True,
-        help="Path to document or directory"
-    )
-    parser.add_argument(
-        "--tags",
-        type=str,
-        help="Comma-separated list of tags (e.g., 'finance,report,2024')"
-    )
-    parser.add_argument(
-        "--directory",
-        action="store_true",
-        help="Treat source as directory"
-    )
-    parser.add_argument(
-        "--recursive",
-        action="store_true",
-        default=True,
-        help="Recursively search directories (default: True)"
+        help="Path to directory containing scenario folders"
     )
     parser.add_argument(
         "--config",
@@ -53,34 +37,34 @@ def main():
     # Setup logging
     setup_logging(level="INFO")
     
-    # Parse tags
-    tags = None
-    if args.tags:
-        tags = [tag.strip() for tag in args.tags.split(",")]
+    # Validate source is a directory
+    source_path = Path(args.source)
+    if not source_path.exists():
+        print(f"Error: Path does not exist: {args.source}")
+        sys.exit(1)
+    
+    if not source_path.is_dir():
+        print(f"Error: Source must be a directory: {args.source}")
+        sys.exit(1)
     
     # Initialize pipeline
     print("Initializing RAG Pipeline...")
     pipeline = RAGPipeline()
     
-    # Ingest documents
-    print(f"Ingesting documents from: {args.source}")
-    if tags:
-        print(f"Tags: {tags}")
+    # Ingest scenarios
+    print(f"Ingesting scenarios from: {args.source}")
+    print("Step 1: Interpreting scenarios with VLM...")
     
-    doc_ids = pipeline.ingest_documents(
-        source=args.source,
-        tags=tags,
-        is_directory=args.directory,
-        recursive=args.recursive
-    )
+    scenarios_dicts = pipeline.ingest_scenarios(directory_path=args.source)
     
-    print(f"\n✓ Successfully ingested {len(doc_ids)} document chunks")
+    print(f"\n✓ Successfully processed {len(scenarios_dicts)} scenarios")
+    print("✓ Scenario descriptions saved to new_description.txt files")
     
     # Show stats
     stats = pipeline.get_stats()
-    print(f"\nVector Store Stats:")
-    print(f"  - Total documents: {stats['document_count']}")
-    print(f"  - Collection: {stats['collection_name']}")
+    print("\nVector Store Stats:")
+    print(f"  - Total documents: {stats.get('document_count', 0)}")
+    print(f"  - Collection: {stats.get('collection_name', 'N/A')}")
 
 
 if __name__ == "__main__":

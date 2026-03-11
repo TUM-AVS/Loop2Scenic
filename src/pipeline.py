@@ -3,11 +3,13 @@ Main RAG pipeline orchestration.
 """
 
 import logging
+import os
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Union
 
 from .config import Config, get_config
-from .ingestion import DocumentProcessor, DocumentLoader, DocumentChunker
+from .vlm import get_vlm_service
+from .ingestion import DocumentProcessor, DocumentLoader, DocumentChunker, MultimodalDocumentInterpreter
 from .embedding import get_embedder
 from .vectorstore import MilvusVectorStore
 from .retrieval import Retriever
@@ -55,6 +57,31 @@ class RAGPipeline:
 
     def _initialize_components(self):
         """Initialize all pipeline components."""
+
+        logger.info("Initializing VLM Service...")
+
+        # 1. Define your core System Prompt (Instruction) here
+        scenario_extraction_instruction = (
+            "You are an expert autonomous driving scenario analyzer. Your task is to extract "
+            "the high-level logical structure of a driving scenario by analyzing the provided "
+            "Scenic code, text description, image, and video.\n\n"
+            "Output ONLY a valid JSON object. Do not include markdown or conversational text.\n"
+        )
+        
+        # 2. Dump the Pydantic config to a dictionary
+        # Note: Use .model_dump() for Pydantic v2, or .dict() if you are on Pydantic v1
+        vlm_kwargs = self.config.vlm.model_dump()
+        
+        # 3. Override the default instruction inside the dictionary with our specific RAG prompt
+        vlm_kwargs['default_instruction'] = scenario_extraction_instruction
+        
+        # 4. Initialize the service in ONE single step
+        # **vlm_kwargs will automatically map 'provider', 'temperature', etc., to the correct arguments
+        self.vlm_service = get_vlm_service(**vlm_kwargs)
+        
+        # 5. Log the success (accessing the provider from the config)
+        logger.info(f"VLM Service initialized successfully with {self.config.vlm.provider}.")
+        
         # Document processing
         self.loader = DocumentLoader(
             supported_formats=self.config.ingestion.supported_formats
@@ -72,6 +99,8 @@ class RAGPipeline:
             chunker=self.chunker,
             max_workers=self.config.ingestion.max_workers
         )
+
+        self.multimodal_interpreter = MultimodalDocumentInterpreter()
         
         # Embedding
         embedder_kwargs = {}
@@ -138,6 +167,40 @@ class RAGPipeline:
             max_tokens=self.config.llm.max_tokens,
             streaming=self.config.llm.streaming
         )
+
+    def interpret_scenarios(self, directory_path: Union[str, Path]):
+        """
+        Interpret scenarios from a directory and save the descriptions into the folder path's new_description.txt file.
+        
+        Args:
+            directory_path: Path to the directory
+        """
+        scenarios_dicts = self.multimodal_interpreter.extract_from_directory(directory_path)
+        for scenario_dict in scenarios_dicts:
+            scenario_description = self.multimodal_interpreter.get_layer_model_description_by_vlm(scenario_dict, self.vlm_service)
+            
+            if not os.path.exists(scenario_dict.get("folder_path")):
+                os.makedirs(scenario_dict.get("folder_path"))
+            new_description_path = Path(scenario_dict.get("folder_path")) / "new_description.txt"
+            with open(new_description_path, "w") as f:
+                f.write(scenario_description) # save the scenario description into the folder path's new_description.txt file
+
+    def ingest_scenarios(self, directory_path: Union[str, Path]):
+        """
+        Ingest scenarios from a directory into the vector store.
+        
+        Args:
+            directory_path: Path to the directory
+
+        Returns:
+            List of document IDs
+        """
+        self.interpret_scenarios(directory_path)
+        scenarios_dicts = self.multimodal_interpreter.extract_from_directory(directory_path, use_new_description=True)
+        logger.info(f"The first scenario dictionary: {scenarios_dicts[0]}")
+        return scenarios_dicts
+        # doc_ids = self.vectorstore.add_documents(scenarios_dicts)
+        # return doc_ids
 
     def ingest_documents(
         self,

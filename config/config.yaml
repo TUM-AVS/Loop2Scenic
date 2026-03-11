@@ -54,6 +54,18 @@ llm:
   temperature: 0.7
   max_tokens: 512
 
+vlm:
+  provider: gemini # Options: qwen3vl, openai_vision
+  model_path: ./models/Qwen3-VL # Required for Qwen3VL, path to local model directory
+  model: gemini-1.5-pro # For OpenAI Vision (e.g., "gpt-4-vision-preview", "gpt-4o")
+  device: cuda # Device to run on (cpu, cuda, etc.)
+  torch_dtype: fp16 # Data type (fp16, fp32, bf16)
+  temperature: 0.7 # Sampling temperature
+  max_tokens: 512 # Maximum tokens to generate
+  fps: 1.0 # Frames per second for video processing
+  max_frames: 64 # Maximum frames to extract from video
+  default_instruction: "You are a helpful AI assistant." # Default instruction text
+
 ingestion:
   supported_formats: [".txt", ".pdf", ".docx", ".md", ".html"]
   batch_size: 10

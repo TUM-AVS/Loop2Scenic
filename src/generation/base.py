@@ -57,26 +57,6 @@ class BaseGenerator(ABC):
         """
         pass
 
-    @abstractmethod
-    def batch_generate(
-        self,
-        queries: List[str],
-        context_documents_list: List[List[Document]],
-        prompt_template: Optional[PromptTemplate] = None
-    ) -> List[str]:
-        """
-        Generate responses for multiple queries in batch.
-        
-        Args:
-            queries: List of queries
-            context_documents_list: List of context document lists
-            prompt_template: Custom prompt template
-            
-        Returns:
-            List of generated responses
-        """
-        pass
-
     @property
     @abstractmethod
     def model_name(self) -> str:

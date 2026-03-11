@@ -7,10 +7,10 @@ from pathlib import Path
 from typing import List, Optional
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from dotenv import load_dotenv
 
-# Load environment variables
+# Load environment variables from .env file
 load_dotenv()
 
 
@@ -79,9 +79,48 @@ class LLMConfig(BaseModel):
     """LLM configuration."""
     provider: str = "openai"
     model: str = "gpt-3.5-turbo"
+    api_key: Optional[str] = None  # Added API key
     temperature: float = 0.7
     max_tokens: int = 512
     streaming: bool = False
+
+    @model_validator(mode='after')
+    def load_api_key(self) -> "LLMConfig":
+        """Automatically load the correct API key based on the provider."""
+        if not self.api_key:
+            provider_lower = self.provider.lower()
+            if provider_lower in ["openai"]:
+                self.api_key = os.getenv("OPENAI_API_KEY")
+            elif provider_lower in ["gemini", "google"]:
+                self.api_key = os.getenv("GOOGLE_API_KEY")
+        return self
+
+
+class VLMConfig(BaseModel):
+    """VLM (Vision Language Model) configuration."""
+    provider: str = "gemini"  # Options: qwen3vl, openai_vision, gemini
+    api_key: Optional[str] = None  # Added API key
+    model_path: Optional[str] = None  # Required for Qwen3VL, path to local model directory
+    model: Optional[str] = "gemini-1.5-pro"  # Model name
+    device: str = "cuda"  # Device to run on (cpu, cuda, etc.)
+    torch_dtype: str = "fp16"  # Data type (fp16, fp32, bf16)
+    temperature: float = 0.7  # Sampling temperature
+    max_tokens: int = 512  # Maximum tokens to generate
+    fps: float = 1.0  # Frames per second for video processing
+    max_frames: int = 64  # Maximum frames to extract from video
+    default_instruction: str = "You are a helpful AI assistant."  # Default instruction text
+
+    @model_validator(mode='after')
+    def load_api_key(self) -> "VLMConfig":
+        """Automatically load the correct API key based on the provider."""
+        # Only attempt to load if an API key wasn't explicitly provided in the YAML
+        if not self.api_key:
+            provider_lower = self.provider.lower()
+            if provider_lower in ["gemini", "google"]:
+                self.api_key = os.getenv("GOOGLE_API_KEY")
+            elif provider_lower in ["openai", "openai_vision"]:
+                self.api_key = os.getenv("OPENAI_API_KEY")
+        return self
 
 
 class IngestionConfig(BaseModel):
@@ -108,6 +147,7 @@ class Config(BaseModel):
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
     reranking: RerankingConfig = Field(default_factory=RerankingConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
+    vlm: VLMConfig = Field(default_factory=VLMConfig)
     ingestion: IngestionConfig = Field(default_factory=IngestionConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
@@ -129,15 +169,12 @@ class Config(BaseModel):
         config = cls()
         
         # Override with environment variables if present
-        if api_key := os.getenv("OPENAI_API_KEY"):
-            os.environ["OPENAI_API_KEY"] = api_key
-        
         if model := os.getenv("EMBEDDING_MODEL"):
             config.embedding.model_name = model
         
         if llm_model := os.getenv("LLM_MODEL"):
             config.llm.model = llm_model
-        
+            
         return config
 
 
