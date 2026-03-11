@@ -41,9 +41,12 @@ ENV/
 data/raw/*
 data/processed/*
 data/vector_db/*
+data/scenarios/*
+
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 !data/vector_db/.gitkeep
+!data/scenarios/.gitkeep
 
 # Logs
 logs/

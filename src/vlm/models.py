@@ -366,7 +366,6 @@ class GeminiVisionModel(BaseVLMModel):
         generation_config = genai.types.GenerationConfig(
             temperature=temperature,
             max_output_tokens=max_tokens,
-            **{k: v for k, v in kwargs.items() if k not in ['temperature', 'max_tokens']}
         )
 
         # Initialize the specific model instance (allows dynamic system instructions)

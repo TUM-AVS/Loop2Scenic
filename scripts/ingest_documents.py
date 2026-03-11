@@ -59,12 +59,6 @@ def main():
     
     print(f"\n✓ Successfully processed {len(scenarios_dicts)} scenarios")
     print("✓ Scenario descriptions saved to new_description.txt files")
-    
-    # Show stats
-    stats = pipeline.get_stats()
-    print("\nVector Store Stats:")
-    print(f"  - Total documents: {stats.get('document_count', 0)}")
-    print(f"  - Collection: {stats.get('collection_name', 'N/A')}")
 
 
 if __name__ == "__main__":
