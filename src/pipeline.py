@@ -304,7 +304,27 @@ class RAGPipeline:
         Returns:
             Dictionary with statistics
         """
-        return self.vectorstore.get_collection_stats()
+        # 2. Get all collections
+        collections = self.vectorstore.client.list_collections()
+        logger.info(f"📊 Total Collections Found: {len(collections)}\n")
+        logger.info("-" * 40)
+        
+        # 3. Loop through and get the stats for each one
+        for collection_name in collections:
+            # Best Practice: Flush the collection first. 
+            # Milvus buffers recent inserts in memory. Flushing forces them to disk
+            # so your row count is 100% accurate.
+            self.vectorstore.client.flush(collection_name)
+            
+            # Get the stats dictionary
+            stats = self.vectorstore.client.get_collection_stats(collection_name)
+            
+            # Extract the row_count (number of entities/documents)
+            row_count = stats.get('row_count', 0)
+            
+            logger.info(f"Collection: '{collection_name}'")
+            logger.info(f"📄 Documents : {row_count}")
+            logger.info("-" * 40)
 
     def reset(self):
         """Reset the vector store (delete all documents)."""
