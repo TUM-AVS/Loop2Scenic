@@ -63,7 +63,7 @@ def main():
     # Embed scenarios
     print("Step 2: Embedding scenarios...")
     scenarios_dicts = pipeline.embed_scenarios(scenarios_dicts)
-    print(f"First scenario dictionary: {scenarios_dicts[0]}")
+    print(f"The first scenario dictionary keys: {scenarios_dicts[0].keys()}")
 
     # Add documents to vector store
     print("Step 3: Adding documents to vector store...")

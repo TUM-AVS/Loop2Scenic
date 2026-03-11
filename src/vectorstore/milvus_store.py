@@ -116,7 +116,6 @@ class MilvusVectorStore:
             # Add fields
             schema.add_field(field_name="id", datatype=DataType.VARCHAR, max_length=65535, is_primary=True)
             schema.add_field(field_name="embedding", datatype=DataType.FLOAT_VECTOR, dim=embedding_dim)
-            schema.add_field(field_name="text", datatype=DataType.VARCHAR, max_length=65535)
             schema.add_field(field_name="metadata", datatype=DataType.JSON)
             
             # Create index
@@ -494,3 +493,30 @@ class MilvusVectorStore:
         self._init_collection()
         
         logger.info("Collection reset successfully")
+
+    def get_documents(self, limit: int = 5) -> List[Dict[str, Any]]:
+        """
+        Retrieve a sample of documents from the collection for inspection.
+        
+        Args:
+            limit: The maximum number of documents to return.
+            
+        Returns:
+            List of dictionaries containing the document data.
+        """
+        logger.info(f"Retrieving up to {limit} documents from {self.collection_name}...")
+        
+        # Because your IDs are strings (VARCHAR), we can use a trick filter 
+        # 'id != ""' to just grab the first available rows in the database.
+        results = self.client.query(
+            collection_name=self.collection_name,
+            filter='id != ""',
+            
+            # We explicitly request the id, text, and metadata. 
+            # Note: We purposely DO NOT request "embedding", because printing 
+            # hundreds of floats to your terminal will make it unreadable!
+            output_fields=["id", "text", "metadata"], 
+            limit=limit
+        )
+        
+        return results

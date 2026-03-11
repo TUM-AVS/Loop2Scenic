@@ -26,6 +26,13 @@ def main():
     # Get current stats
     pipeline.get_stats()
 
+    # get the first document
+    print("Getting the first document...")
+    documents = pipeline.vectorstore.get_documents(1)
+    print(f"The first document: {documents[0]}")
+    print(f"The first document id: {documents[0]['id']}")
+    print(f"The first document metadata: {documents[0]['metadata']}")
+
 
 if __name__ == "__main__":
     main()
