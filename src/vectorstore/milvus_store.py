@@ -5,13 +5,11 @@ Supports both Milvus Lite (no Docker) and Milvus Server modes.
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Any
 from uuid import uuid4
 
 from langchain_core.documents import Document
 from pymilvus import MilvusClient, DataType
-
-from ..embedding.embedder import Embedder
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +24,7 @@ class MilvusVectorStore:
 
     def __init__(
         self,
-        embedder: Embedder,
+        embedding_dim: int,
         collection_name: str = "documents",
         connection_args: Optional[Dict[str, Any]] = None,
         index_params: Optional[Dict[str, Any]] = None,
@@ -40,7 +38,7 @@ class MilvusVectorStore:
         2. Milvus Server (Docker): connection_args={"host": "localhost", "port": "19530"}
         
         Args:
-            embedder: Embedder instance for generating embeddings
+            embedding_dim: The dimension of the embeddings (e.g., 384, 1536)
             collection_name: Name of the Milvus collection
             connection_args: Connection arguments for Milvus
                 - Lite mode: {"uri": "./path/to/milvus.db"}
@@ -51,7 +49,7 @@ class MilvusVectorStore:
             search_params: Search parameters for Milvus
                 Default: nprobe=10
         """
-        self.embedder = embedder
+        self.embedding_dim = embedding_dim
         self.collection_name = collection_name
         
         # Default connection args (Milvus Lite for local development)
@@ -101,8 +99,6 @@ class MilvusVectorStore:
 
     def _init_collection(self):
         """Initialize or get existing collection."""
-        embedding_dim = self.embedder.get_embedding_dimension()
-        
         # Check if collection exists
         if self.client.has_collection(collection_name=self.collection_name):
             logger.info(f"Loaded existing collection: {self.collection_name}")
@@ -115,7 +111,7 @@ class MilvusVectorStore:
             
             # Add fields
             schema.add_field(field_name="id", datatype=DataType.VARCHAR, max_length=65535, is_primary=True)
-            schema.add_field(field_name="embedding", datatype=DataType.FLOAT_VECTOR, dim=embedding_dim)
+            schema.add_field(field_name="embedding", datatype=DataType.FLOAT_VECTOR, dim=self.embedding_dim)
             schema.add_field(field_name="metadata", datatype=DataType.JSON)
             
             # Create index
@@ -146,7 +142,6 @@ class MilvusVectorStore:
         Args:
             documents: List of dictionaries with keys like:
                   {"id": "...", "embedding": "...", "metadata": "..."}
-            ids: Optional list of IDs for the documents
         """
         if not documents:
             logger.warning("No documents to add")
@@ -162,11 +157,8 @@ class MilvusVectorStore:
             folder_path = document.get("folder_path")
             
             if folder_path:
-                # Path().name cleanly extracts just the final folder name 
-                # e.g., "/data/scenarios/scene_01" -> "scene_01"
                 return Path(folder_path).name
                 
-            # Lazy fallback: Only generates a UUID if folder_path was None or empty
             return str(uuid4())
         
         ids = [generate_id(doc_dict) for doc_dict in documents]
@@ -195,20 +187,17 @@ class MilvusVectorStore:
 
     def similarity_search(
         self,
-        query: Any,  # Can be str or Dict[str, Any]
+        query_embedding: Any,  # Now accepts raw embeddings (List[float] or Tensor)
         k: int = 5,
         filter_tags: Optional[List[str]] = None,
         metadata_filter: Optional[Dict[str, Any]] = None,
         score_threshold: Optional[float] = None
     ) -> List[Document]:
         """
-        Search for similar documents using multimodal queries.
+        Search for similar documents using a pre-computed query embedding.
         
         Args:
-            query: Either:
-                - String: text query
-                - Dictionary: multimodal query with keys like:
-                  {"text": "...", "image": "...", "video": "...", "instruction": "..."}
+            query_embedding: Pre-computed vector (list of floats, numpy array, or tensor)
             k: Number of results to return
             filter_tags: List of tags to filter by (documents must have at least one)
             metadata_filter: Additional metadata filters (Milvus expression format)
@@ -216,37 +205,14 @@ class MilvusVectorStore:
             
         Returns:
             List of similar Document objects
-            
-        Examples:
-            # Text query
-            results = vector_store.similarity_search("Find me a cat")
-            
-            # Image query
-            results = vector_store.similarity_search({"image": "path/to/cat.jpg"})
-            
-            # Multimodal query
-            results = vector_store.similarity_search({
-                "text": "Find similar images",
-                "image": "reference.jpg"
-            })
         """
         # Build filter expression
         expr = self._build_filter(filter_tags, metadata_filter)
         
-        # Convert string query to dictionary format
-        if isinstance(query, str):
-            query_dict = {"text": query}
-        else:
-            query_dict = query
-        
         logger.info(
             f"Searching for top {k} similar documents "
-            f"(query type: {'text' if isinstance(query, str) else 'multimodal'}, "
-            f"filter: {expr}, threshold: {score_threshold})"
+            f"(filter: {expr}, threshold: {score_threshold})"
         )
-        
-        # Generate query embedding
-        query_embedding = self.embedder.embed_query(query_dict)
         
         # Convert tensor to list if needed (Milvus requires list/array, not tensor)
         if hasattr(query_embedding, 'cpu'):
@@ -265,7 +231,7 @@ class MilvusVectorStore:
             data=[query_embedding],
             filter=expr if expr else "",
             limit=search_k,
-            output_fields=["text", "metadata"],
+            output_fields=["metadata"],
             search_params=self.search_params
         )
         
@@ -278,7 +244,7 @@ class MilvusVectorStore:
                     continue
                 
                 doc = Document(
-                    page_content=hit['entity'].get('text', ''),
+                    page_content="", # Removed 'text' dependency from schema
                     metadata=hit['entity'].get('metadata', {})
                 )
                 documents.append(doc)
@@ -295,50 +261,26 @@ class MilvusVectorStore:
 
     def similarity_search_with_score(
         self,
-        query: Any,  # Can be str or Dict[str, Any]
+        query_embedding: Any,  # Now accepts raw embeddings (List[float] or Tensor)
         k: int = 5,
         filter_tags: Optional[List[str]] = None,
         metadata_filter: Optional[Dict[str, Any]] = None
     ) -> List[tuple[Document, float]]:
         """
-        Search for similar documents with similarity scores using multimodal queries.
+        Search for similar documents with similarity scores using pre-computed embeddings.
         
         Args:
-            query: Either:
-                - String: text query
-                - Dictionary: multimodal query with keys like:
-                  {"text": "...", "image": "...", "video": "...", "instruction": "..."}
+            query_embedding: Pre-computed vector (list of floats, numpy array, or tensor)
             k: Number of results to return
             filter_tags: List of tags to filter by
             metadata_filter: Additional metadata filters
             
         Returns:
             List of (Document, score) tuples
-            
-        Examples:
-            # Text query
-            results = vector_store.similarity_search_with_score("Find me a cat")
-            
-            # Image query
-            results = vector_store.similarity_search_with_score({
-                "image": "path/to/query.jpg"
-            })
         """
         expr = self._build_filter(filter_tags, metadata_filter)
         
-        # Convert string query to dictionary format
-        if isinstance(query, str):
-            query_dict = {"text": query}
-        else:
-            query_dict = query
-        
-        logger.info(
-            f"Searching for top {k} similar documents with scores "
-            f"(query type: {'text' if isinstance(query, str) else 'multimodal'})"
-        )
-        
-        # Generate query embedding
-        query_embedding = self.embedder.embed_query(query_dict)
+        logger.info(f"Searching for top {k} similar documents with scores")
         
         # Convert tensor to list if needed (Milvus requires list/array, not tensor)
         if hasattr(query_embedding, 'cpu'):
@@ -354,7 +296,8 @@ class MilvusVectorStore:
             data=[query_embedding],
             filter=expr if expr else "",
             limit=k,
-            output_fields=["text", "metadata"],
+            # Explicitly request the "id" field alongside "metadata"
+            output_fields=["id", "metadata"],
             search_params=self.search_params
         )
         
@@ -363,7 +306,8 @@ class MilvusVectorStore:
         for hits in results:
             for hit in hits:
                 doc = Document(
-                    page_content=hit['entity'].get('text', ''),
+                    id=hit.get('id', "unknown_id"),
+                    page_content="",
                     metadata=hit['entity'].get('metadata', {})
                 )
                 score = hit['distance']  # Cosine similarity score
@@ -378,21 +322,7 @@ class MilvusVectorStore:
         filter_tags: Optional[List[str]] = None,
         metadata_filter: Optional[str] = None
     ) -> Optional[str]:
-        """
-        Build a filter expression for Milvus queries.
-        
-        Milvus uses string expressions for filtering:
-        - JSON contains: 'json_contains(metadata["tags"], "python")'
-        - OR: 'json_contains(metadata["tags"], "python") || json_contains(metadata["tags"], "ml")'
-        - AND: 'metadata["year"] == 2024 && metadata["category"] == "tutorial"'
-        
-        Args:
-            filter_tags: List of tags to filter by
-            metadata_filter: Additional metadata filter expression
-            
-        Returns:
-            Filter expression string for Milvus
-        """
+        """Build a filter expression for Milvus queries."""
         expressions = []
         
         # Add tag filters (OR operation for multiple tags)
@@ -430,12 +360,7 @@ class MilvusVectorStore:
             return " && ".join(f"({expr})" for expr in expressions)
 
     def delete_documents(self, ids: List[str]) -> None:
-        """
-        Delete documents by IDs.
-        
-        Args:
-            ids: List of document IDs to delete
-        """
+        """Delete documents by IDs."""
         logger.info(f"Deleting {len(ids)} documents")
         
         # Build filter expression for deletion
@@ -450,12 +375,7 @@ class MilvusVectorStore:
         logger.info("Documents deleted successfully")
 
     def get_collection_stats(self) -> Dict[str, Any]:
-        """
-        Get statistics about the collection.
-        
-        Returns:
-            Dictionary with collection statistics
-        """
+        """Get statistics about the collection."""
         # Get collection stats
         stats_result = self.client.get_collection_stats(collection_name=self.collection_name)
         row_count = stats_result.get('row_count', 0)
@@ -495,27 +415,13 @@ class MilvusVectorStore:
         logger.info("Collection reset successfully")
 
     def get_documents(self, limit: int = 5) -> List[Dict[str, Any]]:
-        """
-        Retrieve a sample of documents from the collection for inspection.
-        
-        Args:
-            limit: The maximum number of documents to return.
-            
-        Returns:
-            List of dictionaries containing the document data.
-        """
+        """Retrieve a sample of documents from the collection for inspection."""
         logger.info(f"Retrieving up to {limit} documents from {self.collection_name}...")
         
-        # Because your IDs are strings (VARCHAR), we can use a trick filter 
-        # 'id != ""' to just grab the first available rows in the database.
         results = self.client.query(
             collection_name=self.collection_name,
             filter='id != ""',
-            
-            # We explicitly request the id, text, and metadata. 
-            # Note: We purposely DO NOT request "embedding", because printing 
-            # hundreds of floats to your terminal will make it unreadable!
-            output_fields=["id", "text", "metadata"], 
+            output_fields=["id", "metadata"], 
             limit=limit
         )
         

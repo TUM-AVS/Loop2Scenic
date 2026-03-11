@@ -147,7 +147,15 @@ class Embedder(BaseEmbedder):
         return all_embeddings
 
     def embed_query(self, input: Dict[str, Any]) -> List[float]:
-        """Encode a single query."""
+        """
+        Encode a single query into an embedding vector.
+        
+        Args:
+            input: Query input to embed, a dictionary containing "text", "image", "video", "instruction"
+            
+        Returns:
+            Embedding vector
+        """
         return self.model.encode([input])[0]
 
     def get_embedding_dimension(self) -> int:

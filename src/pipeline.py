@@ -60,8 +60,8 @@ class RAGPipeline:
         """Initialize all pipeline components."""
         self._initialize_vlm_service()
         self._initialize_multimodal_interpreter()
-        self._initialize_embedder()
-        self._initialize_vector_store()
+        embedding_dim = self._initialize_embedder()
+        self._initialize_vector_store(embedding_dim)
         # self._initialize_retriever()
         # self._initialize_generator()
 
@@ -113,8 +113,11 @@ class RAGPipeline:
         )
         
         logger.info(f"Embedder initialized successfully with {self.config.embedding.provider}.")
+        embedding_dim = self.embedder.get_embedding_dimension()
+        logger.info(f"Embedding dimension: {embedding_dim}")
+        return embedding_dim
 
-    def _initialize_vector_store(self):
+    def _initialize_vector_store(self, embedding_dim: int):
         """Initialize vector store (Milvus)."""
         logger.info("Initializing Vector Store...")
         
@@ -152,7 +155,7 @@ class RAGPipeline:
             }
         
         self.vectorstore = MilvusVectorStore(
-            embedder=self.embedder,
+            embedding_dim=embedding_dim,
             collection_name=self.config.vector_db.collection_name,
             connection_args=connection_args,
             index_params=index_params,
@@ -297,6 +300,24 @@ class RAGPipeline:
         doc_ids = self.vectorstore.add_documents(scenarios_dicts)
         return doc_ids
 
+    def query_without_reranking(self, query_text: str, query_image: str, query_video: str):
+        """
+        Query the vector store.
+        
+        Args:
+            query_text: Query text
+            query_image: Query image
+            query_video: Query video
+        """
+        query_dict = {
+            "text": query_text,
+            "image": query_image,
+            "video": query_video
+        }
+        query_embedding = self.embedder.embed_query(query_dict)
+        results = self.vectorstore.similarity_search_with_score(query_embedding)
+        return results
+
     def get_stats(self) -> Dict[str, Any]:
         """
         Get pipeline statistics.
@@ -326,7 +347,7 @@ class RAGPipeline:
             logger.info(f"📄 Documents : {row_count}")
             logger.info("-" * 40)
 
-    def reset(self):
+    def reset_current_collection(self):
         """Reset the vector store (delete all documents)."""
         logger.warning("Resetting vector store")
         self.vectorstore.reset_collection()

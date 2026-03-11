@@ -422,7 +422,7 @@ class Qwen3VLEmbedder():
             text=ele.get('text'),
             image=ele.get('image'),
             video=ele.get('video'),
-            instruction=ele.get('instruction'),
+            instruction=ele.get('instruction', "Represent the user's input."),
             fps=ele.get('fps'),
             max_frames=ele.get('max_frames')
         ) for ele in inputs]
