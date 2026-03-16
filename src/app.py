@@ -24,7 +24,7 @@ def initialize_system() -> ScenarioWorkflow:
     # Only ONE instance of the LLM service is created
     shared_llm_service = get_llm_service(provider="gemini", api_key="YOUR_KEY")
     vlm_service = get_vlm_service(provider="gemini", api_key="YOUR_KEY")
-    
+    embedder = get_embedder(provider="gemini", api_key="YOUR_KEY")
     # Retrieval pipeline setup
     vector_db = MilvusVectorStore(host="localhost", port="19530")
     reranker = get_reranker(provider="qwen3vl", model_name="cross-encoder/ms-marco-MiniLM-L-6-v2")
@@ -37,7 +37,6 @@ def initialize_system() -> ScenarioWorkflow:
     # Notice how both agents get the EXACT SAME shared_llm_service!
     interpreter_agent = InterpreterAgent(llm_service=shared_llm_service)
     scenic_coder_agent = ScenicCoderAgent(llm_service=shared_llm_service)
-    
     critic_agent = CriticAgent(vlm_service=vlm_service)
 
     # ==========================================
@@ -48,7 +47,8 @@ def initialize_system() -> ScenarioWorkflow:
         interpreter=interpreter_agent,
         coder=scenic_coder_agent,
         critic=critic_agent,
-        retriever=retrieval_pipeline
+        retriever=retrieval_pipeline,
+        embedder=embedder
     )
 
     logger.info("✅ System initialized successfully!")

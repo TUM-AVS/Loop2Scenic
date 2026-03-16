@@ -1,0 +1,3 @@
+here is text
+
+here is original query: {original_query}

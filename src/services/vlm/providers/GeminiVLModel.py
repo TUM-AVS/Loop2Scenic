@@ -7,7 +7,7 @@ from ..base import BaseVLMModel
 
 logger = logging.getLogger(__name__)
 
-class GeminiVisionModel(BaseVLMModel):
+class GeminiVLModel(BaseVLMModel):
     """Google Gemini Vision and Video model."""
 
     def __init__(

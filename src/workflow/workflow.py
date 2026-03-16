@@ -5,6 +5,7 @@ from langgraph.checkpoint.memory import MemorySaver
 
 import sys
 import os
+import json
 from pathlib import Path
 
 # Add the project root (ads-mrag) to the python path
@@ -12,16 +13,23 @@ root_path = str(Path(__file__).parent.parent.parent)
 if root_path not in sys.path:
     sys.path.append(root_path)
 
+from .scenario_workflow_state import ScenarioWorkflowState
 from src.utils import setup_logging, log_workflow_state
-from scenario_workflow_state import ScenarioWorkflowState
 from src.agents import InterpreterAgent, ScenicCoderAgent, CriticAgent
-from src.services import Retriever
+from src.services import Retriever, BaseEmbeddingModel
 
 # Get a logger for this specific file
 logger = logging.getLogger(__name__)
 
 class ScenarioWorkflow:
-    def __init__(self, interpreter: InterpreterAgent, coder: ScenicCoderAgent, critic: CriticAgent, retriever: Retriever):
+    def __init__(
+        self, 
+        interpreter: InterpreterAgent, 
+        coder: ScenicCoderAgent, 
+        critic: CriticAgent, 
+        retriever: Retriever, 
+        embedder: BaseEmbeddingModel
+        ):
         self.workflow = StateGraph(ScenarioWorkflowState)
         
         # Inject agents
@@ -29,6 +37,7 @@ class ScenarioWorkflow:
         self.coder = coder
         self.critic = critic
         self.retriever = retriever
+        self.embedder = embedder
 
         # 1. add nodes
         self.workflow.add_node("embed_query", self.embed_query)
@@ -102,8 +111,8 @@ class ScenarioWorkflow:
         log_workflow_state(logger, "embed_query", state)
         
         query = state.get('user_query', {})
-        dsl = generate_dsl(query)
-        query_embedding = embed_query_func(dsl)
+        dsl = self.interpreter.generate_dsl(query)
+        query_embedding = self.embedder.encode([dsl])
 
         logger.info("🧹 CLEANUP: Wiping previous scenario data for fresh run...")
         return {
@@ -125,7 +134,7 @@ class ScenarioWorkflow:
         log_workflow_state(logger, "retrieve_base_scenario", state)
         
         query_embedding = state["query_embedding"]
-        base_scenario_id = retrieve_base_scenario_func(query_embedding)
+        base_scenario_id = self.retriever.retrieve(query_embedding) # TODO: let this run retrieve and rerank pipeline and return just 1 scenario in the end
         scenic_code = find_scenic_code_with_scenario_id(base_scenario_id)
         
         logger.info(f"🔍 Found base scenario: {base_scenario_id}")
@@ -147,7 +156,10 @@ class ScenarioWorkflow:
         log_workflow_state(logger, "evaluate_with_vlm", state)
         
         video_path = state.get("simulation_video_path", "")
-        evaluation_score, evaluation_feedback = evaluate_with_vlm_func(video_path, state.get("generation_count", 0))
+        scenario_dsl = state.get("scenario_dsl", {})
+        # Convert scenario_dsl to string if it's a dict
+        original_query = json.dumps(scenario_dsl) if isinstance(scenario_dsl, dict) else str(scenario_dsl)
+        evaluation_score, evaluation_feedback = self.critic.evaluate_with_vlm(video_path, original_query)
 
         logger.info(f"📊 VLM Score: {evaluation_score}")
         updates = {
@@ -167,7 +179,7 @@ class ScenarioWorkflow:
         
         feedback = state.get("user_modification") or state.get("evaluation_feedback")
         logger.info("🧠 Interpreting feedback into DSL...")
-        scenario_dsl = generate_dsl(feedback)
+        scenario_dsl = self.interpreter.generate_dsl(feedback) # TODO: add chat history to the prompt
 
         return {"scenario_dsl": scenario_dsl}
 
@@ -179,7 +191,7 @@ class ScenarioWorkflow:
         generation_count = state.get("generation_count", 0)
         
         logger.info(f"🛠 Adapting Scenic code (Iteration: {generation_count + 1})")
-        adapted_scenic_code = adapt_code_func(scenario_dsl, scenic_code)
+        adapted_scenic_code = self.coder.adapt_code(scenic_code, scenario_dsl)
 
         return {
             "current_scenic_code": adapted_scenic_code,
@@ -205,15 +217,27 @@ class ScenarioWorkflow:
 # ==========================================
 # DUMMY FUNCTIONS (For testing the loop)
 # ==========================================
-def generate_dsl(query: Any) -> str: return '{"intent": "dummy"}'
-def embed_query_func(dsl: str) -> List[float]: return [0.1, 0.2]
-def retrieve_base_scenario_func(query_embedding: List[float]) -> str: return "scenario_123"
-def find_scenic_code_with_scenario_id(scenario_id: str) -> str: return "def scenic(): pass"
-def run_simulation_in_carla_and_save_video(dsl: str) -> str: return "/tmp/video.mp4"
-def evaluate_with_vlm_func(video_path: str, count: int) -> Tuple[float, str]:
-    return (75.0, "Too slow") if count == 0 else (95.0, "Perfect")
-def adapt_code_func(scenario_dsl: str, scenic_code: str) -> str: return "# Adapted code"
+def find_scenic_code_with_scenario_id(scenario_id: str) -> str: 
+    """
+    Find the scenic code for a given scenario ID.
+    """
+    try:
+        scenario_location = f"data/scenarios/{scenario_id}/code.scenic"
+        with open(scenario_location, "r") as f:
+            scenic_code = f.read()
+            return scenic_code
+    except FileNotFoundError:
+        logger.error(f"Scenario code not found for ID: {scenario_id}")
+        return None
+    except Exception as e:
+        logger.error(f"Error finding scenic code for ID: {scenario_id}: {e}")
+        return None
 
+def run_simulation_in_carla_and_save_video(scenic_code: str) -> str:
+    """
+    Run the simulation in Carla and save the video.
+    """
+    return "/tmp/video.mp4"
 
 # ==========================================
 # TEST RUNNER

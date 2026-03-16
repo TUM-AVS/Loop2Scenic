@@ -5,7 +5,7 @@ from ..base import BaseVLMModel
 
 logger = logging.getLogger(__name__)
 
-class OpenAIVisionModel(BaseVLMModel):
+class OpenAIVLModel(BaseVLMModel):
     """OpenAI GPT-4 Vision model."""
 
     def __init__(

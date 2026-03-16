@@ -1,10 +1,38 @@
 from abc import ABC, abstractmethod
+import json
+from typing import Any, Dict
+import re
+import logging
 
+logger = logging.getLogger(__name__)
 
 class BaseAgent(ABC):
-    def __init__(self, name: str):
-        self.name = name
+    def __init__(self):
+        pass
 
     @abstractmethod
     def process(self, state: dict) -> dict:
         pass
+
+    def _clean_and_parse_json(self, raw_text: str) -> Dict[str, Any]:
+        """
+        Clean and parse the raw text as a JSON object.
+        """
+        
+        try: 
+            json.loads(raw_text)
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON from text: {e}. Raw text: {raw_text}")
+            pass
+        except Exception as e:
+            logger.error(f"Failed to parse JSON from text: {e}. Raw text: {raw_text}")
+            return None
+
+        # try to find ```json {...} ``` or just ```{...}```
+        match = re.search(r"```json\s*(\{.*?\})?\s*```", raw_text)
+        if match:
+            json_str = match.group(1)
+            return json.loads(json_str)
+        else:
+            logger.error(f"Failed to find JSON in text: {raw_text}")
+            return None

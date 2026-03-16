@@ -11,7 +11,7 @@ from ..base import BaseEmbeddingModel
 logger = logging.getLogger(__name__)
 
 
-class QwenEmbedder(BaseEmbeddingModel):
+class Qwen3VLEmbedding(BaseEmbeddingModel):
     """
     Qwen embedding model (offline/local).
     
