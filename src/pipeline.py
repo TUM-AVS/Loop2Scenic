@@ -9,10 +9,8 @@ from typing import Any, Dict, List, Optional, Union
 import json
 
 from .config import Config, get_config
-from .vlm import get_vlm_service
 from .ingestion import MultimodalDocumentInterpreter
-from .embedding import get_embedder
-from .vectorstore import MilvusVectorStore
+from .services import MilvusVectorStore, get_vlm_service, get_embedder
 from .retrieval import Retriever
 from .generation import get_generator
 from .utils import setup_logging
@@ -113,7 +111,7 @@ class RAGPipeline:
         )
         
         logger.info(f"Embedder initialized successfully with {self.config.embedding.provider}.")
-        embedding_dim = self.embedder.get_embedding_dimension()
+        embedding_dim = self.embedder.dimension
         logger.info(f"Embedding dimension: {embedding_dim}")
         return embedding_dim
 
@@ -284,7 +282,7 @@ class RAGPipeline:
             for field in content_fields:
                 scenario_dict_with_content[field] = scenario_dict.get(field, "")
             scenarios_dicts_with_content.append(scenario_dict_with_content)
-        embeddings = self.embedder.embed_documents(scenarios_dicts_with_content)
+        embeddings = self.embedder.encode(scenarios_dicts_with_content)
         for scenario_dict, embedding in zip(scenarios_dicts, embeddings):
             scenario_dict["embedding"] = embedding
             scenario_dict["metadata"] = scenario_dict.get("description_json", {})
@@ -310,7 +308,7 @@ class RAGPipeline:
         Returns:
             List of (Document, score) tuples
         """
-        query_embedding = self.embedder.embed_query(query_dict)
+        query_embedding = self.embedder.encode([query_dict])[0]
         results = self.vectorstore.similarity_search_with_score(query_embedding)
         return results
 
