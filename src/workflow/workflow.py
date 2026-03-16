@@ -14,13 +14,21 @@ if root_path not in sys.path:
 
 from src.utils import setup_logging, log_workflow_state
 from scenario_workflow_state import ScenarioWorkflowState
+from src.agents import InterpreterAgent, ScenicCoderAgent, CriticAgent
+from src.services import Retriever
 
 # Get a logger for this specific file
 logger = logging.getLogger(__name__)
 
 class ScenarioWorkflow:
-    def __init__(self):
+    def __init__(self, interpreter: InterpreterAgent, coder: ScenicCoderAgent, critic: CriticAgent, retriever: Retriever):
         self.workflow = StateGraph(ScenarioWorkflowState)
+        
+        # Inject agents
+        self.interpreter = interpreter
+        self.coder = coder
+        self.critic = critic
+        self.retriever = retriever
 
         # 1. add nodes
         self.workflow.add_node("embed_query", self.embed_query)
