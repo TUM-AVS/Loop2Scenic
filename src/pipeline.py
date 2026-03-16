@@ -10,8 +10,7 @@ import json
 
 from .config import Config, get_config
 from .ingestion import MultimodalDocumentInterpreter
-from .services import MilvusVectorStore, get_vlm_service, get_embedder
-from .retrieval import Retriever
+from .services import MilvusVectorStore, get_vlm_service, get_embedder, Retriever
 from .generation import get_generator
 from .utils import setup_logging
 

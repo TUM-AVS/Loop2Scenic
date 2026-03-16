@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Any
 
 from langchain_core.documents import Document
 
-from ..vectorstore.milvus_store import MilvusVectorStore
+from ..vectorstore import MilvusVectorStore
 
 logger = logging.getLogger(__name__)
 
