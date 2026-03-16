@@ -1,13 +1,17 @@
 """
-Test file for ScenarioWorkflow with mock services and agents.
+Unit tests for ScenarioWorkflow with all mocked dependencies.
 
-This test verifies that the workflow can run seamlessly with mocked dependencies.
+This test verifies that the workflow logic and state transitions work correctly
+without external dependencies. All components are mocked for speed and reliability.
+
+For integration tests with real components, see tests/integration/
 """
 
 import sys
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 import json
+import pytest
 
 # Add project root to path (must be before other imports)
 project_root = Path(__file__).parent.parent
@@ -271,6 +275,7 @@ def cleanup_mock_scenario_files():
 # WORKFLOW TEST
 # ==========================================
 
+@pytest.mark.unit
 def test_workflow_run():
     """Test that the workflow can run seamlessly with mocks."""
     import logging
