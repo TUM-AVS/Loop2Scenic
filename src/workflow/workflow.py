@@ -134,10 +134,11 @@ class ScenarioWorkflow:
         log_workflow_state(logger, "retrieve_base_scenario", state)
         
         query_embedding = state["query_embedding"]
-        base_scenario_id = self.retriever.retrieve(query_embedding) # TODO: let this run retrieve and rerank pipeline and return just 1 scenario in the end
+        best_scenarios = self.retriever.retrieve(query_embedding)
+        base_scenario_id = best_scenarios[0].scenario_id # only return the best 1 scenario
         scenic_code = find_scenic_code_with_scenario_id(base_scenario_id)
         
-        logger.info(f"🔍 Found base scenario: {base_scenario_id}")
+        logger.info(f"🔍 Found best scenario: {base_scenario_id}")
         return {
             "base_scenario_id": base_scenario_id,
             "current_scenic_code": scenic_code

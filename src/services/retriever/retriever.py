@@ -5,9 +5,9 @@ Document retrieval with advanced filtering and ranking.
 import logging
 from typing import Dict, List, Optional, Any
 
-from langchain_core.documents import Document
-
+from src.schema import ScenarioDocument
 from ..vectorstore import MilvusVectorStore
+from ..reranker import BaseReranker
 
 logger = logging.getLogger(__name__)
 
@@ -20,44 +20,42 @@ class Retriever:
     def __init__(
         self,
         vectorstore: MilvusVectorStore,
+        reranker: BaseReranker,
         top_k: int = 5,
         similarity_threshold: Optional[float] = None,
-        enable_reranking: bool = False
     ):
         """
         Initialize retriever.
         
         Args:
             vectorstore: MilvusVectorStore instance
+            reranker: BaseReranker instance
             top_k: Number of documents to retrieve
             similarity_threshold: Minimum similarity score threshold
-            enable_reranking: Whether to enable reranking (future feature)
         """
         self.vectorstore = vectorstore
         self.top_k = top_k
         self.similarity_threshold = similarity_threshold
-        self.enable_reranking = enable_reranking
+        self.reranker = reranker
 
     def retrieve(
         self,
-        query: str,
+        query: Dict[str, Any],
         top_k: Optional[int] = None,
         filter_tags: Optional[List[str]] = None,
         metadata_filter: Optional[Dict[str, Any]] = None,
-        return_scores: bool = False
-    ) -> List[Document] | List[tuple[Document, float]]:
+    ) -> List[ScenarioDocument]:
         """
         Retrieve relevant documents for a query.
         
         Args:
-            query: Query string
+            query: Query dictionary
             top_k: Number of documents to retrieve (overrides default)
             filter_tags: List of tags to filter by
             metadata_filter: Additional metadata filters
-            return_scores: Whether to return similarity scores
             
         Returns:
-            List of Documents or list of (Document, score) tuples
+            List of scenario dictionaries
         """
         k = top_k or self.top_k
         
@@ -66,85 +64,75 @@ class Retriever:
             f"(top_k={k}, tags={filter_tags})"
         )
         
-        if return_scores:
-            results = self.vectorstore.similarity_search_with_score(
-                query=query,
-                k=k,
-                filter_tags=filter_tags,
-                metadata_filter=metadata_filter
-            )
-            
-            # Apply threshold if specified
-            if self.similarity_threshold:
-                results = [
-                    (doc, score) for doc, score in results
-                    if score >= self.similarity_threshold
-                ]
-            
-            logger.info(f"Retrieved {len(results)} documents with scores")
-            return results
-        else:
-            results = self.vectorstore.similarity_search(
-                query=query,
-                k=k,
-                filter_tags=filter_tags,
-                metadata_filter=metadata_filter,
-                score_threshold=self.similarity_threshold
-            )
-            
-            logger.info(f"Retrieved {len(results)} documents")
-            return results
-
-    def retrieve_by_tags(
-        self,
-        query: str,
-        required_tags: List[str],
-        top_k: Optional[int] = None,
-        return_scores: bool = False
-    ) -> List[Document] | List[tuple[Document, float]]:
-        """
-        Retrieve documents that must contain specific tags.
-        
-        Args:
-            query: Query string
-            required_tags: List of tags that documents must have
-            top_k: Number of documents to retrieve
-            return_scores: Whether to return similarity scores
-            
-        Returns:
-            List of Documents or list of (Document, score) tuples
-        """
-        return self.retrieve(
+        # 1. retrieve scenario ids from vector store via similarity search
+        scenario_ids = self.vectorstore.similarity_search(
             query=query,
-            top_k=top_k,
-            filter_tags=required_tags,
-            return_scores=return_scores
-        )
-
-    def retrieve_by_source(
-        self,
-        query: str,
-        source: str,
-        top_k: Optional[int] = None,
-        return_scores: bool = False
-    ) -> List[Document] | List[tuple[Document, float]]:
-        """
-        Retrieve documents from a specific source.
-        
-        Args:
-            query: Query string
-            source: Source file or identifier
-            top_k: Number of documents to retrieve
-            return_scores: Whether to return similarity scores
-            
-        Returns:
-            List of Documents or list of (Document, score) tuples
-        """
-        metadata_filter = {"source": source}
-        
-        return self.retrieve(
-            query=query,
-            top_k=top_k,
+            k=k,
+            filter_tags=filter_tags,
             metadata_filter=metadata_filter,
-            return_scores=return_scores
+            score_threshold=self.similarity_threshold
         )
+
+        if len(scenario_ids) == 0:
+            logger.warning("No scenarios found for query")
+            return []
+
+        # 2. get the original scenario documents from the local file system
+        results: List[ScenarioDocument] = []
+        for scenario_id in scenario_ids:
+            scenario = self._get_original_scenario(scenario_id)
+            if scenario is None:
+                logger.warning(f"Scenario not found for ID: {scenario_id}")
+                continue
+            results.append(scenario)
+        
+        logger.info(f"Retrieved {len(results)} scenarios")
+
+        # 3. rerank the scenarios based on the query
+        best_scenarios = self.reranker.rerank(
+            query=query,
+            documents=results,
+            top_k=k # return the best k scenarios
+        )
+
+        logger.info(f"Best scenario: {best_scenarios[0].scenario_id}")
+
+        return best_scenarios
+
+    def _get_original_scenario(self, scenario_id: str) -> ScenarioDocument:
+        """
+        Get the original scenario from the local file system.
+        """
+        try:
+            scenario_location = f"data/scenarios/{scenario_id}"
+            
+            scenario_description = None
+            scenario_scenic_code = None
+            video_path = None
+            image_path = None
+
+            # check if the files exist, if exist, read the content
+            if (scenario_location / "description.txt").exists():
+                with open(scenario_location / "description.txt", "r") as f:
+                    scenario_description = f.read()
+
+            if (scenario_location / "code.scenic").exists():
+                with open(scenario_location / "code.scenic", "r") as f:
+                    scenario_scenic_code = f.read()
+
+            if (scenario_location / "video.mp4").exists():
+                video_path = str(scenario_location / "video.mp4")
+
+            if (scenario_location / "image.png").exists():
+                image_path = str(scenario_location / "image.png")
+                
+            return ScenarioDocument(
+                scenario_id=scenario_id,
+                description=scenario_description,
+                scenic_code=scenario_scenic_code,
+                video_path=video_path,
+                image_path=image_path
+            )
+        except Exception as e:
+            logger.error(f"Error getting original scenario for ID: {scenario_id}: {e}")
+            return None

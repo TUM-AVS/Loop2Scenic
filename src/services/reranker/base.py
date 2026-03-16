@@ -5,8 +5,7 @@ Reranker module for reordering retrieved documents based on relevance.
 from abc import ABC, abstractmethod
 from typing import List, Optional, Any, Union
 
-from langchain_core.documents import Document
-
+from src.schema import ScenarioDocument, MultimodalQuery
 
 class BaseReranker(ABC):
     """
@@ -19,44 +18,43 @@ class BaseReranker(ABC):
     @abstractmethod
     def rerank(
         self,
-        query: Union[str, dict[str, Any]],
-        documents: List[Document],
+        query: MultimodalQuery,
+        documents: List[ScenarioDocument],
         top_k: Optional[int] = None,
         **kwargs
-    ) -> List[Document]:
+    ) -> List[ScenarioDocument]:
         """
         Rerank a list of documents based on a query.
         
         Args:
-            query: Query string or multimodal query dictionary
-                (e.g., {"text": "...", "image": "...", "video": "..."})
+            query: Multimodal query
             documents: List of documents to rerank
             top_k: Optional limit on number of documents to return after reranking
             **kwargs: Additional arguments for specific reranker implementations
             
         Returns:
-            List of reranked Document objects, ordered by relevance (most relevant first)
+            List of reranked ScenarioDocument objects, ordered by relevance (most relevant first)
         """
         pass
 
     @abstractmethod
     def rerank_with_scores(
         self,
-        query: Union[str, dict[str, Any]],
-        documents: List[Document],
+        query: MultimodalQuery,
+        documents: List[ScenarioDocument],
         top_k: Optional[int] = None,
         **kwargs
-    ) -> List[tuple[Document, float]]:
+    ) -> List[tuple[ScenarioDocument, float]]:
         """
         Rerank documents and return them with relevance scores.
         
         Args:
-            query: Query string or multimodal query dictionary
+            query: Multimodal query
             documents: List of documents to rerank
             top_k: Optional limit on number of documents to return
             **kwargs: Additional arguments for specific reranker implementations
             
         Returns:
-            List of (Document, score) tuples, ordered by score (highest first)
+            List of (ScenarioDocument, score) tuples, ordered by score (highest first)
         """
         pass

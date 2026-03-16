@@ -11,7 +11,6 @@ import json
 from .config import Config, get_config
 from .ingestion import MultimodalDocumentInterpreter
 from .services import MilvusVectorStore, get_vlm_service, get_embedder, Retriever
-from .generation import get_generator
 from .utils import setup_logging
 
 logger = logging.getLogger(__name__)
@@ -60,7 +59,6 @@ class RAGPipeline:
         embedding_dim = self._initialize_embedder()
         self._initialize_vector_store(embedding_dim)
         # self._initialize_retriever()
-        # self._initialize_generator()
 
     def _initialize_vlm_service(self):
         """Initialize VLM (Vision Language Model) service."""
@@ -176,20 +174,6 @@ class RAGPipeline:
         )
         
         logger.info("Retriever initialized successfully.")
-
-    def _initialize_generator(self):
-        """Initialize LLM generator."""
-        logger.info("Initializing Generator...")
-        
-        self.generator = get_generator(
-            provider=self.config.llm.provider,
-            model=self.config.llm.model,
-            temperature=self.config.llm.temperature,
-            max_tokens=self.config.llm.max_tokens,
-            streaming=self.config.llm.streaming
-        )
-        
-        logger.info(f"Generator initialized successfully with {self.config.llm.provider}.")
 
     def interpret_scenarios(self, directory_path: Union[str, Path]):
         """
