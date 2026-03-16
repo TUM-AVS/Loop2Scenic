@@ -7,9 +7,9 @@ def get_vlm_service(provider: str, **kwargs) -> BaseVLMModel:
     """
     Get a VLM service based on the provider.
     """
-    if provider == "qwen3vl":
+    if provider == "qwen":
         return Qwen3VLModel(**kwargs)
-    elif provider == "openai_vision":
+    elif provider == "openai":
         return OpenAIVLModel(**kwargs)
     elif provider == "gemini":
         return GeminiVLModel(**kwargs)

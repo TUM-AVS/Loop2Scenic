@@ -20,7 +20,7 @@ class VectorDBConfig(BaseModel):
     distance_metric: str = "cosine"
     
     # Milvus mode selection
-    use_lite: bool = True  # True: Milvus Lite (no Docker), False: Milvus Server (Docker)
+    use_lite: bool = False  # True: Milvus Lite (no Docker), False: Milvus Server (Docker)
     lite_db_path: str = "./data/vector_db/milvus.db"  # Used when use_lite=True
     
     # Milvus Server settings (used when use_lite=False)
@@ -61,12 +61,13 @@ class RetrievalConfig(BaseModel):
     """Retrieval configuration."""
     top_k: int = 5
     similarity_threshold: float = 0.7
-    enable_reranking: bool = False
+    enable_reranking: bool = True
     rerank_top_k: int = 10
 
 
 class RerankingConfig(BaseModel):
     """Reranking model configuration."""
+    provider: str = "qwen"  # Options: qwen, openai, gemini
     model_path: Optional[str] = None  # Path to local reranker model directory
     model_name: Optional[str] = None  # Model name identifier
     device: Optional[str] = None  # Device to run the model on (cpu, cuda, etc.)

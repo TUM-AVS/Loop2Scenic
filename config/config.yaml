@@ -39,6 +39,7 @@ retrieval:
   rerank_top_k: 3
 
 reranking:
+  provider: qwen # Options: qwen3vl, openai_vision, gemini
   model_path: ./models/Qwen3-VL-Reranker-2B
   model_name: Qwen3-VL-Reranker-2B
   device: cuda
@@ -55,7 +56,7 @@ llm:
   max_tokens: 10000
 
 vlm:
-  provider: gemini # Options: qwen3vl, openai_vision
+  provider: gemini # Options: qwen, openai
   model_path: None # Required for Qwen3VL, path to local model directory
   model: gemini-2.5-flash # For OpenAI Vision (e.g., "gpt-4-vision-preview", "gpt-4o")
   device: cuda # Device to run on (cpu, cuda, etc.)

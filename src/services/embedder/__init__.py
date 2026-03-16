@@ -7,10 +7,10 @@ def get_embedder(provider: str, **kwargs) -> BaseEmbeddingModel:
     """
     Get an embedder based on the provider.
     """
-    if provider == "qwen3vl":
+    if provider == "qwen":
         return Qwen3VLEmbedding(**kwargs)
     else:
         raise ValueError(
             f"Unsupported provider: {provider}. "
-            f"Supported: qwen3vl"
+            f"Supported: qwen"
         )

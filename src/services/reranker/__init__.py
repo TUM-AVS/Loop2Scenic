@@ -7,10 +7,10 @@ def get_reranker(provider: str, **kwargs) -> BaseReranker:
     """
     Get a reranker based on the provider.
     """
-    if provider == "qwen3vl":
+    if provider == "qwen":
         return QwenVLReranker(**kwargs)
     else:
         raise ValueError(
             f"Unsupported provider: {provider}. "
-            f"Supported: qwen3vl"
+            f"Supported: qwen"
         )
