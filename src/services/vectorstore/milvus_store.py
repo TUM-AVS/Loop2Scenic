@@ -4,15 +4,16 @@ Supports both Milvus Lite (no Docker) and Milvus Server modes.
 """
 
 import logging
+import copy
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 from uuid import uuid4
-
 from langchain_core.documents import Document
 from pymilvus import MilvusClient, DataType
 
-logger = logging.getLogger(__name__)
+from src.schema import ScenarioDocument
 
+logger = logging.getLogger(__name__)
 
 class MilvusVectorStore:
     """
@@ -187,26 +188,25 @@ class MilvusVectorStore:
 
     def similarity_search(
         self,
-        query_embedding: Any,  # Now accepts raw embeddings (List[float] or Tensor)
+        query_embedding: Any,
         k: int = 5,
         filter_tags: Optional[List[str]] = None,
         metadata_filter: Optional[Dict[str, Any]] = None,
         score_threshold: Optional[float] = None
-    ) -> List[Document]:
+    ) -> List[str]:
         """
         Search for similar documents using a pre-computed query embedding.
-        
+
         Args:
             query_embedding: Pre-computed vector (list of floats, numpy array, or tensor)
             k: Number of results to return
-            filter_tags: List of tags to filter by (documents must have at least one)
-            metadata_filter: Additional metadata filters (Milvus expression format)
+            filter_tags: List of tags to filter by
+            metadata_filter: Additional metadata filters
             score_threshold: Minimum similarity score threshold
-            
+
         Returns:
-            List of similar Document objects
+            List of scenario IDs
         """
-        # Build filter expression
         expr = self._build_filter(filter_tags, metadata_filter)
         
         logger.info(
@@ -214,50 +214,53 @@ class MilvusVectorStore:
             f"(filter: {expr}, threshold: {score_threshold})"
         )
         
-        # Convert tensor to list if needed (Milvus requires list/array, not tensor)
+        # Convert tensor to list safely
         if hasattr(query_embedding, 'cpu'):
-            # It's a PyTorch tensor
             query_embedding = query_embedding.cpu().tolist()
         elif hasattr(query_embedding, 'tolist'):
-            # It's a numpy array
             query_embedding = query_embedding.tolist()
+            
+        local_search_params = copy.deepcopy(self.search_params)
         
-        # Search with extra results if threshold filtering
-        search_k = k * 2 if score_threshold is not None else k
-        
-        # Perform search
+        # Inject the threshold dynamically ONLY for this specific query!
+        if score_threshold is not None:
+            # Ensure the nested "params" dict exists
+            if "params" not in local_search_params:
+                local_search_params["params"] = {}
+                
+            local_search_params["params"]["radius"] = score_threshold
+            local_search_params["params"]["range_filter"] = 1.0
+
+        # Perform search asking for EXACTLY k results. 
+        # Milvus will apply the threshold natively.
         results = self.client.search(
             collection_name=self.collection_name,
             data=[query_embedding],
             filter=expr if expr else "",
-            limit=search_k,
-            output_fields=["metadata"],
-            search_params=self.search_params
+            limit=k,
+            output_fields=[],
+            search_params=local_search_params
         )
         
-        # Convert to Documents
-        documents = []
+        scenario_ids = []
+        scores = []
+        
         for hits in results:
             for hit in hits:
-                # Apply score threshold if specified
-                if score_threshold is not None and hit['distance'] < score_threshold:
-                    continue
+                scenario_id = hit.get('id')
+                score = hit.get('distance')
                 
-                doc = Document(
-                    page_content="", # Removed 'text' dependency from schema
-                    metadata=hit['entity'].get('metadata', {})
-                )
-                documents.append(doc)
+                scenario_ids.append(scenario_id)
+                scores.append(score)
                 
-                if len(documents) >= k:
-                    break
+                logger.info(f"Retrieved Scenario ID: {scenario_id}, Score: {score}")
+
+        # If it found nothing, it just safely returns an empty list!
+        if not scenario_ids:
+            logger.warning("No scenarios met the similarity threshold.")
+            return []
             
-            if len(documents) >= k:
-                break
-        
-        logger.info(f"Found {len(documents)} similar documents")
-        
-        return documents[:k]
+        return scenario_ids
 
     def similarity_search_with_score(
         self,

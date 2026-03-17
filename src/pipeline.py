@@ -7,10 +7,12 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 import json
+import numpy as np
 
+from .schema import MultimodalQuery
 from .config import Config, get_config
 from .ingestion import MultimodalDocumentInterpreter
-from .services import MilvusVectorStore, get_vlm_service, get_embedder, Retriever
+from .services import MilvusVectorStore, get_reranker, get_vlm_service, get_embedder, Retriever
 from .utils import setup_logging
 
 logger = logging.getLogger(__name__)
@@ -28,7 +30,7 @@ class RAGPipeline:
     - Response generation
     """
 
-    def __init__(self, config: Optional[Config] = None):
+    def __init__(self, config: Optional[Config] = None, mode: str = "ingestion"):
         """
         Initialize RAG pipeline.
         
@@ -46,11 +48,24 @@ class RAGPipeline:
         )
         
         logger.info("Initializing RAG Pipeline")
-        
-        # Initialize components
-        self._initialize_components()
+
+        if mode == "ingestion":
+            self._initialize_ingestion_components()
+        elif mode == "get_stats":
+            self._initialize_get_stats_components()
+        elif mode == "query":
+            self._initialize_components()
+        elif mode == "mock_query": # for CUDA out of memory error, do not load embedder and reranker at the same time
+            self._initialize_mock_query_components()
+        else:
+            raise ValueError(f"Invalid mode: {mode}")
         
         logger.info("RAG Pipeline initialized successfully")
+
+    def _initialize_get_stats_components(self):
+        """Initialize get stats components."""
+        embedding_dim = self._initialize_embedder()
+        self._initialize_vector_store(embedding_dim)
 
     def _initialize_components(self):
         """Initialize all pipeline components."""
@@ -58,7 +73,20 @@ class RAGPipeline:
         self._initialize_multimodal_interpreter()
         embedding_dim = self._initialize_embedder()
         self._initialize_vector_store(embedding_dim)
-        # self._initialize_retriever()
+        self._initialize_retriever()
+
+    def _initialize_mock_query_components(self):
+        """Initialize all pipeline components."""
+        embedding_dim = 2048
+        self._initialize_vector_store(embedding_dim)
+        self._initialize_retriever()
+
+    def _initialize_ingestion_components(self):
+        """Initialize ingestion components."""
+        self._initialize_vlm_service()
+        self._initialize_multimodal_interpreter()
+        embedding_dim = self._initialize_embedder()
+        self._initialize_vector_store(embedding_dim)
 
     def _initialize_vlm_service(self):
         """Initialize VLM (Vision Language Model) service."""
@@ -102,8 +130,8 @@ class RAGPipeline:
         self.embedder = get_embedder(
             provider=self.config.embedding.provider,
             model_name=self.config.embedding.model_name,
-            device=self.config.embedding.device,
-            batch_size=self.config.embedding.batch_size,
+            # device=self.config.embedding.device,
+            # batch_size=self.config.embedding.batch_size,
             **embedder_kwargs
         )
         
@@ -112,12 +140,29 @@ class RAGPipeline:
         logger.info(f"Embedding dimension: {embedding_dim}")
         return embedding_dim
 
+    def _initialize_retriever(self):
+        """Initialize retriever."""
+        logger.info("Initializing Reranker...")
+        self.reranker = get_reranker(
+            provider=self.config.reranking.provider,
+            model_path=self.config.reranking.model_path,
+            model_name=self.config.reranking.model_name,
+        )
+
+        logger.info("Initializing Retriever...")
+        self.retriever = Retriever(
+            vectorstore=self.vectorstore,
+            reranker=self.reranker,
+            top_k=self.config.retrieval.top_k,
+            similarity_threshold=self.config.retrieval.similarity_threshold,
+        )
+
     def _initialize_vector_store(self, embedding_dim: int):
         """Initialize vector store (Milvus)."""
         logger.info("Initializing Vector Store...")
         
-        if not hasattr(self, 'embedder'):
-            raise ValueError("Embedder must be initialized before vector store. Call _initialize_embedder() first.")
+        # if not hasattr(self, 'embedder'):
+        #     raise ValueError("Embedder must be initialized before vector store. Call _initialize_embedder() first.")
         
         # Milvus supports both Lite and Server modes
         use_lite = getattr(self.config.vector_db, "use_lite", True)
@@ -158,22 +203,6 @@ class RAGPipeline:
         )
         
         logger.info("Vector Store initialized successfully.")
-
-    def _initialize_retriever(self):
-        """Initialize retriever."""
-        logger.info("Initializing Retriever...")
-        
-        if not hasattr(self, 'vectorstore'):
-            raise ValueError("Vector store must be initialized before retriever. Call _initialize_vector_store() first.")
-        
-        self.retriever = Retriever(
-            vectorstore=self.vectorstore,
-            top_k=self.config.retrieval.top_k,
-            similarity_threshold=self.config.retrieval.similarity_threshold,
-            enable_reranking=self.config.retrieval.enable_reranking
-        )
-        
-        logger.info("Retriever initialized successfully.")
 
     def interpret_scenarios(self, directory_path: Union[str, Path]):
         """
@@ -234,7 +263,51 @@ class RAGPipeline:
                 
             logger.info(f"Successfully saved JSON and Text descriptions to {folder_path}")
 
-    def ingest_scenarios(self, directory_path: Union[str, Path]):
+    def interpret_multimodal_query(self, multimodal_query: MultimodalQuery):
+        """
+        Interpret scenarios from a directory and save the descriptions into the folder path's new_description.txt file.
+        
+        Args:
+            directory_path: Path to the directory
+        """
+        query_dict = multimodal_query.model_dump()
+        # 1. Get the raw string output from the VLM
+        scenario_description_str = self.multimodal_interpreter.get_layer_model_description_by_vlm(
+            query_dict, self.vlm_service
+        )
+        logger.info(f"The raw VLM output is: {scenario_description_str}")
+
+        # 2. Parse the string into a Python dictionary
+        try:
+            scenario_data = json.loads(scenario_description_str)
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON from VLM output: {e}.")
+            logger.debug(f"Raw malformed output: {scenario_description_str}")
+            return None
+
+        # 3. Flatten the JSON into plain text for optimal embedding
+        text_parts = []
+        text_parts.append(f"Scenario: {scenario_data.get('Scenario', '')}")
+        text_parts.append(f"The ego vehicle is {scenario_data.get('Ego', '')}")
+        
+        adversarials = scenario_data.get('Adversarials', [])
+        if adversarials:
+            text_parts.append(f"Adversarial objects: {' '.join(adversarials)}")
+        else:
+            text_parts.append("There are no adversarials.")
+            
+        text_parts.append(f"Spatial Relation: {scenario_data.get('Spatial Relation', '')}")
+        
+        reqs = scenario_data.get('Requirement and restrictions', '')
+        if reqs:
+            text_parts.append(f"Requirements and restrictions: {reqs}")
+            
+        flattened_text = " ".join(text_parts)
+            
+        logger.info(f"Successfully interpreted multimodal query: {flattened_text}")
+        return flattened_text
+
+    def ingest_scenarios_with_interpretation(self, directory_path: Union[str, Path]):
         """
         Ingest scenarios from a directory into the vector store.
         
@@ -245,6 +318,20 @@ class RAGPipeline:
             List of document IDs
         """
         self.interpret_scenarios(directory_path)
+        scenarios_dicts = self.multimodal_interpreter.extract_from_directory(directory_path, use_new_description=True)
+        logger.info(f"The first scenario dictionary: {scenarios_dicts[0]}")
+        return scenarios_dicts
+
+    def ingest_scenarios_without_interpretation(self, directory_path: Union[str, Path]):
+        """
+        Ingest scenarios from a directory into the vector store, the new description file is already generated before.
+        
+        Args:
+            directory_path: Path to the directory
+
+        Returns:
+            List of document IDs
+        """
         scenarios_dicts = self.multimodal_interpreter.extract_from_directory(directory_path, use_new_description=True)
         logger.info(f"The first scenario dictionary: {scenarios_dicts[0]}")
         return scenarios_dicts
@@ -294,6 +381,47 @@ class RAGPipeline:
         query_embedding = self.embedder.encode([query_dict])[0]
         results = self.vectorstore.similarity_search_with_score(query_embedding)
         return results
+
+    def query_with_reranking(self, query_object: MultimodalQuery, interpreted_query_object: MultimodalQuery):
+        """
+        Query the vector store with reranking.
+        
+        Args:
+            query_dict: Query dictionary, including text, image, video
+
+        Returns:
+            The base scenario id
+        """
+        query_embedding = self.embedder.encode([interpreted_query_object.model_dump()])[0]
+        best_scenarios = self.retriever.retrieve(
+            original_query=query_object,
+            query_embedding=query_embedding,
+        )
+        base_scenario_id = best_scenarios[0].scenario_id # only return the best 1 scenario
+        
+        logger.info(f"🔍 Found best scenario: {base_scenario_id}")
+        return base_scenario_id
+
+    def mock_query_with_reranking(self, query_dict: Dict[str, Any]):
+        """
+        Query the vector store with reranking.
+        
+        Args:
+            query_dict: Query dictionary, including text, image, video
+
+        Returns:
+            The base scenario id
+        """
+        rng = np.random.default_rng(42)
+        query_embedding = rng.standard_normal(2048, dtype=np.float32).tolist()
+        best_scenarios = self.retriever.retrieve(
+            original_query=query_dict,
+            query_embedding=query_embedding,
+        )
+        base_scenario_id = best_scenarios[0].scenario_id # only return the best 1 scenario
+        
+        logger.info(f"🔍 Found best scenario: {base_scenario_id}")
+        return base_scenario_id
 
     def get_stats(self) -> Dict[str, Any]:
         """

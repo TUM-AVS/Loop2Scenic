@@ -3,9 +3,10 @@ Document retrieval with advanced filtering and ranking.
 """
 
 import logging
+from pathlib import Path
 from typing import Dict, List, Optional, Any
 
-from src.schema import ScenarioDocument
+from src.schema import ScenarioDocument, MultimodalQuery
 from ..vectorstore import MilvusVectorStore
 from ..reranker import BaseReranker
 
@@ -40,7 +41,8 @@ class Retriever:
 
     def retrieve(
         self,
-        query: Dict[str, Any],
+        original_query: MultimodalQuery,
+        query_embedding: List[float],
         top_k: Optional[int] = None,
         filter_tags: Optional[List[str]] = None,
         metadata_filter: Optional[Dict[str, Any]] = None,
@@ -49,24 +51,22 @@ class Retriever:
         Retrieve relevant documents for a query.
         
         Args:
-            query: Query dictionary
+            original_query: Multimodal query
+            query_embedding: Query embedding
             top_k: Number of documents to retrieve (overrides default)
             filter_tags: List of tags to filter by
             metadata_filter: Additional metadata filters
-            
+
         Returns:
             List of scenario dictionaries
         """
         k = top_k or self.top_k
         
-        logger.info(
-            f"Retrieving documents for query: '{query[:50]}...' "
-            f"(top_k={k}, tags={filter_tags})"
-        )
+        logger.info(f"Retrieving documents")
         
         # 1. retrieve scenario ids from vector store via similarity search
         scenario_ids = self.vectorstore.similarity_search(
-            query=query,
+            query_embedding=query_embedding,
             k=k,
             filter_tags=filter_tags,
             metadata_filter=metadata_filter,
@@ -90,13 +90,15 @@ class Retriever:
 
         # 3. rerank the scenarios based on the query
         best_scenarios = self.reranker.rerank(
-            query=query,
+            query=original_query,
             documents=results,
             top_k=k # return the best k scenarios
         )
+        if len(best_scenarios) == 0:
+            logger.warning("No scenarios found for query")
+            return []
 
         logger.info(f"Best scenario: {best_scenarios[0].scenario_id}")
-
         return best_scenarios
 
     def _get_original_scenario(self, scenario_id: str) -> ScenarioDocument:
@@ -104,7 +106,7 @@ class Retriever:
         Get the original scenario from the local file system.
         """
         try:
-            scenario_location = f"data/scenarios/{scenario_id}"
+            scenario_location = Path(f"data/scenarios/{scenario_id}").resolve() # use absolute path for reranker vlm
             
             scenario_description = None
             scenario_scenic_code = None
@@ -112,7 +114,10 @@ class Retriever:
             image_path = None
 
             # check if the files exist, if exist, read the content
-            if (scenario_location / "description.txt").exists():
+            if (scenario_location / "new_description.txt").exists():
+                with open(scenario_location / "new_description.txt", "r") as f:
+                    scenario_description = f.read()
+            elif (scenario_location / "description.txt").exists():
                 with open(scenario_location / "description.txt", "r") as f:
                     scenario_description = f.read()
 
@@ -125,6 +130,8 @@ class Retriever:
 
             if (scenario_location / "image.png").exists():
                 image_path = str(scenario_location / "image.png")
+
+            logger.info(f"Scenario ID: {scenario_id}, Video Path: {video_path}, Image Path: {image_path}")
                 
             return ScenarioDocument(
                 scenario_id=scenario_id,

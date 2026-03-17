@@ -1,5 +1,5 @@
 vector_db:
-  collection_name: test_collection1
+  collection_name: avs_new
   distance_metric: cosine # Options: cosine, l2, ip
 
   # Milvus mode
@@ -34,7 +34,7 @@ chunking:
 
 retrieval:
   top_k: 3
-  similarity_threshold: 0.7
+  similarity_threshold: 0
   enable_reranking: true
   rerank_top_k: 3
 
@@ -59,12 +59,8 @@ vlm:
   provider: gemini # Options: qwen, openai
   model_path: None # Required for Qwen3VL, path to local model directory
   model: gemini-2.5-flash # For OpenAI Vision (e.g., "gpt-4-vision-preview", "gpt-4o")
-  device: cuda # Device to run on (cpu, cuda, etc.)
-  torch_dtype: fp16 # Data type (fp16, fp32, bf16)
   temperature: 0.7 # Sampling temperature
   max_tokens: 10000 # Maximum tokens to generate
-  fps: 1.0 # Frames per second for video processing
-  max_frames: 64 # Maximum frames to extract from video
   default_instruction: "You are a helpful AI assistant." # Default instruction text
 
 ingestion:

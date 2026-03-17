@@ -60,7 +60,7 @@ class ChunkingConfig(BaseModel):
 class RetrievalConfig(BaseModel):
     """Retrieval configuration."""
     top_k: int = 5
-    similarity_threshold: float = 0.7
+    similarity_threshold: float = 0
     enable_reranking: bool = True
     rerank_top_k: int = 10
 

@@ -104,17 +104,20 @@ from transformers.cache_utils import Cache
 from transformers.utils.generic import check_model_inputs
 from qwen_vl_utils.vision_process import process_vision_info
 
-# Constants for configuration
+# The max length of the input tokens to vlm model
 MAX_LENGTH = 8192
+
+# configuration for images
 IMAGE_BASE_FACTOR = 16
 IMAGE_FACTOR = IMAGE_BASE_FACTOR * 2
 MIN_PIXELS = 4 * IMAGE_FACTOR * IMAGE_FACTOR
 MAX_PIXELS = 640 * IMAGE_FACTOR * IMAGE_FACTOR
+
+# configuration for videos
 FPS = 1
 MAX_FRAMES = 64
-FRAME_MAX_PIXELS = 768 * IMAGE_FACTOR * IMAGE_FACTOR
-MAX_TOTAL_PIXELS = 10 * FRAME_MAX_PIXELS
-PAD_TOKEN = "<|endoftext|>"
+FRAME_MAX_PIXELS = 224 * 224
+MAX_TOTAL_PIXELS = 64 * FRAME_MAX_PIXELS
 
 # Define output structure for embeddings
 @dataclass
@@ -346,8 +349,8 @@ class Qwen3VLEmbedder():
         image: Optional[Union[List[Union[str, Image.Image]], str, Image.Image]] = None,
         video: Optional[Union[List[Union[str, List[Union[str, Image.Image]]]], str, List[Union[str, Image.Image]]]] = None,
         instruction: Optional[str] = None,
-        fps: Optional[float] = None,
-        max_frames: Optional[int] = None
+        fps: Optional[float] = FPS,
+        max_frames: Optional[int] = MAX_FRAMES
     ) -> List[Dict]:
 
         # Ensure instruction ends with punctuation
@@ -414,7 +417,11 @@ class Qwen3VLEmbedder():
                 else:
                     # Use raw path for local files (works better with decord on Windows)
                     video_content = vid
-                video_kwargs = {'fps': fps or self.fps, 'max_frames': max_frames or self.max_frames}
+                video_kwargs = {
+                    'fps': fps or self.fps, 
+                    'max_frames': max_frames or self.max_frames, 
+                    "total_pixels": self.total_pixels
+                }
             else:
                 raise TypeError(f"Unrecognized video type: {type(vid)}")
 
@@ -452,6 +459,8 @@ class Qwen3VLEmbedder():
         # Process each text
         for txt in texts:
             content.append({'type': 'text', 'text': txt})
+
+        logger.info(f"The conversation: {conversation}")
 
         return conversation
 
@@ -507,8 +516,6 @@ class Qwen3VLEmbedder():
             image=ele.get('image'),
             video=ele.get('video'),
             instruction=ele.get('instruction', "Represent the user's input."),
-            fps=ele.get('fps'),
-            max_frames=ele.get('max_frames')
         ) for ele in inputs]
 
         processed_inputs = self._preprocess_inputs(conversations)

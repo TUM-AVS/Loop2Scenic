@@ -8,7 +8,7 @@ def get_reranker(provider: str, **kwargs) -> BaseReranker:
     Get a reranker based on the provider.
     """
     if provider == "qwen":
-        return QwenVLReranker(**kwargs)
+        return QwenVLReranker(model_path=kwargs.get("model_path"))
     else:
         raise ValueError(
             f"Unsupported provider: {provider}. "

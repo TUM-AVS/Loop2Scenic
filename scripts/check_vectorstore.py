@@ -21,7 +21,7 @@ def main():
     
     # Initialize pipeline
     print("Initializing RAG Pipeline...")
-    pipeline = RAGPipeline()
+    pipeline = RAGPipeline(mode="get_stats")
     
     # Get current stats
     pipeline.get_stats()

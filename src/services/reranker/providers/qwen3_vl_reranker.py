@@ -29,10 +29,7 @@ class QwenVLReranker(BaseReranker):
         Initialize QwenVL reranker.
         """
         self.model_path = model_path
-        self.model = Qwen3VLReranker(
-            model_name_or_path=self.model_path,
-            **kwargs
-        )
+        self.model = Qwen3VLReranker(model_name_or_path=self.model_path)
         self.instruction = instruction
         print(f"QwenVLReranker initialized successfully with model: {self.model_path}")
 
@@ -158,7 +155,9 @@ class QwenVLReranker(BaseReranker):
         # 9. Apply top_k limit if specified
         if top_k is not None:
             doc_score_pairs = doc_score_pairs[:top_k]
-                    
+
+        for doc, score in doc_score_pairs:
+            logger.info(f"Document: {doc.scenario_id}, Score: {score}")
         return doc_score_pairs
 
 import numpy as np
@@ -167,18 +166,19 @@ from qwen_vl_utils import process_vision_info
 from transformers import Qwen3VLForConditionalGeneration, AutoProcessor
 
 MAX_LENGTH = 8192
+
+# for images
 IMAGE_BASE_FACTOR = 16
 IMAGE_FACTOR = IMAGE_BASE_FACTOR * 2
 MIN_PIXELS = 4 * IMAGE_FACTOR * IMAGE_FACTOR  # 4 tokens
 MAX_PIXELS = 640 * IMAGE_FACTOR * IMAGE_FACTOR  # 640 tokens
 MAX_RATIO = 200
 
-FRAME_FACTOR = 2
+# for videos
 FPS = 0.5
-MIN_FRAMES = 2
-MAX_FRAMES = 64
-MIN_TOTAL_PIXELS = 1 * FRAME_FACTOR * MIN_PIXELS  # 1 frames
-MAX_TOTAL_PIXELS = 4 * FRAME_FACTOR * MAX_PIXELS  # 4 frames
+MAX_FRAMES = 32
+FRAME_MAX_PIXELS = 224 * 224
+MAX_TOTAL_PIXELS = 32 * FRAME_MAX_PIXELS
 
 
 def sample_frames(frames, num_segments, max_segments):
@@ -364,7 +364,11 @@ class Qwen3VLReranker():
                 ]
             elif isinstance(video, str):
                 video_content = video if video.startswith(('http://', 'https://')) else 'file://' + video
-                video_kwargs = {'fps': fps or self.fps, 'max_frames': max_frames or self.max_frames,}
+                video_kwargs = {
+                    'fps': fps or self.fps, 
+                    'max_frames': max_frames or self.max_frames, 
+                    "total_pixels": self.total_pixels
+                    }
             else:
                 raise TypeError(f"Unrecognized video type: {type(video)}")
 

@@ -7,7 +7,7 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
-from ..vlm import VLMService
+from src.services import BaseVLMModel
 from ..prompt import load_prompt
 
 logger = logging.getLogger(__name__)
@@ -214,7 +214,7 @@ class MultimodalDocumentInterpreter:
     def get_layer_model_description_by_vlm(
         self,
         content_dict: Dict[str, str],
-        vlm_service: VLMService,  # VLMService when available
+        vlm_service: BaseVLMModel,  # VLMService when available
         prompt_template_name: Optional[str] = "describe_in_layer_model",
         **kwargs
     ) -> str:
@@ -271,7 +271,7 @@ class MultimodalDocumentInterpreter:
             **kwargs
         )
         
-        logger.info("VLM processing completed successfully")
+        logger.info(f"VLM processing completed successfully, result: {response}")
         return response
 
     

@@ -49,13 +49,14 @@ def main():
     
     # Initialize pipeline
     print("Initializing RAG Pipeline...")
-    pipeline = RAGPipeline()
+    pipeline = RAGPipeline(mode="ingestion")
     
     # Ingest scenarios
     print(f"Ingesting scenarios from: {args.source}")
     print("Step 1: Interpreting scenarios with VLM...")
     
-    scenarios_dicts = pipeline.ingest_scenarios(directory_path=args.source)
+    # scenarios_dicts = pipeline.ingest_scenarios_with_interpretation(directory_path=args.source)
+    scenarios_dicts = pipeline.ingest_scenarios_without_interpretation(directory_path=args.source)
     
     print(f"\n✓ Successfully processed {len(scenarios_dicts)} scenarios")
     print("✓ Scenario descriptions saved to new_description.txt files")
