@@ -70,6 +70,9 @@ class Qwen3VLEmbedding(BaseEmbeddingModel):
         logger.debug(f"Encoding {len(inputs)} inputs with Qwen engine")
         
         embeddings = self.embedder.process(inputs)
+        # convert the embeddings to a list of floats and move to cpu
+        embeddings = embeddings.detach().cpu().tolist()
+
         return embeddings
 
     @property
@@ -510,7 +513,7 @@ class Qwen3VLEmbedder():
         return hidden_state[row, col]
 
     # Process inputs to generate normalized embeddings
-    def process(self, inputs: List[Dict[str, Any]], normalize: bool = True) -> tuple:
+    def process(self, inputs: List[Dict[str, Any]], normalize: bool = True) -> torch.Tensor:
         conversations = [self.format_model_input(
             text=ele.get('text'),
             image=ele.get('image'),

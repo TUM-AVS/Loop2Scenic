@@ -21,18 +21,19 @@ class BaseAgent(ABC):
         
         try: 
             json.loads(raw_text)
+            return json.loads(raw_text)
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON from text: {e}. Raw text: {raw_text}")
-            pass
+            logger.info(f"Failed to parse JSON from text, trying to match regex...")
+            # try to find ```json {...} ``` or just ```{...}```
+            match = re.search(r"```(?:json)?\s*([\{\[].*?[\}\]])\s*```", raw_text, re.DOTALL)
+            if match:
+                json_str = match.group(1)
+                json_obj = json.loads(json_str)
+                return json_obj
+            else:
+                logger.error(f"Failed to find JSON in text: {raw_text}")
+                return None
         except Exception as e:
             logger.error(f"Failed to parse JSON from text: {e}. Raw text: {raw_text}")
             return None
 
-        # try to find ```json {...} ``` or just ```{...}```
-        match = re.search(r"```json\s*(\{.*?\})?\s*```", raw_text)
-        if match:
-            json_str = match.group(1)
-            return json.loads(json_str)
-        else:
-            logger.error(f"Failed to find JSON in text: {raw_text}")
-            return None

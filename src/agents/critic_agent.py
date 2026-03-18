@@ -1,6 +1,8 @@
 import logging
 from typing import Tuple
 
+from src.schema import MultimodalQuery
+
 from .base_agent import BaseAgent
 from src.services import BaseVLMModel
 from src.prompt import load_prompt
@@ -23,7 +25,8 @@ class CriticAgent(BaseAgent):
         if json_response:
             score = json_response.get("score", 0)
             feedback = json_response.get("feedback", "")
-            return score, feedback
+            feedback_query = MultimodalQuery(text=feedback, image_path=None, video_path=None)
+            return score, feedback_query
         else:
             logger.error("Failed to parse JSON")
-            return 0, "Failed to parse JSON"
+            return 0, None

@@ -8,6 +8,8 @@ import os
 import json
 from pathlib import Path
 
+from src.schema import MultimodalQuery
+
 # Add the project root (ads-mrag) to the python path
 root_path = str(Path(__file__).parent.parent.parent)
 if root_path not in sys.path:
@@ -89,7 +91,7 @@ class ScenarioWorkflow:
         count = state.get("generation_count", 0)
         max_count = state.get("max_count", 3)
         
-        if score > 90 or count >= max_count:
+        if score >= 0 or count >= max_count:
             logger.info(f"🚦 ROUTER: Score {score} or max count {count}/{max_count} reached. Sending to User.")
             return "human_review"
         else:
@@ -110,9 +112,72 @@ class ScenarioWorkflow:
     def embed_query(self, state: ScenarioWorkflowState) -> Dict:
         log_workflow_state(logger, "embed_query", state)
         
-        query = state.get('user_query', {})
-        dsl = self.interpreter.generate_dsl(query)
-        query_embedding = self.embedder.encode([dsl])
+        query = state.get('user_query', None)
+        if not query:
+            logger.error("No user query provided")
+            return {
+                "user_query": None,
+                "scenario_dsl": None,
+                "query_embedding": None,
+                "base_scenario_id": "",
+                "current_scenic_code": "",
+                "simulation_video_path": "",
+                "evaluation_score": 0.0,
+                "evaluation_feedback": "",
+                "best_scenic_code": "",
+                "best_score": -1.0,
+                "user_satisfied": None,
+                "user_modification": None,
+                "generation_count": 0
+            }
+        dsl, flattened_text = self.interpreter.generate_dsl(query) # flatten text to reduce the noise caused by the formatting of the DSL
+        query_to_embed = MultimodalQuery(text=flattened_text, image_path=query.image_path, video_path=query.video_path)
+        query_embeddings = self.embedder.encode([query_to_embed.model_dump()])
+        
+        # NOTE: embedder may return a Tensor; `if not tensor` is invalid in PyTorch.
+        if query_embeddings is None:
+            logger.error("Failed to embed query (got None)")
+            return {
+                "user_query": None,
+                "scenario_dsl": None,
+                "query_embedding": None,
+                "base_scenario_id": "",
+                "current_scenic_code": "",
+                "simulation_video_path": "",
+                "evaluation_score": 0.0,
+                "evaluation_feedback": "",
+                "best_scenic_code": "",
+                "best_score": -1.0,
+                "user_satisfied": None,
+                "user_modification": None,
+                "generation_count": 0
+            }
+
+        # Handle both list-like batches and tensor-like batches
+        try:
+            batch_size = len(query_embeddings)
+        except TypeError:
+            batch_size = int(getattr(query_embeddings, "shape", [0])[0] or 0)
+
+        if batch_size == 0:
+            logger.error("Failed to embed query")
+            return {
+                "user_query": None,
+                "scenario_dsl": None,
+                "query_embedding": None,
+                "base_scenario_id": "",
+                "current_scenic_code": "",
+                "simulation_video_path": "",
+                "evaluation_score": 0.0,
+                "evaluation_feedback": "",
+                "best_scenic_code": "",
+                "best_score": -1.0,
+                "user_satisfied": None,
+                "user_modification": None,
+                "generation_count": 0
+            }
+
+        query_embedding = query_embeddings[0]
 
         logger.info("🧹 CLEANUP: Wiping previous scenario data for fresh run...")
         return {
@@ -133,8 +198,27 @@ class ScenarioWorkflow:
     def retrieve_base_scenario(self, state: ScenarioWorkflowState) -> Dict:
         log_workflow_state(logger, "retrieve_base_scenario", state)
         
-        query_embedding = state["query_embedding"]
-        best_scenarios = self.retriever.retrieve(query_embedding)
+        user_query = state.get("user_query", None)
+        query_embedding = state.get("query_embedding", None)
+        # NOTE: query_embedding can be a Tensor; avoid `if not tensor` ambiguity.
+        if user_query is None or query_embedding is None:
+            logger.error("No user query or query embedding provided")
+            return {
+                "base_scenario_id": "",
+                "current_scenic_code": "",
+            }
+            
+        best_scenarios = self.retriever.retrieve(
+            original_query=user_query, 
+            query_embedding=query_embedding,
+        )
+        if not best_scenarios or len(best_scenarios) == 0:
+            logger.error("No scenarios found for query")
+            return {
+                "base_scenario_id": "",
+                "current_scenic_code": "",
+            }
+            
         base_scenario_id = best_scenarios[0].scenario_id # only return the best 1 scenario
         scenic_code = find_scenic_code_with_scenario_id(base_scenario_id)
         
@@ -161,6 +245,13 @@ class ScenarioWorkflow:
         # Convert scenario_dsl to string if it's a dict
         original_query = json.dumps(scenario_dsl) if isinstance(scenario_dsl, dict) else str(scenario_dsl)
         evaluation_score, evaluation_feedback = self.critic.evaluate_with_vlm(video_path, original_query)
+
+        if evaluation_feedback is None:
+            logger.error("Failed to evaluate with VLM")
+            return {
+                "evaluation_score": 0.0,
+                "evaluation_feedback": None
+            }
 
         logger.info(f"📊 VLM Score: {evaluation_score}")
         updates = {
@@ -238,7 +329,7 @@ def run_simulation_in_carla_and_save_video(scenic_code: str) -> str:
     """
     Run the simulation in Carla and save the video.
     """
-    return "/tmp/video.mp4"
+    return "/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testvideo.mp4"
 
 # ==========================================
 # TEST RUNNER
@@ -248,7 +339,12 @@ if __name__ == "__main__":
     setup_logging(level="INFO", run_name="scenic_workflow_test")
     
     workflow = ScenarioWorkflow()
-    initial_state = {"user_query": {"text": "highway scenario"}, "max_count": 3}
+    user_query = MultimodalQuery(
+        text="highway scenario", 
+        image_path=None, 
+        video_path="/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testvideo.mp4"
+    )
+    initial_state = {"user_query": user_query, "max_count": 3}
     config = {"configurable": {"thread_id": "test_1"}}
     
     logger.info("🚀 STARTING INITIAL WORKFLOW RUN...")
@@ -258,7 +354,7 @@ if __name__ == "__main__":
     logger.info("🛑 GRAPH PAUSED. Pretending user clicked 'Reject'...")
     workflow.app.update_state(config, {
         "user_satisfied": False,
-        "user_modification": {"text": "Make it rain"}
+        "user_modification": MultimodalQuery(text="Make it rain", image_path=None, video_path=None)
     })
     
     logger.info("🚀 RESUMING WITH HUMAN FEEDBACK...")
