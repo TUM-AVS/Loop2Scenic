@@ -1,7 +1,10 @@
 import logging
-from typing import Optional
+from typing import Any, Optional
 from pathlib import Path
 import time
+import google.generativeai as genai
+from PIL import Image
+import os
 
 from ..base import BaseVLMModel
 
@@ -14,7 +17,7 @@ class GeminiVLModel(BaseVLMModel):
         self,
         model: str = "gemini-1.5-pro", # 1.5-pro is highly recommended for complex multimodal tasks
         temperature: float = 0.7,
-        max_tokens: int = 512,
+        max_tokens: int = 51200,
         api_key: Optional[str] = None,
         **kwargs
     ):
@@ -28,14 +31,15 @@ class GeminiVLModel(BaseVLMModel):
             api_key: Optional API key. If not provided, it will look for the GOOGLE_API_KEY env var.
             **kwargs: Additional configuration
         """
-        try:
-            import google.generativeai as genai
-        except ImportError:
-            raise ImportError("Google Generative AI package not installed. Install with: pip install google-generativeai")
-        
         self._model_name = model
         self.temperature = temperature
         self.max_tokens = max_tokens
+
+        self.generation_config = genai.types.GenerationConfig(
+            temperature=temperature,
+            max_output_tokens=max_tokens,
+        )
+        self.default_instruction = "You are a helpful AI assistant."
         
         if api_key:
             genai.configure(api_key=api_key)
@@ -51,19 +55,7 @@ class GeminiVLModel(BaseVLMModel):
         **kwargs
     ) -> str:
         """Chat with Gemini model using multimodal inputs (Text, Image, and Video)."""
-        import google.generativeai as genai
-        from PIL import Image
-
-        temperature = kwargs.get('temperature', self.temperature)
-        max_tokens = kwargs.get('max_tokens', self.max_tokens)
-        
         logger.debug(f"Chatting with {self._model_name}")
-
-        # Setup generation configuration
-        generation_config = genai.types.GenerationConfig(
-            temperature=temperature,
-            max_output_tokens=max_tokens,
-        )
 
         # Initialize the specific model instance (allows dynamic system instructions)
         model_kwargs = {"model_name": self._model_name}
@@ -117,7 +109,7 @@ class GeminiVLModel(BaseVLMModel):
         try:
             response = model.generate_content(
                 contents,
-                generation_config=generation_config
+                generation_config=self.generation_config
             )
             result = response.text
         except Exception as e:
@@ -133,6 +125,56 @@ class GeminiVLModel(BaseVLMModel):
                     logger.warning(f"Failed to delete temporary video file: {e}")
 
         return result
+
+    def chat_with_content(
+        self,
+        contents: Any,
+        system_instruction: Optional[str] = None,
+    ) -> str:
+        """Chat with Gemini model using formatted content inputs."""
+        system_instruction = system_instruction or self.default_instruction
+        model_kwargs = {"model_name": self._model_name}
+        if system_instruction:
+            model_kwargs["system_instruction"] = system_instruction
+
+        model = genai.GenerativeModel(**model_kwargs)
+        response = model.generate_content(contents, generation_config=self.generation_config)
+        return response.text
+
+    def load_media(self, file_path: str):
+        """
+        Uploads a local media file to the Gemini API and ensures it is 
+        fully processed and ready to be used in a prompt.
+        """
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Media file not found at path: {file_path}")
+
+        print(f"Uploading {os.path.basename(file_path)} to Gemini...")
+        
+        # 1. Upload the file to Google's servers
+        uploaded_file = genai.upload_file(path=file_path)
+        
+        # 2. Check if it's a video. If so, we MUST wait for it to process.
+        if uploaded_file.mime_type.startswith("video/"):
+            print("Video detected. Waiting for processing to complete...")
+            
+            # Poll the API every 2 seconds until the state changes
+            while uploaded_file.state.name == "PROCESSING":
+                print(".", end="", flush=True)
+                time.sleep(2)
+                # Fetch the updated file status from the API
+                uploaded_file = genai.get_file(uploaded_file.name)
+                
+            print() # Add a newline after the loading dots
+            
+            # If it failed to process, stop the execution
+            if uploaded_file.state.name == "FAILED":
+                raise ValueError(f"Video processing failed for {file_path}")
+                
+        print(f"Successfully loaded and ready: {uploaded_file.name}")
+        
+        # 3. Return the actual File object, which can now be appended directly to your `contents` list!
+        return uploaded_file
 
     @property
     def model_name(self) -> str:
