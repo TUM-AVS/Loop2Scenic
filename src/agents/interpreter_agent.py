@@ -1,10 +1,11 @@
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, Tuple
 import logging
 
-from src.services import BaseVLMModel
+from src.services import BaseLLMModel, BaseVLMModel
+from src.services.vlm import GeminiVLModel
 from .base_agent import BaseAgent
 from src.prompt import load_prompt
-from src.schema import MultimodalQuery
+from src.schema import MultimodalQuery, ScenarioDocument
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +18,7 @@ class InterpreterAgent(BaseAgent):
     def process(self, state: dict) -> dict:
         return state
 
-    def generate_dsl(self, user_query: MultimodalQuery) -> Tuple[Dict[str, Any], str]:
+    def generate_dsl_from_user_query(self, user_query: MultimodalQuery) -> Tuple[Dict[str, Any], str]:
         """
         Generate a DSL (Domain-Specific Language) in json format from the natural language user query.
         """
@@ -47,6 +48,38 @@ class InterpreterAgent(BaseAgent):
             logger.error("Failed to parse JSON")
             return None, None
 
+    def generate_dsl_from_user_feedback(
+        self, 
+        user_feedback: MultimodalQuery, 
+        dsl_to_modify: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Generate a DSL (Domain-Specific Language) in json format from the user feedback and original scenario.
+        """
+        contents = []
+        static_promt = load_prompt("modify_dsl_from_user_feedback").format(scenario_dsl=dsl_to_modify)
+        contents.append(static_promt)
+
+        if user_feedback.text:
+            contents.append(f"User suggestion text: {user_feedback.text}")
+        if user_feedback.image_path:
+            contents.append("User suggestion image:")
+            contents.append(self.vlm_service.load_media(user_feedback.image_path))
+        if user_feedback.video_path:
+            contents.append("User suggestion video:")
+            contents.append(self.vlm_service.load_media(user_feedback.video_path))
+
+        output_instructions = load_prompt("output_layer_model_format")
+        contents.append(output_instructions)
+
+        response = self.vlm_service.chat_with_content(contents)
+        json_response = self._clean_and_parse_json(response)
+        if json_response:
+            return json_response
+        else:
+            logger.error("Failed to parse JSON")
+            return None
+
     def _flatten_dsl(self, dsl: Dict[str, Any]) -> str:
         if not dsl:
             return None
@@ -74,3 +107,48 @@ class InterpreterAgent(BaseAgent):
         except Exception as e:
             logger.error(f"Failed to flatten DSL: {e}")
             return None
+
+if __name__ == "__main__":
+    interpreter = InterpreterAgent(vlm_service=GeminiVLModel(model="gemini-2.5-flash"))
+
+    # 1. generate original dsl
+    user_query = MultimodalQuery(
+        text="Please generate me a scenario like this.", 
+        image_path="/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testimage.png", 
+        video_path="/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testvideo.mp4"
+    )
+    dsl, flattened_text = interpreter.generate_dsl_from_user_query(user_query)
+    print(f"Successfully generated DSL: {dsl}")
+
+    """
+    result = {
+        'Scenario': 'Ego vehicle approaches an intersection, waits for a traffic light, and proceeds straight after another car makes a right turn.', 
+        'Ego': 'A car approaches an intersection, stops at a red light, and then drives straight through the intersection when the light turns green.', 
+        'Adversarials': 
+            ['A car approaches an intersection from the left and makes a right turn.'], 
+        'Spatial Relation': 'The ego vehicle and an adversarial vehicle are positioned on different incoming lanes at a four-way intersection.', 
+        'Requirement and restrictions': "The ego vehicle and the adversarial vehicle are initially a certain distance from the intersection. The ego vehicle's traffic light is initially red and then turns green. The scenario terminates when the ego vehicle has cleared the intersection."
+        }
+    """
+
+    # 2. generate modified dsl
+    user_feedback = MultimodalQuery(
+        text="Please add another car in the scenario which turns left at the intersection behind the ego vehicle as I marked with a red box in the image.", 
+        image_path="/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testimage.png", 
+        video_path=None
+    )
+    modified_dsl = interpreter.generate_dsl_from_user_feedback(user_feedback, dsl)
+    print(f"Successfully generated modified DSL: {modified_dsl}")
+
+    """
+    result:
+    {
+        'Scenario': 'Ego vehicle approaches an intersection, waits for a traffic light, and proceeds straight after another car makes a right turn, while a third car turns left from behind the ego.', 
+        'Ego': 'A car approaches an intersection, stops at a red light, and then drives straight through the intersection when the light turns green.', 
+        'Adversarials': 
+            ['A car approaches an intersection from the left and makes a right turn.', 
+             'A car approaches the intersection from behind the ego vehicle and makes a left turn.'], 
+        'Spatial Relation': 'The ego vehicle and two adversarial vehicles are positioned at a four-way intersection; one adversarial car approaches from the left, and another is positioned behind the ego vehicle on the same lane.', 
+        'Requirement and restrictions': "The ego vehicle and the adversarial vehicles are initially a certain distance from the intersection. The ego vehicle's traffic light is initially red and then turns green. The scenario terminates when the ego vehicle has cleared the intersection."
+    }
+    """

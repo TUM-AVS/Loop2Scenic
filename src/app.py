@@ -281,9 +281,25 @@ if __name__ == "__main__":
     for event in workflow.app.stream(initial_state, config=config):
         pass
 
+    logger.info("🛑 GRAPH PAUSED. Pretending user clicked 'Reject'...")
+    user_feedback = MultimodalQuery(
+        text="Please add another car in the scenario which turns left at the intersection behind the ego vehicle as I marked with a red box in the image.", 
+        image_path="/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testimage.png", 
+        video_path=None
+    )
+    workflow.app.update_state(
+        config, 
+        {"user_satisfied": False,
+        "user_modification": user_feedback
+        }
+    )
+
+    logger.info("🚀 RESUMING WITH HUMAN FEEDBACK...")
+    
+    for event in workflow.app.stream(None, config=config):
+        pass
+    
     logger.info("🛑 GRAPH PAUSED. Pretending user clicked 'Accept'...")
-    workflow.app.update_state(config, {
-        "user_satisfied": True
-    })
+    workflow.app.update_state(config, {"user_satisfied": True})
 
     logger.info("✅ WORKFLOW COMPLETED SUCCESSFULLY.")

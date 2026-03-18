@@ -106,7 +106,7 @@ import carla
 import scenic
 from scenic.simulators.carla.simulator import CarlaSimulator
 
-def run_scenic_and_record_mp4(scenic_input: str, carla_exe_path: str, output_dir: str) -> bool:
+def run_scenic_in_carla(scenic_input: str, carla_exe_path: str, output_dir: str) -> bool:
     """
     Starts CARLA, loads a Scenic scenario, records a video stream via a chase camera, 
     and compiles it into an .mp4 using ffmpeg.

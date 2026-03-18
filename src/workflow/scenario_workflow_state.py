@@ -37,7 +37,8 @@ class ScenarioWorkflowState(TypedDict):
     evaluation_score: float
     
     # The textual critique/differences identified by the VLM
-    evaluation_feedback: MultimodalQuery
+    evaluation_feedback: str
+    evaluation_result: dict
     
     # --- 5. Best Result Tracking ---
     # Tracks the highest-scoring version in case a later adaptation breaks the code
