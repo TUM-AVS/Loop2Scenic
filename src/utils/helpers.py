@@ -101,45 +101,41 @@ import os
 import time
 import subprocess
 import tempfile
+import shutil
 import carla
 import scenic
 from scenic.simulators.carla.simulator import CarlaSimulator
 
-def run_scenic_in_carla(scenic_input: str, carla_exe_path: str, output_dir: str) -> bool:
+def run_scenic_and_record_mp4(scenic_input: str, carla_exe_path: str, output_dir: str) -> bool:
     """
-    Starts CARLA, loads a Scenic scenario, runs it, and saves a recording.
-    
-    Args:
-        scenic_input: Either a file path to a .scenic file, or raw Scenic code.
-        carla_exe_path: Absolute path to the CarlaUE4.exe or CarlaUE4.sh executable.
-        output_dir: Directory where the CARLA recording (.log) will be saved.
-        
-    Returns:
-        bool: True if the simulation ran and completed successfully, False otherwise.
+    Starts CARLA, loads a Scenic scenario, records a video stream via a chase camera, 
+    and compiles it into an .mp4 using ffmpeg.
     """
-    # Prepare the output directory and recording path
+    # Prepare directories
     os.makedirs(output_dir, exist_ok=True)
-    # CARLA's recorder requires an absolute path because the server writes the file
-    recording_path = os.path.abspath(os.path.join(output_dir, "simulation_record.log"))
+    frames_dir = os.path.join(output_dir, "temp_frames")
+    os.makedirs(frames_dir, exist_ok=True)
+    video_path = os.path.join(output_dir, "simulation_video.mp4")
     
     is_file = os.path.isfile(scenic_input)
     scenic_file_path = scenic_input if is_file else None
     
     carla_process = None
     temp_file = None
+    camera = None
     success = False
     
     try:
-        # 1. Start the CARLA server
+        # 1. Start CARLA Server
         print("Starting CARLA Server...")
         carla_process = subprocess.Popen([carla_exe_path])
         
-        # 2. Poll the server until it is ready
         client = carla.Client('localhost', 2000)
         client.set_timeout(2.0)
-        connected = False
         
-        for attempt in range(15):  # Poll for up to 30 seconds
+        # Poll server
+        connected = False
+        for _ in range(15):
             try:
                 client.get_world()
                 connected = True
@@ -152,47 +148,95 @@ def run_scenic_in_carla(scenic_input: str, carla_exe_path: str, output_dir: str)
             print("Error: Could not connect to CARLA server in time.")
             return False
 
-        # 3. Handle the Scenic input (create a temp file if it's raw text)
+        # 2. Handle Scenic input
         if not is_file:
             temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".scenic", mode='w')
             temp_file.write(scenic_input)
             temp_file.close()
             scenic_file_path = temp_file.name
             
-        # 4. Start the CARLA recorder
-        client.start_recorder(recording_path)
-        print(f"Recording started: {recording_path}")
-        
-        # 5. Parse and run the Scenic scenario
-        print("Parsing Scenic scenario...")
+        # 3. Parse Scenario and Create Simulation
+        print("Parsing Scenic scenario and spawning actors...")
         scenario = scenic.scenarioFromFile(scenic_file_path)
-        
-        print("Running simulation...")
         simulator = CarlaSimulator()
         
-        # Generate a specific scene from the probabilistic scenario and simulate it
         scene, _ = scenario.generate()
-        simulation_result = simulator.simulate(scene)
+        # We use createSimulation instead of simulate so we can inject the camera!
+        simulation = simulator.createSimulation(scene)
         
-        # If we reach this point without exceptions, the run was successful
+        # 4. Set up the Chase Camera
+        world = client.get_world()
+        
+        # Try to find the primary vehicle to follow
+        vehicles = world.get_actors().filter('vehicle.*')
+        if not vehicles:
+            print("Warning: No vehicles found in the scene to attach the camera to.")
+            ego_vehicle = None
+        else:
+            # We assume the first vehicle is our main actor
+            ego_vehicle = vehicles[0] 
+        
+        if ego_vehicle:
+            cam_bp = world.get_blueprint_library().find('sensor.camera.rgb')
+            cam_bp.set_attribute('image_size_x', '1280')
+            cam_bp.set_attribute('image_size_y', '720')
+            cam_bp.set_attribute('sensor_tick', '0.033') # Target ~30 FPS
+            
+            # Position camera behind and slightly above the car
+            cam_transform = carla.Transform(carla.Location(x=-6.5, z=3.5), carla.Rotation(pitch=-15.0))
+            camera = world.spawn_actor(cam_bp, cam_transform, attach_to=ego_vehicle)
+            
+            # We use a mutable dictionary to keep a sequential frame count for ffmpeg
+            frame_tracker = {"count": 0}
+            def save_frame(image):
+                image.save_to_disk(os.path.join(frames_dir, f"{frame_tracker['count']:06d}.png"))
+                frame_tracker['count'] += 1
+                
+            camera.listen(save_frame)
+            print("Camera attached and recording started.")
+
+        # 5. Run the Simulation
+        print("Running simulation...")
+        simulation.run()
+        print("Simulation finished. Stopping camera...")
+        
+        if camera:
+            camera.stop()
+            camera.destroy()
+            camera = None
+
+        # 6. Stitch images to MP4 using ffmpeg
+        if shutil.which("ffmpeg") is None:
+            print("Error: 'ffmpeg' is not installed or not in PATH. Leaving raw frames in directory.")
+        else:
+            print(f"Stitching frames into {video_path}...")
+            subprocess.run([
+                "ffmpeg", "-y", "-framerate", "30", 
+                "-i", os.path.join(frames_dir, "%06d.png"), 
+                "-c:v", "libx264", "-pix_fmt", "yuv420p", 
+                video_path
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+            
+            # Clean up the thousands of .png files to save hard drive space
+            shutil.rmtree(frames_dir, ignore_errors=True)
+            print("Video generated successfully!")
+            
         success = True
-        print("Simulation completed successfully.")
         
     except Exception as e:
         print(f"Simulation failed with error: {e}")
         success = False
         
     finally:
-        # 6. Safe cleanup of all resources
+        # 7. Safe cleanup
         print("Cleaning up resources...")
-        try:
-            client.stop_recorder()
-        except NameError:
-            pass # Client was never initialized
+        if camera and camera.is_alive:
+            camera.stop()
+            camera.destroy()
             
         if carla_process:
             carla_process.terminate()
-            carla_process.wait() # Ensure the process actually dies
+            carla_process.wait()
             
         if temp_file and os.path.exists(temp_file.name):
             os.remove(temp_file.name)
