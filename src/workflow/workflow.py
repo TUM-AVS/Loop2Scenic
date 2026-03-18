@@ -16,7 +16,7 @@ if root_path not in sys.path:
     sys.path.append(root_path)
 
 from .scenario_workflow_state import ScenarioWorkflowState
-from src.utils import setup_logging, log_workflow_state
+from src.utils import run_scenic_in_carla, setup_logging, log_workflow_state
 from src.agents import InterpreterAgent, ScenicCoderAgent, CriticAgent
 from src.services import Retriever, BaseEmbeddingModel
 
@@ -330,6 +330,7 @@ def run_simulation_in_carla_and_save_video(scenic_code: str) -> str:
     Run the simulation in Carla and save the video.
     """
     return "/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testvideo.mp4"
+    run_scenic_in_carla(scenic_code, "/home/dellpro2/chenli/ads-mrag/ads-mrag/carla/CarlaUE4.sh", "/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testvideo.mp4")
 
 # ==========================================
 # TEST RUNNER
