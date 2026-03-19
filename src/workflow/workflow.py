@@ -1,10 +1,9 @@
 import logging
-from typing import Any, Dict, List, Tuple, Literal
+from typing import Dict, Literal
 from langgraph.graph import END, START, StateGraph
 from langgraph.checkpoint.memory import MemorySaver
 
 import sys
-import os
 import json
 from pathlib import Path
 
@@ -14,7 +13,7 @@ if root_path not in sys.path:
     sys.path.append(root_path)
 
 from .scenario_workflow_state import ScenarioWorkflowState
-from src.utils import setup_logging, log_workflow_state
+from src.utils import setup_logging, log_workflow_state, to_safe_string
 from src.agents import InterpreterAgent, ScenicCoderAgent, CriticAgent
 from src.services import Retriever, BaseEmbeddingModel
 
@@ -163,12 +162,17 @@ class ScenarioWorkflow:
         evaluation_score, evaluation_feedback = self.critic.evaluate_with_vlm(video_path, original_query)
 
         logger.info(f"📊 VLM Score: {evaluation_score}")
+
+        evaluation_feedback_str = to_safe_string(evaluation_feedback)
+        logger.info(f"🔍 Evaluating feedback: {evaluation_feedback_str}")
         updates = {
             "evaluation_score": evaluation_score,
-            "evaluation_feedback": evaluation_feedback
+            "evaluation_feedback": evaluation_feedback,
+            "messages": [
+                {"role": "assistant", "content": evaluation_feedback_str},
+                {"role": "assistant", "content": f"Score: {str(evaluation_score)}"}
+            ]
         }
-        state["messages"].append({"role": "assistant", "content": evaluation_feedback})
-        state["messages"].append({"role": "assistant", "content": evaluation_score})
 
         if evaluation_score > state.get("best_score", -1.0):
             logger.info("🏆 New best score achieved!")
@@ -183,24 +187,27 @@ class ScenarioWorkflow:
         feedback = state.get("user_modification") or state.get("evaluation_feedback")
         logger.info("🧠 Interpreting feedback into DSL...")
         scenario_dsl = self.interpreter.generate_dsl(feedback) # TODO: add chat history to the prompt
-        state["messages"].append({"role": "assistant", "content": scenario_dsl})
+        scenario_dsl_str = to_safe_string(scenario_dsl)
 
-        return {"scenario_dsl": scenario_dsl}
+        logger.info(f"🔍 Interpreting feedback into DSL: {scenario_dsl_str}")
+        return {"scenario_dsl": scenario_dsl, "messages": [{"role": "assistant", "content": scenario_dsl_str}]}
 
     def adapt_code(self, state: ScenarioWorkflowState) -> Dict:
         log_workflow_state(logger, "adapt_code", state)
         
         scenario_dsl = state.get("scenario_dsl", "")
         scenic_code = state.get("current_scenic_code", "")
-        generation_count = state.get("generation_count", 0)
+        generation_count = state.get("generation_count", 0) 
         
         logger.info(f"🛠 Adapting Scenic code (Iteration: {generation_count + 1})")
         adapted_scenic_code = self.coder.adapt_code(scenic_code, scenario_dsl)
-        state["messages"].append({"role": "assistant", "content": adapted_scenic_code})
+        adapted_scenic_code_str = to_safe_string(adapted_scenic_code)
 
+        logger.info(f"🛠 Adapting Scenic code: {adapted_scenic_code_str}")
         return {
             "current_scenic_code": adapted_scenic_code,
-            "generation_count": generation_count + 1
+            "generation_count": generation_count + 1,
+            "messages": [{"role": "assistant", "content": adapted_scenic_code_str}]
         }
 
     def human_review(self, state: ScenarioWorkflowState) -> Dict:

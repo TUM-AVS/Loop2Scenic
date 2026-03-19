@@ -2,6 +2,7 @@ from src.services import BaseLLMModel
 from .base_agent import BaseAgent
 from src.prompt import load_prompt
 import logging
+from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +15,7 @@ class InterpreterAgent(BaseAgent):
     def process(self, state: dict) -> dict:
         return state
 
-    def generate_dsl(self, user_query: str) -> str:
+    def generate_dsl(self, user_query: str) -> Dict[str, Any]:
         """
         Generate a DSL (Domain-Specific Language) in json format from the natural language user query.
         """

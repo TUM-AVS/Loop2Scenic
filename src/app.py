@@ -187,70 +187,77 @@ class ChatbotWorkflow:
         return workflow
 
     def process_user_input(self, user_text: str, image_path: Optional[str], video_path: Optional[str], history: list, session_id: str):
-            """
-            Take user input (text, image, video), history and session_id, run the workflow and return the response.
-            """
-            # 1. Initialization
-            if not session_id:
-                session_id = str(uuid.uuid4())
-            if not self.workflow:
-                self.workflow = self.initialize_system()
-                
-            config = {"configurable": {"thread_id": session_id}}
-
-            # 1. Append initial messages
-            if image_path:
-                history.append(((image_path,), None))
-            if video_path:
-                history.append(((video_path,), None))
-            history.append((user_text, "⏳ Processing..."))
-            yield history, session_id
-
-            # 2. Check if the workflow is paused waiting for human review
-            current_state = self.workflow.app.get_state(config)
-            is_paused = len(current_state.next) > 0  # If 'next' has nodes, it is paused!
-
-            # Bundle the text and optional media into a dictionary matching your schema
-            multimodal_payload = MultimodalQuery(
-                text=user_text,
-                image_path=image_path,
-                video_path=video_path
-            )
+        """
+        Take user input (text, image, video), history and session_id, run the workflow and return the response.
+        """
+        # 1. Initialization
+        if not session_id:
+            session_id = str(uuid.uuid4())
+        if not self.workflow:
+            self.workflow = self.initialize_system()
             
-            # A simple string representation for the standard messages history
-            new_message = {"role": "user", "content": multimodal_payload.model_dump_json()}
+        config = {"configurable": {"thread_id": session_id}}
 
-            if is_paused:
-                # It was paused! Inject the user's feedback into the state
-                self.workflow.app.update_state(config, {
-                    "user_satisfied": False if user_text.lower() != "accept" else True,
-                    "user_modification": multimodal_payload, # Use the payload here!
-                    "messages": [new_message]
-                })
-                stream_input = None 
-            else:
-                # Brand new request! Pass the initial multimodal query
-                stream_input = {
-                    "user_query": multimodal_payload, # Use the payload here!
-                    "messages": [new_message]
-                }
+        # 1. Append initial messages in the NEW Gradio format
+        if image_path:
+            # Media goes inside a tuple, inside the 'content' key
+            history.append({"role": "user", "content": gr.FileData(path=image_path)})
+        if video_path:
+            history.append({"role": "user", "content": gr.FileData(path=video_path)})
+            
+        # Add the text
+        history.append({"role": "user", "content": user_text})
+        
+        # Add the assistant's loading message
+        history.append({"role": "assistant", "content": "⏳ Processing..."})
+        yield history, session_id
 
-            # 3. Get the messages from the LangGraph stream
-            final_ai_text = ""
-            for event in self.workflow.app.stream(stream_input, config=config):
-                for node_name, state_update in event.items():
-                    if "messages" in state_update:
-                        latest_msg = state_update["messages"][-1]
-                        if latest_msg.get("role") == "assistant":
-                            final_ai_text = latest_msg.get("content", "")
+        # 2. Check if the workflow is paused waiting for human review
+        current_state = self.workflow.app.get_state(config)
+        is_paused = len(current_state.next) > 0  # If 'next' has nodes, it is paused!
 
-            # 4. Check if the graph paused again after this run
-            new_state = self.workflow.app.get_state(config)
-            if len(new_state.next) > 0:
-                final_ai_text += "\n\n**🛑 Graph Paused:** Please review the DSL above. Type your modifications, or type 'accept' to finish."
+        # Bundle the text and optional media into a dictionary matching your schema
+        multimodal_payload = MultimodalQuery(
+            text=user_text,
+            image_path=image_path,
+            video_path=video_path
+        )
+        
+        # A simple string representation for the standard messages history
+        new_message = {"role": "user", "content": multimodal_payload.model_dump_json()}
 
-            # Update the UI replacing "⏳ Processing..." with the final response
-            history[-1] = (user_text, final_ai_text)
+        if is_paused:
+            # It was paused! Inject the user's feedback into the state
+            self.workflow.app.update_state(config, {
+                "user_satisfied": False if user_text.lower() != "accept" else True,
+                "user_modification": multimodal_payload, # Use the payload here!
+                "messages": [new_message]
+            })
+            stream_input = None 
+        else:
+            # Brand new request! Pass the initial multimodal query
+            stream_input = {
+                "user_query": multimodal_payload, # Use the payload here!
+                "messages": [new_message]
+            }
+
+        # 3. Get the messages from the LangGraph stream
+        for event in self.workflow.app.stream(stream_input, config=config):
+            for node_name, state_update in event.items():
+                if isinstance(state_update, dict) and "messages" in state_update: # state_update might be None
+                    for message in state_update["messages"]:
+                        if message.get("role") == "assistant":
+                            new_text = message.get("content", "")
+                            formatted_text = f"**[{node_name.replace('_', ' ').title()}]**\n{new_text}"
+                            history.append({"role": "assistant", "content": formatted_text})
+                            yield history, session_id
+        
+
+        # 4. Check if the graph paused again after this run
+        new_state = self.workflow.app.get_state(config)
+        if len(new_state.next) > 0:
+            final_ai_text = "\n\n**🛑 Graph Paused:** Please review the DSL above. Type your modifications, or type 'accept' to finish."
+            history.append({"role": "assistant", "content": final_ai_text})
             yield history, session_id
 
 
@@ -260,7 +267,7 @@ def build_ui():
         gr.Markdown("Describe a scenario, upload references, review the generated DSL, and provide feedback to modify it!")
 
         session_thread_id = gr.State(None)
-        chatbot = gr.Chatbot(height=500, bubble_full_width=False)
+        chatbot = gr.Chatbot(height=500)
 
         # Create a layout for inputs
         with gr.Row():

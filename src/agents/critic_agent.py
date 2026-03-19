@@ -1,5 +1,5 @@
 import logging
-from typing import Tuple
+from typing import Any, Dict, Tuple
 
 from .base_agent import BaseAgent
 from src.services import BaseVLMModel
@@ -16,7 +16,7 @@ class CriticAgent(BaseAgent):
     def process(self, state: dict) -> dict:
         return state
 
-    def evaluate_with_vlm(self, video_path: str, original_query: str) -> Tuple[float, str]:
+    def evaluate_with_vlm(self, video_path: str, original_query: str) -> Tuple[float, Dict[str, Any]]:
         formatted_prompt = self.prompt_template.format(original_query=original_query)
         response = self.vlm_service.chat(text=formatted_prompt, video=video_path)
         json_response = self._clean_and_parse_json(response)
@@ -26,4 +26,4 @@ class CriticAgent(BaseAgent):
             return score, feedback
         else:
             logger.error("Failed to parse JSON")
-            return 0, "Failed to parse JSON"
+            return 0, {"feedback": "Failed to parse JSON"}
