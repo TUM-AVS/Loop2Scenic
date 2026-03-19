@@ -3,7 +3,7 @@ Base class for VLM models.
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Dict, Optional
+from typing import Any, List, Dict, Optional
 
 
 class BaseVLMModel(ABC):
@@ -28,6 +28,26 @@ class BaseVLMModel(ABC):
             instruction: Optional instruction text
             **kwargs: Additional generation parameters (temperature, max_tokens, etc.)
             
+        Returns:
+            Generated response string
+        """
+        pass
+
+    @abstractmethod
+    def chat_with_content(
+        self, 
+        contents: Any, 
+        system_instruction: Optional[str] = None, 
+        **kwargs
+    ) -> str:
+        """
+        Chat with the VLM using formatted content inputs.
+
+        Args:
+            contents: The content to be formatted and sent to the VLM.
+            system_instruction: Optional system instruction to be sent to the VLM.
+            **kwargs: Additional generation parameters (temperature, max_tokens, etc.)
+
         Returns:
             Generated response string
         """

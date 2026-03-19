@@ -1,5 +1,6 @@
 from typing import TypedDict, Annotated, List, Dict, Any, Optional
 from langgraph.graph.message import add_messages
+from src.schema import MultimodalQuery
 
 class ScenarioWorkflowState(TypedDict):
     """
@@ -11,8 +12,8 @@ class ScenarioWorkflowState(TypedDict):
     # `add_messages` ensures new messages are appended, not overwritten
     messages: Annotated[list, add_messages] 
     
-    # Multimodal query: {"text": "...", "images": ["path.jpg"], "videos": []}
-    user_query: Dict[str, Any]
+    # Multimodal query: text, image_path, video_path
+    user_query: MultimodalQuery
     
     # --- 2. Understanding & Retrieval ---
     # The structured parameters extracted from the user's query/feedback
@@ -37,6 +38,7 @@ class ScenarioWorkflowState(TypedDict):
     
     # The textual critique/differences identified by the VLM
     evaluation_feedback: str
+    evaluation_result: dict
     
     # --- 5. Best Result Tracking ---
     # Tracks the highest-scoring version in case a later adaptation breaks the code
@@ -46,7 +48,7 @@ class ScenarioWorkflowState(TypedDict):
     # --- 6. Human-in-the-Loop ---
     # Optional fields, populated only when the user reviews the scenario
     user_satisfied: Optional[bool]
-    user_modification: Optional[Dict[str, Any]] # the same as user_query, can contain text, images, videos
+    user_modification: Optional[MultimodalQuery] # the same as user_query, can contain text, image_path, video_path
     
     # --- 7. Loop Control ---
     # Current loop iteration (starts at 0)

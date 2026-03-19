@@ -1,0 +1,13 @@
+=== OUTPUT FORMAT ===
+Output ONLY a valid JSON object representing the updated DSL. Do NOT wrap the output in markdown code blocks (e.g., no ```json) and do NOT include any conversational text or explanations. Use the exact structure below:
+
+{{
+    "Scenario": "<ONE short sentence describing the main overall event>",
+    "Ego": "<ONE short sentence describing the ego vehicle (type is restricted to 'car') and its behavior>",
+    "Adversarials": [
+        "<ONE short sentence describing an adversarial object, combining its type and behavior>",
+        "<Include additional strings here for EACH distinct adversarial object present, or leave as a single item if there is only one>"
+    ],
+    "Spatial Relation": "<ONE short sentence describing the road type (e.g., straight road, highway, intersection) and how all entities are positioned relative to each other and the road>",
+    "Requirement and restrictions": "<Describe initial distance requirements (e.g., distance between ego and intersection) and termination restrictions (how the scenario ends). Leave empty if none apply.>"
+}}
