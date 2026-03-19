@@ -78,7 +78,7 @@ class ScenarioWorkflow:
         memory = MemorySaver()
         self.app = self.workflow.compile(
             checkpointer=memory, 
-            interrupt_before=["human_review"]
+            interrupt_before=["human_review"] # wait for human review before going to next node
         )
         
     # ==========================================
@@ -167,6 +167,8 @@ class ScenarioWorkflow:
             "evaluation_score": evaluation_score,
             "evaluation_feedback": evaluation_feedback
         }
+        state["messages"].append({"role": "assistant", "content": evaluation_feedback})
+        state["messages"].append({"role": "assistant", "content": evaluation_score})
 
         if evaluation_score > state.get("best_score", -1.0):
             logger.info("🏆 New best score achieved!")
@@ -181,6 +183,7 @@ class ScenarioWorkflow:
         feedback = state.get("user_modification") or state.get("evaluation_feedback")
         logger.info("🧠 Interpreting feedback into DSL...")
         scenario_dsl = self.interpreter.generate_dsl(feedback) # TODO: add chat history to the prompt
+        state["messages"].append({"role": "assistant", "content": scenario_dsl})
 
         return {"scenario_dsl": scenario_dsl}
 
@@ -193,6 +196,7 @@ class ScenarioWorkflow:
         
         logger.info(f"🛠 Adapting Scenic code (Iteration: {generation_count + 1})")
         adapted_scenic_code = self.coder.adapt_code(scenic_code, scenario_dsl)
+        state["messages"].append({"role": "assistant", "content": adapted_scenic_code})
 
         return {
             "current_scenic_code": adapted_scenic_code,
