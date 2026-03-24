@@ -1,5 +1,6 @@
 vector_db:
   collection_name: avs_new
+  snippets_collection_name: code_snippets
   distance_metric: cosine # Options: cosine, l2, ip
 
   # Milvus mode

@@ -255,8 +255,6 @@ class ScenarioWorkflow:
                 "evaluation_result": None
             }
 
-
-
         scenario_document = get_scenario_document_with_scenario_id(scenario_id)
         if not scenario_document:
             logger.error("No scenario document found for id")
@@ -322,13 +320,13 @@ class ScenarioWorkflow:
 
     def adapt_code(self, state: ScenarioWorkflowState) -> Dict:
         log_workflow_state(logger, "adapt_code", state)
+        generation_count = state.get("generation_count", 0) 
+        logger.info(f"🛠 Adapting Scenic code (Iteration: {generation_count + 1})")
         
         scenario_dsl = state.get("scenario_dsl", "")
-        scenic_code = state.get("current_scenic_code", "")
-        generation_count = state.get("generation_count", 0) 
-        
-        logger.info(f"🛠 Adapting Scenic code (Iteration: {generation_count + 1})")
-        adapted_scenic_code = self.coder.adapt_code(scenic_code, scenario_dsl)
+        evaluation_result = state.get("evaluation_result", {})
+        current_scenic_code = state.get("current_scenic_code", "")
+        adapted_scenic_code = self.coder.adapt_code(current_scenic_code, evaluation_result, scenario_dsl)
         adapted_scenic_code_str = to_safe_string(adapted_scenic_code)
 
         logger.info(f"🛠 Adapting Scenic code: {adapted_scenic_code_str}")
@@ -379,8 +377,20 @@ def get_scenario_document_with_scenario_id(scenario_id: str) -> ScenarioDocument
     """
     try:
         scenario_location = Path(f"data/scenarios/{scenario_id}").resolve()
+        scenario_description = scenario_location / "description.txt"
+        scenario_scenic_code = scenario_location / "code.scenic"
         scenario_image = scenario_location / "image.png"
         scenario_video = scenario_location / "video.mp4"
+
+        if scenario_description.exists() and scenario_description.is_file():
+            scenario_description = scenario_description.read()
+        else:
+            scenario_description = None
+
+        if scenario_scenic_code.exists() and scenario_scenic_code.is_file():
+            scenario_scenic_code = scenario_scenic_code.read()
+        else:
+            scenario_scenic_code = None
 
         if scenario_image.exists() and scenario_image.is_file():
             image_path = str(scenario_image.resolve())
@@ -394,6 +404,8 @@ def get_scenario_document_with_scenario_id(scenario_id: str) -> ScenarioDocument
 
         return ScenarioDocument(
             scenario_id=scenario_id,
+            description=scenario_description,
+            scenic_code=scenario_scenic_code,
             image_path=image_path,
             video_path=video_path
         )

@@ -17,6 +17,7 @@ load_dotenv()
 class VectorDBConfig(BaseModel):
     """Milvus vector database configuration."""
     collection_name: str = "documents"
+    snippets_collection_name: str = "code_snippets"
     distance_metric: str = "cosine"
     
     # Milvus mode selection

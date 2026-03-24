@@ -27,6 +27,7 @@ class MilvusVectorStore:
         self,
         embedding_dim: int,
         collection_name: str = "documents",
+        snippets_collection_name: str = "code_snippets",
         connection_args: Optional[Dict[str, Any]] = None,
         index_params: Optional[Dict[str, Any]] = None,
         search_params: Optional[Dict[str, Any]] = None
@@ -52,7 +53,7 @@ class MilvusVectorStore:
         """
         self.embedding_dim = embedding_dim
         self.collection_name = collection_name
-        
+        self.snippets_collection_name = snippets_collection_name
         # Default connection args (Milvus Lite for local development)
         if connection_args is None:
             connection_args = {"uri": "./data/vector_db/milvus.db"}
@@ -100,7 +101,7 @@ class MilvusVectorStore:
 
     def _init_collection(self):
         """Initialize or get existing collection."""
-        # Check if collection exists
+        # Check if scenario collection exists
         if self.client.has_collection(collection_name=self.collection_name):
             logger.info(f"Loaded existing collection: {self.collection_name}")
         else:
@@ -132,6 +133,10 @@ class MilvusVectorStore:
             )
             
             logger.info(f"Created new collection: {self.collection_name}")
+
+    
+        if self.client.has_collection(collection_name=self.snippets_collection_name):
+            logger.info(f"Loaded existing collection: {self.snippets_collection_name}")
 
     def add_documents(
         self,
