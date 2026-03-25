@@ -27,7 +27,7 @@ class MilvusVectorStore:
         self,
         embedding_dim: int,
         collection_name: str = "documents",
-        snippets_collection_name: str = "code_snippets",
+        snippets_collection_name: str = "scenario_components",
         connection_args: Optional[Dict[str, Any]] = None,
         index_params: Optional[Dict[str, Any]] = None,
         search_params: Optional[Dict[str, Any]] = None
@@ -134,13 +134,16 @@ class MilvusVectorStore:
             
             logger.info(f"Created new collection: {self.collection_name}")
 
-    
         if self.client.has_collection(collection_name=self.snippets_collection_name):
             logger.info(f"Loaded existing collection: {self.snippets_collection_name}")
+        else:
+            logger.error(f"Collection {self.snippets_collection_name} does not exist")
+            raise ValueError(f"Collection {self.snippets_collection_name} does not exist")
 
     def add_documents(
         self,
         documents: List[Dict[str, any]],
+        collection_name: str|None = None,
     ) -> List[str]:
         """
         Add documents to the vector store.
@@ -148,7 +151,11 @@ class MilvusVectorStore:
         Args:
             documents: List of dictionaries with keys like:
                   {"id": "...", "embedding": "...", "metadata": "..."}
+            collection_name: Name of the collection to add the documents to. If None, the default collection is the scenario collection.
         """
+        if collection_name is None:
+            collection_name = self.collection_name # the default collection is the scenario collection
+             
         if not documents:
             logger.warning("No documents to add")
             return []
@@ -197,13 +204,13 @@ class MilvusVectorStore:
         k: int = 5,
         filter_tags: Optional[List[str]] = None,
         metadata_filter: Optional[Dict[str, Any]] = None,
-        score_threshold: Optional[float] = None
+        score_threshold: Optional[float] = None,
     ) -> List[str]:
         """
-        Search for similar documents using a pre-computed query embedding.
+        Search for similar scenarios using a pre-computed query embedding.
 
         Args:
-            query_embedding: Pre-computed vector (list of floats, numpy array, or tensor)
+            query_embedding: Pre-computed embedding of the query
             k: Number of results to return
             filter_tags: List of tags to filter by
             metadata_filter: Additional metadata filters
@@ -367,6 +374,74 @@ class MilvusVectorStore:
         else:
             return " && ".join(f"({expr})" for expr in expressions)
 
+    def similarity_search_snippets(
+        self,
+        query_embedding: Any,
+        k: int = 5,
+        component_type: str|None = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Search for similar snippets using a pre-computed query embedding and a component type.
+
+        Args:
+            query_embedding: Pre-computed embedding of the query
+            k: Number of results to return
+            component_type: Type of the component to search for
+
+        Returns:
+            List of snippet dictionaries
+        """
+# 1. Define search parameters
+        local_search_params = {
+            "metric_type": "COSINE",
+            "params": {"nprobe": 16}
+        }
+        
+        # 2. Build the filter expression if a component_type is provided
+        expr = None
+        if component_type:
+            expr = f'component_type == "{component_type}"'
+            
+        # 3. Execute the search using MilvusClient
+        results = self.client.search(
+            collection_name=self.snippets_collection_name,
+            data=[query_embedding],
+            filter=expr if expr else "",
+            limit=k,
+            output_fields=[
+                "scenario_id", 
+                "component_type", 
+                "description", 
+                "code"
+            ],
+            search_params=local_search_params
+        )
+        
+        # 4. Parse the results into clean Python dictionaries
+        snippets = []
+        if not results:
+            return snippets
+            
+        # results[0] contains the list of hits for our single query vector
+        hits = results[0]
+        
+        for hit in hits:
+            # In newer MilvusClient versions, output fields are nested inside an 'entity' dict.
+            # Using .get("entity", hit) safely handles both new and older PyMilvus versions.
+            entity_data = hit.get("entity", hit)
+            
+            snippet = {
+                "id": hit.get("id"),
+                "distance": hit.get("distance"),
+                "scenario_id": entity_data.get("scenario_id"),
+                "component_type": entity_data.get("component_type"),
+                "description": entity_data.get("description"),
+                "code": entity_data.get("code")
+            }
+            snippets.append(snippet)
+            
+        return snippets
+
     def delete_documents(self, ids: List[str]) -> None:
         """Delete documents by IDs."""
         logger.info(f"Deleting {len(ids)} documents")
@@ -408,26 +483,32 @@ class MilvusVectorStore:
         
         return stats
 
-    def reset_collection(self) -> None:
+    def reset_collection(self, collection_name: str|None = None) -> None:
         """Reset (delete all documents from) the collection."""
-        logger.warning(f"Resetting collection: {self.collection_name}")
+        if collection_name is None:
+            collection_name = self.collection_name # the default collection is the scenario collection
+            
+        logger.warning(f"Resetting collection: {collection_name}")
         
         # Drop the collection if it exists
-        if self.client.has_collection(collection_name=self.collection_name):
-            self.client.drop_collection(collection_name=self.collection_name)
-            logger.info(f"Dropped collection: {self.collection_name}")
+        if self.client.has_collection(collection_name=collection_name):
+            self.client.drop_collection(collection_name=collection_name)
+            logger.info(f"Dropped collection: {collection_name}")
         
         # Recreate the collection
-        self._init_collection()
+        self._init_collection(collection_name=collection_name)
         
         logger.info("Collection reset successfully")
 
-    def get_documents(self, limit: int = 5) -> List[Dict[str, Any]]:
+    def get_documents(self, limit: int = 5, collection_name: str|None = None) -> List[Dict[str, Any]]:
         """Retrieve a sample of documents from the collection for inspection."""
-        logger.info(f"Retrieving up to {limit} documents from {self.collection_name}...")
+        if collection_name is None:
+            collection_name = self.collection_name # the default collection is the scenario collection
+            
+        logger.info(f"Retrieving up to {limit} documents from {collection_name}...")
         
         results = self.client.query(
-            collection_name=self.collection_name,
+            collection_name=collection_name,
             filter='id != ""',
             output_fields=["id", "metadata"], 
             limit=limit
