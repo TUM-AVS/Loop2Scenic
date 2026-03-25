@@ -3,11 +3,6 @@ vector_db:
   snippets_collection_name: code_snippets
   distance_metric: cosine # Options: cosine, l2, ip
 
-  # Milvus mode
-  use_lite: false # true: Milvus Lite (no Docker), false: Milvus Server (requires Docker)
-  lite_db_path: ./data/vector_db/milvus.db # Path for Milvus Lite database file
-
-  # Milvus Server settings (used when use_lite=false)
   host: localhost
   port: 19530
   index_type: IVF_FLAT # Options: IVF_FLAT, IVF_SQ8, HNSW
@@ -27,12 +22,6 @@ embedding:
   batch_size: 4
   device: cuda # For HuggingFace only (cpu, cuda, mps)
 
-chunking:
-  strategy: recursive # Options: recursive, fixed, semantic
-  chunk_size: 1000
-  chunk_overlap: 200
-  separators: ["\n\n", "\n", ". ", " ", ""]
-
 retrieval:
   top_k: 3
   similarity_threshold: 0
@@ -44,30 +33,23 @@ reranking:
   model_path: ./models/Qwen3-VL-Reranker-2B
   model_name: Qwen3-VL-Reranker-2B
   device: cuda
-  torch_dtype: fp16
 
 llm:
-  provider: openai # Options: openai, anthropic, gemini
-  model: gpt-3.5-turbo
+  provider: gemini # Options: openai, anthropic, gemini
+  model: gemini-2.5-flash
   # Examples:
   # - OpenAI: gpt-3.5-turbo, gpt-4, gpt-4-turbo-preview
   # - Anthropic: claude-3-opus-20240229, claude-3-sonnet-20240229
   # - Gemini: gemini-pro, gemini-pro-vision
   temperature: 0.7
-  max_tokens: 10000
+  max_tokens: 10000000
 
 vlm:
   provider: gemini # Options: qwen, openai
   model_path: None # Required for Qwen3VL, path to local model directory
   model: gemini-2.5-flash # For OpenAI Vision (e.g., "gpt-4-vision-preview", "gpt-4o")
   temperature: 0.7 # Sampling temperature
-  max_tokens: 10000 # Maximum tokens to generate
-  default_instruction: "You are a helpful AI assistant." # Default instruction text
-
-ingestion:
-  supported_formats: [".txt", ".pdf", ".docx", ".md", ".html"]
-  batch_size: 10
-  max_workers: 4
+  max_tokens: 10000000 # Maximum tokens to generate
 
 logging:
   level: INFO
