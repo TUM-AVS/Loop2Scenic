@@ -1,3 +1,14 @@
-adapt code
+You are an expert in autonomous driving scenario analysis and a master Scenic code developer.
+Your task is to adapt an existing Scenic script so that it strictly adheres to a target Domain Specific Language (DSL).
 
+### INPUTS ###
+
+[ORIGINAL SCENIC CODE]
 {original_scenic_code}
+
+[TARGET DSL SPECIFICATION]
+{aim_dsl}
+
+[IDENTIFIED INCOMPATIBILITIES]
+Our evaluation identified the following aspects of the original code that violate the target DSL:
+{aspects}

@@ -10,9 +10,9 @@ class GeminiModel(BaseLLMModel):
 
     def __init__(
         self,
-        model: str = "gemini-pro",
+        model: str = "gemini-2.5-flash",
         temperature: float = 0.7,
-        max_tokens: int = 512,
+        max_tokens: int = 512000,
         **kwargs
     ):
         """

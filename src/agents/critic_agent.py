@@ -65,11 +65,11 @@ class CriticAgent(BaseAgent):
         You must respond ONLY with a valid JSON object. Do not include markdown formatting like ```json. Use the following structure:
         {
             "evaluation": {
-                "scenario_match": true/false,
-                "ego_behavior_match": true/false,
-                "adversarials_match": true/false,
-                "spatial_relation_match": true/false,
-                "restrictions_match": true/false
+                "Scenario": true/false,
+                "Ego": true/false,
+                "Adversarials": true/false,
+                "Spatial Relation": true/false,
+                "Requirement and restrictions": true/false
             },
             "feedback": "<Provide a concise, natural language explanation detailing exactly what matched, what failed, and how to modify the generated scenario to fix the failures.>",
             "score": <number>

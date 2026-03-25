@@ -18,27 +18,3 @@ You must calculate the score based exactly on how many of the 5 perspectives abo
 - 0/5 match: 0
 
 Please analyze the inputs below:
-
-=== TARGET REQUIREMENT ===
-Text Description: {original_query}
-Image: <REQUIREMENT_IMAGE_ATTACHED_BELOW>
-Video: <REQUIREMENT_VIDEO_ATTACHED_BELOW>
-
-=== GENERATED SCENARIO ===
-Text Description: {scenario_description}
-Image: <SCENARIO_IMAGE_ATTACHED_BELOW>
-Video: <SCENARIO_VIDEO_ATTACHED_BELOW>
-
-=== OUTPUT FORMAT ===
-You must respond ONLY with a valid JSON object. Do not include markdown formatting like ```json. Use the following structure:
-{
-    "evaluation": {
-        "scenario_match": true/false,
-        "ego_behavior_match": true/false,
-        "adversarials_match": true/false,
-        "spatial_relation_match": true/false,
-        "restrictions_match": true/false
-    },
-    "feedback": "<Provide a concise, natural language explanation detailing exactly what matched, what failed, and how to modify the generated scenario to fix the failures.>",
-    "score": <number based on the scoring rules>
-}

@@ -25,7 +25,7 @@ class MilvusVectorStore:
 
     def __init__(
         self,
-        embedding_dim: int,
+        embedding_dim: int = 384,
         collection_name: str = "documents",
         snippets_collection_name: str = "scenario_components",
         connection_args: Optional[Dict[str, Any]] = None,
@@ -105,34 +105,36 @@ class MilvusVectorStore:
         if self.client.has_collection(collection_name=self.collection_name):
             logger.info(f"Loaded existing collection: {self.collection_name}")
         else:
-            # Create collection with schema
-            schema = self.client.create_schema(
-                auto_id=False,
-                enable_dynamic_field=True,
-            )
+            logger.error(f"Collection {self.collection_name} does not exist")
+            raise ValueError(f"Collection {self.collection_name} does not exist")
+            ## Create collection with schema
+            # schema = self.client.create_schema(
+            #     auto_id=False,
+            #     enable_dynamic_field=True,
+            # )
             
-            # Add fields
-            schema.add_field(field_name="id", datatype=DataType.VARCHAR, max_length=65535, is_primary=True)
-            schema.add_field(field_name="embedding", datatype=DataType.FLOAT_VECTOR, dim=self.embedding_dim)
-            schema.add_field(field_name="metadata", datatype=DataType.JSON)
+            # # Add fields
+            # schema.add_field(field_name="id", datatype=DataType.VARCHAR, max_length=65535, is_primary=True)
+            # schema.add_field(field_name="embedding", datatype=DataType.FLOAT_VECTOR, dim=self.embedding_dim)
+            # schema.add_field(field_name="metadata", datatype=DataType.JSON)
             
-            # Create index
-            index_params = self.client.prepare_index_params()
-            index_params.add_index(
-                field_name="embedding", 
-                index_type=self.index_params.get("index_type", "IVF_FLAT"),
-                metric_type=self.index_params.get("metric_type", "COSINE"),
-                params=self.index_params.get("params", {"nlist": 1024})
-            )
+            # # Create index
+            # index_params = self.client.prepare_index_params()
+            # index_params.add_index(
+            #     field_name="embedding", 
+            #     index_type=self.index_params.get("index_type", "IVF_FLAT"),
+            #     metric_type=self.index_params.get("metric_type", "COSINE"),
+            #     params=self.index_params.get("params", {"nlist": 1024})
+            # )
             
-            # Create collection
-            self.client.create_collection(
-                collection_name=self.collection_name,
-                schema=schema,
-                index_params=index_params
-            )
+            # # Create collection
+            # self.client.create_collection(
+            #     collection_name=self.collection_name,
+            #     schema=schema,
+            #     index_params=index_params
+            # )
             
-            logger.info(f"Created new collection: {self.collection_name}")
+            # logger.info(f"Created new collection: {self.collection_name}")
 
         if self.client.has_collection(collection_name=self.snippets_collection_name):
             logger.info(f"Loaded existing collection: {self.snippets_collection_name}")
