@@ -1,5 +1,5 @@
 from .base import BaseEmbeddingModel
-from .providers import Qwen3VLEmbedding
+from .providers import Qwen3VLEmbedding, HuggingFaceEmbedding
 
 __all__ = ["BaseEmbeddingModel", "Qwen3VLEmbedding", "get_embedder"]
 
@@ -9,6 +9,8 @@ def get_embedder(provider: str, **kwargs) -> BaseEmbeddingModel:
     """
     if provider == "qwen":
         return Qwen3VLEmbedding(**kwargs)
+    elif provider == "huggingface":
+        return HuggingFaceEmbedding(**kwargs)
     else:
         raise ValueError(
             f"Unsupported provider: {provider}. "

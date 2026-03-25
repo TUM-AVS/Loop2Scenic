@@ -113,11 +113,11 @@ def recover_all_text(uri, collection_name, output_file):
 # Run it!
 # Use "./milvus.db" for a local Lite file, or "http://localhost:19530" for Docker
 if __name__ == "__main__":
-    # reverse_engineer_milvus(uri="http://127.0.0.1:19530")
+    reverse_engineer_milvus(uri="http://127.0.0.1:19530")
     # fix_milvus_index("http://127.0.0.1:19530", "scenario_components")
     # read_elements_from_collection(uri="http://127.0.0.1:19530", collection_name="scenario_components")
-    recover_all_text(
-        uri="http://127.0.0.1:19530",
-        collection_name="scenario_components",
-        output_file="recovered_scenarios.json"
-    )
+    # recover_all_text(
+    #     uri="http://127.0.0.1:19530",
+    #     collection_name="scenario_components_with_subject",
+    #     output_file="recovered_scenario_components_with_subject.json"
+    # )

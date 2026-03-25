@@ -11,11 +11,11 @@ class BaseEmbeddingModel(ABC):
 
     @abstractmethod
     def encode(self, inputs: List[Dict[str, Any]]) -> List[List[float]]:
-        """
+        f"""
         Encode arbitrary inputs into embeddings.
         
         Args:
-            inputs: List of inputs to encode
+            inputs: List of inputs to encode. Each input should be a dictionary with "text", "image", "video" keys.
             
         Returns:
             List of embedding vectors
