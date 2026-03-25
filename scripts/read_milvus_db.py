@@ -1,3 +1,4 @@
+import json
 from pymilvus import MilvusClient
 
 def reverse_engineer_milvus(uri: str):
@@ -44,36 +45,6 @@ def reverse_engineer_milvus(uri: str):
         row_count = stats.get('row_count', 'Unknown')
         print(f"\nTOTAL ROWS: {row_count}\n")
 
-def fix_milvus_index(uri: str, collection_name: str):
-    print(f"Connecting to {uri}...")
-    client = MilvusClient(uri=uri)
-    
-    # 1. Force the database to drop the corrupted index
-    print(f"Dropping the old Hugging Face index...")
-    try:
-        client.drop_index(collection_name=collection_name, index_name="embedding")
-        print("Old index dropped successfully.")
-    except Exception as e:
-        print(f"Note: Could not drop index (it might not exist). Error: {e}")
-    
-    # 2. Rebuild a fresh index using YOUR computer's hardware
-    print(f"Building a fresh IVF_FLAT index for {collection_name}...")
-    index_params = client.prepare_index_params()
-    index_params.add_index(
-        field_name="embedding", 
-        index_type="IVF_FLAT",
-        metric_type="COSINE",
-        params={"nlist": 128}
-    )
-    
-    client.create_index(collection_name=collection_name, index_params=index_params)
-    print("New index built successfully!")
-    
-    # 3. Try to load it into RAM again
-    print("Attempting to load the collection into RAM...")
-    client.load_collection(collection_name=collection_name)
-    print("✅ Success! The deadlock is broken. You can now query the data.")
-
 def read_elements_from_collection(uri: str, collection_name: str):
     print(f"Connecting to Milvus at: {uri}...")
     client = MilvusClient(uri=uri)
@@ -108,9 +79,45 @@ def read_elements_from_collection(uri: str, collection_name: str):
     except Exception as e:
         print(f"Error fetching data: {e}")
 
+def recover_all_text(uri, collection_name, output_file):
+    client = MilvusClient(uri=uri)
+    
+    print(f"📦 Loading {collection_name}...")
+    client.load_collection(collection_name)
+    
+    # 1. Fetch the data
+    # We use a filter that captures everything. 
+    # Adjust 'output_fields' based on what you saw in the schema check!
+    print(f"🔍 Querying all rows...")
+    results = client.query(
+        collection_name=collection_name,
+        filter="id >= 0", 
+        output_fields=["id", "scenario_id", "component_type", "description", "code"],
+        limit=1000 # Your DB has ~922, so this grabs them all
+    )
+    
+    print(f"✅ Found {len(results)} rows.")
+    
+    # 2. Save to a JSON file so you can use it in your Thesis
+    with open(output_file, 'w', encoding='utf-8') as f:
+        json.dump(results, f, indent=4, ensure_ascii=False)
+    
+    print(f"💾 Data successfully saved to: {output_file}")
+    
+    # 3. Print a sample of the first one to the terminal
+    if results:
+        print("\n--- SAMPLE RECOVERY (Row 1) ---")
+        print(f"Type: {results[0].get('component_type')}")
+        print(f"Description: {results[0].get('description')[:200]}...")
+
 # Run it!
 # Use "./milvus.db" for a local Lite file, or "http://localhost:19530" for Docker
 if __name__ == "__main__":
     # reverse_engineer_milvus(uri="http://127.0.0.1:19530")
     # fix_milvus_index("http://127.0.0.1:19530", "scenario_components")
-    read_elements_from_collection(uri="http://127.0.0.1:19530", collection_name="scenario_components")
+    # read_elements_from_collection(uri="http://127.0.0.1:19530", collection_name="scenario_components")
+    recover_all_text(
+        uri="http://127.0.0.1:19530",
+        collection_name="scenario_components",
+        output_file="recovered_scenarios.json"
+    )
