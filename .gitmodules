@@ -1,0 +1,3 @@
+[submodule "src/utils/Scenic"]
+	path = src/utils/Scenic
+	url = https://github.com/google-research/scenic.git

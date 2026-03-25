@@ -1,4 +1,6 @@
 import logging
+import os
+import subprocess
 from typing import Dict, Literal
 from langgraph.graph import END, START, StateGraph
 from langgraph.checkpoint.memory import MemorySaver
@@ -417,8 +419,17 @@ def run_simulation_in_carla_and_save_video(scenic_code: str) -> str:
     """
     Run the simulation in Carla and save the video.
     """
-    return "/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testvideo.mp4"
-    run_scenic_in_carla(scenic_code, "/home/dellpro2/chenli/ads-mrag/ads-mrag/carla/CarlaUE4.sh", "/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testvideo.mp4")
+    # 1. save scenic code to a file
+    with open("temp_scenic_code/code/scenic_code.scenic", "w") as f:
+        f.write(scenic_code)
+
+    # 2. run simulation and save the video
+    result = subprocess.run(['src/utils/run_scenic_batch.sh', 'temp_scenic_code', '--outdir', 'temp/video', '--logdir', 'temp/logs'], capture_output=True, text=True)
+    if result.returncode != 0:
+        logger.error(f"Failed to run simulation: {result.stderr}")
+        return None
+    video_path = os.path.join('temp/video', 'simulation_video.mp4')
+    return video_path
 
 # ==========================================
 # TEST RUNNER

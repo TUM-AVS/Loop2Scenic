@@ -20,6 +20,9 @@ wheels/
 .installed.cfg
 *.egg
 
+# Temp
+temp/
+
 # Virtual Environment
 venv/
 env/
