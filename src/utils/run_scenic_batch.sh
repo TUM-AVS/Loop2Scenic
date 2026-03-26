@@ -759,7 +759,7 @@ PY
 
     if [[ "$RECORDER_READY_TIMEOUT" -gt 0 ]]; then
       wait_start=$SECONDS
-      while ! grep -q "waiting for first ego" "$run_log" 2>/dev/null; do
+      while ! grep -q "recording started" "$run_log" 2>/dev/null; do
         if (( SECONDS - wait_start >= RECORDER_READY_TIMEOUT )); then
           echo "⚠️ Recorder ready wait timed out after ${RECORDER_READY_TIMEOUT}s." >> "$run_log"
           break

@@ -62,6 +62,6 @@ def test_get_scenario_document_with_scenario_id():
     print(scenario_document)
 
 if __name__ == "__main__":
-    # test_video_recording()
+    test_video_recording()
     # test_get_error_message_from_logs()
-    test_get_scenario_document_with_scenario_id()
+    # test_get_scenario_document_with_scenario_id()
