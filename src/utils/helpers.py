@@ -4,20 +4,14 @@ Helper utility functions.
 
 import logging
 from pathlib import Path
+import shutil
 from typing import Any
-
 import tiktoken
 import json
-
-
 import os
-import time
 import subprocess
-import tempfile
-import shutil
-import carla
-import scenic
-from scenic.simulators.carla.simulator import CarlaSimulator
+
+from src.schema import ScenarioDocument
 
 logger = logging.getLogger(__name__)
 
@@ -182,139 +176,88 @@ def to_safe_string(value: Any) -> str:
             return "<unserializable>"
 
 
-def run_scenic_in_carla(scenic_input: str, carla_exe_path: str, output_dir: str) -> bool:
+def find_scenic_code_with_scenario_id(scenario_id: str) -> str: 
     """
-    Starts CARLA, loads a Scenic scenario, records a video stream via a chase camera, 
-    and compiles it into an .mp4 using ffmpeg.
+    Find the scenic code for a given scenario ID.
     """
-    # Prepare directories
-    os.makedirs(output_dir, exist_ok=True)
-    frames_dir = os.path.join(output_dir, "temp_frames")
-    os.makedirs(frames_dir, exist_ok=True)
-    video_path = os.path.join(output_dir, "simulation_video.mp4")
-    
-    is_file = os.path.isfile(scenic_input)
-    scenic_file_path = scenic_input if is_file else None
-    
-    carla_process = None
-    temp_file = None
-    camera = None
-    success = False
-    
     try:
-        # 1. Start CARLA Server
-        print("Starting CARLA Server...")
-        carla_process = subprocess.Popen([carla_exe_path])
-        
-        client = carla.Client('localhost', 2000)
-        client.set_timeout(2.0)
-        
-        # Poll server
-        connected = False
-        for _ in range(15):
-            try:
-                client.get_world()
-                connected = True
-                print("Connected to CARLA.")
-                break
-            except RuntimeError:
-                time.sleep(2)
-                
-        if not connected:
-            print("Error: Could not connect to CARLA server in time.")
-            return False
-
-        # 2. Handle Scenic input
-        if not is_file:
-            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".scenic", mode='w')
-            temp_file.write(scenic_input)
-            temp_file.close()
-            scenic_file_path = temp_file.name
-            
-        # 3. Parse Scenario and Create Simulation
-        print("Parsing Scenic scenario and spawning actors...")
-        scenario = scenic.scenarioFromFile(scenic_file_path)
-        simulator = CarlaSimulator()
-        
-        scene, _ = scenario.generate()
-        # We use createSimulation instead of simulate so we can inject the camera!
-        simulation = simulator.createSimulation(scene)
-        
-        # 4. Set up the Chase Camera
-        world = client.get_world()
-        
-        # Try to find the primary vehicle to follow
-        vehicles = world.get_actors().filter('vehicle.*')
-        if not vehicles:
-            print("Warning: No vehicles found in the scene to attach the camera to.")
-            ego_vehicle = None
-        else:
-            # We assume the first vehicle is our main actor
-            ego_vehicle = vehicles[0] 
-        
-        if ego_vehicle:
-            cam_bp = world.get_blueprint_library().find('sensor.camera.rgb')
-            cam_bp.set_attribute('image_size_x', '1280')
-            cam_bp.set_attribute('image_size_y', '720')
-            cam_bp.set_attribute('sensor_tick', '0.033') # Target ~30 FPS
-            
-            # Position camera behind and slightly above the car
-            cam_transform = carla.Transform(carla.Location(x=-6.5, z=3.5), carla.Rotation(pitch=-15.0))
-            camera = world.spawn_actor(cam_bp, cam_transform, attach_to=ego_vehicle)
-            
-            # We use a mutable dictionary to keep a sequential frame count for ffmpeg
-            frame_tracker = {"count": 0}
-            def save_frame(image):
-                image.save_to_disk(os.path.join(frames_dir, f"{frame_tracker['count']:06d}.png"))
-                frame_tracker['count'] += 1
-                
-            camera.listen(save_frame)
-            print("Camera attached and recording started.")
-
-        # 5. Run the Simulation
-        print("Running simulation...")
-        simulation.run()
-        print("Simulation finished. Stopping camera...")
-        
-        if camera:
-            camera.stop()
-            camera.destroy()
-            camera = None
-
-        # 6. Stitch images to MP4 using ffmpeg
-        if shutil.which("ffmpeg") is None:
-            print("Error: 'ffmpeg' is not installed or not in PATH. Leaving raw frames in directory.")
-        else:
-            print(f"Stitching frames into {video_path}...")
-            subprocess.run([
-                "ffmpeg", "-y", "-framerate", "30", 
-                "-i", os.path.join(frames_dir, "%06d.png"), 
-                "-c:v", "libx264", "-pix_fmt", "yuv420p", 
-                video_path
-            ], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
-            
-            # Clean up the thousands of .png files to save hard drive space
-            shutil.rmtree(frames_dir, ignore_errors=True)
-            print("Video generated successfully!")
-            
-        success = True
-        
+        scenario_location = f"data/scenarios/{scenario_id}/code.scenic"
+        with open(scenario_location, "r") as f:
+            scenic_code = f.read()
+            return scenic_code
+    except FileNotFoundError:
+        logger.error(f"Scenario code not found for ID: {scenario_id}")
+        return None
     except Exception as e:
-        print(f"Simulation failed with error: {e}")
-        success = False
-        
-    finally:
-        # 7. Safe cleanup
-        print("Cleaning up resources...")
-        if camera and camera.is_alive:
-            camera.stop()
-            camera.destroy()
-            
-        if carla_process:
-            carla_process.terminate()
-            carla_process.wait()
-            
-        if temp_file and os.path.exists(temp_file.name):
-            os.remove(temp_file.name)
-            
-    return success
+        logger.error(f"Error finding scenic code for ID: {scenario_id}: {e}")
+        return None
+
+def get_scenario_document_with_scenario_id(scenario_id: str) -> ScenarioDocument:
+    """
+    Get the scenario document for a given scenario ID.
+    """
+    try:
+        scenario_location = Path(f"data/scenarios/{scenario_id}").resolve()
+        scenario_description = scenario_location / "description.txt"
+        scenario_scenic_code = scenario_location / "code.scenic"
+        scenario_image = scenario_location / "image.png"
+        scenario_video = scenario_location / "video.mp4"
+
+        if scenario_description.exists() and scenario_description.is_file():
+            scenario_description = scenario_description.read()
+        else:
+            scenario_description = None
+
+        if scenario_scenic_code.exists() and scenario_scenic_code.is_file():
+            scenario_scenic_code = scenario_scenic_code.read()
+        else:
+            scenario_scenic_code = None
+
+        if scenario_image.exists() and scenario_image.is_file():
+            image_path = str(scenario_image.resolve())
+        else:
+            image_path = None
+
+        if scenario_video.exists() and scenario_video.is_file():
+            video_path = str(scenario_video.resolve())
+        else:
+            video_path = None
+
+        return ScenarioDocument(
+            scenario_id=scenario_id,
+            description=scenario_description,
+            scenic_code=scenario_scenic_code,
+            image_path=image_path,
+            video_path=video_path
+        )
+    except Exception as e:
+        logger.error(f"Error getting scenario document for ID: {scenario_id}: {e}")
+        return None
+
+def run_simulation_in_carla_and_save_video(scenic_code: str, scenario_id: str) -> str:
+    """
+    Run the simulation in Carla and save the video.
+    """
+    # 1. save scenic code to a file
+    # clean the temp/{scenario_id} directory if exists
+    if os.path.exists(f"temp/{scenario_id}"):
+        shutil.rmtree(f"temp/{scenario_id}")
+    os.makedirs(f"temp/{scenario_id}", exist_ok=True)
+    # create temp/{scenario_id}/code directory if not exists
+    os.makedirs(f"temp/{scenario_id}/code", exist_ok=True)
+    os.makedirs(f"temp/{scenario_id}/video", exist_ok=True)
+    os.makedirs(f"temp/{scenario_id}/logs", exist_ok=True)
+    with open(f"temp/{scenario_id}/code/scenic_code.scenic", "w") as f:
+        f.write(scenic_code)
+
+    # 2. run simulation and save the video
+    result = subprocess.run(['src/utils/run_scenic_batch.sh', f"temp/{scenario_id}/code", '--outdir', f"temp/{scenario_id}/video", '--logdir', f"temp/{scenario_id}/logs"], capture_output=True, text=True)
+    if result.returncode != 0:
+        logger.error(f"Failed to run simulation: {result.stderr}")
+        return None
+    # check if video really exists
+    if not os.path.exists(os.path.join(f"temp/{scenario_id}/video", 'BEV.mp4')):
+        logger.error(f"Video not found at {os.path.join(f"temp/{scenario_id}/video", 'BEV.mp4')}")
+        return None
+    video_path = os.path.join(f"temp/{scenario_id}/video", 'BEV.mp4')
+    return video_path

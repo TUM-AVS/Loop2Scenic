@@ -1,6 +1,6 @@
 if __name__ == "__main__":
     scenic_code = """description = "Ego vehicle loses control on bad road conditions and recovers to its original lane."
-param map = localPath('../../data/maps/Town05.xodr')
+param map = localPath('../../../1data/maps/Town05.xodr')
 param carla_map = 'Town05'
 model scenic.simulators.carla.model
 MODEL = 'vehicle.lincoln.mkz_2017'
@@ -41,9 +41,12 @@ terminate after 25 seconds
     import os
     import sys
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from src.workflow.workflow import run_simulation_in_carla_and_save_video
+    from src.utils.helpers import run_simulation_in_carla_and_save_video
 
-    video_path = run_simulation_in_carla_and_save_video(scenic_code)
+    video_path = run_simulation_in_carla_and_save_video(scenic_code, "test_scenario")
+    if not video_path:
+        print("Failed to run simulation")
+        exit(1)
     print(f"Video saved to {video_path}")
 
     ### Run the script manually: src/utils/run_scenic_batch.sh temp_scenic_code --outdir temp/video --logdir temp/logs

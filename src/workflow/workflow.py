@@ -1,15 +1,13 @@
 import logging
-import os
-import subprocess
 from typing import Dict, Literal
 from langgraph.graph import END, START, StateGraph
 from langgraph.checkpoint.memory import MemorySaver
 
 import sys
-import json
 from pathlib import Path
 
-from src.schema import MultimodalQuery, ScenarioDocument
+from src.schema import MultimodalQuery
+from src.utils.helpers import get_scenario_document_with_scenario_id
 
 # Add the project root (ads-mrag) to the python path
 root_path = str(Path(__file__).parent.parent.parent)
@@ -17,7 +15,7 @@ if root_path not in sys.path:
     sys.path.append(root_path)
 
 from .scenario_workflow_state import ScenarioWorkflowState
-from src.utils import setup_logging, log_workflow_state, to_safe_string, run_scenic_in_carla
+from src.utils import find_scenic_code_with_scenario_id, run_simulation_in_carla_and_save_video, setup_logging, log_workflow_state, to_safe_string
 from src.agents import InterpreterAgent, ScenicCoderAgent, CriticAgent
 from src.services import Retriever, BaseEmbeddingModel
 
@@ -353,87 +351,6 @@ class ScenarioWorkflow:
                 "user_modification": user_modification,
                 "generation_count": 0 
             }
-
-# ==========================================
-# DUMMY FUNCTIONS (For testing the loop)
-# ==========================================
-def find_scenic_code_with_scenario_id(scenario_id: str) -> str: 
-    """
-    Find the scenic code for a given scenario ID.
-    """
-    try:
-        scenario_location = f"data/scenarios/{scenario_id}/code.scenic"
-        with open(scenario_location, "r") as f:
-            scenic_code = f.read()
-            return scenic_code
-    except FileNotFoundError:
-        logger.error(f"Scenario code not found for ID: {scenario_id}")
-        return None
-    except Exception as e:
-        logger.error(f"Error finding scenic code for ID: {scenario_id}: {e}")
-        return None
-
-def get_scenario_document_with_scenario_id(scenario_id: str) -> ScenarioDocument:
-    """
-    Get the scenario document for a given scenario ID.
-    """
-    try:
-        scenario_location = Path(f"data/scenarios/{scenario_id}").resolve()
-        scenario_description = scenario_location / "description.txt"
-        scenario_scenic_code = scenario_location / "code.scenic"
-        scenario_image = scenario_location / "image.png"
-        scenario_video = scenario_location / "video.mp4"
-
-        if scenario_description.exists() and scenario_description.is_file():
-            scenario_description = scenario_description.read()
-        else:
-            scenario_description = None
-
-        if scenario_scenic_code.exists() and scenario_scenic_code.is_file():
-            scenario_scenic_code = scenario_scenic_code.read()
-        else:
-            scenario_scenic_code = None
-
-        if scenario_image.exists() and scenario_image.is_file():
-            image_path = str(scenario_image.resolve())
-        else:
-            image_path = None
-
-        if scenario_video.exists() and scenario_video.is_file():
-            video_path = str(scenario_video.resolve())
-        else:
-            video_path = None
-
-        return ScenarioDocument(
-            scenario_id=scenario_id,
-            description=scenario_description,
-            scenic_code=scenario_scenic_code,
-            image_path=image_path,
-            video_path=video_path
-        )
-    except Exception as e:
-        logger.error(f"Error getting scenario document for ID: {scenario_id}: {e}")
-        return None
-
-def run_simulation_in_carla_and_save_video(scenic_code: str) -> str:
-    """
-    Run the simulation in Carla and save the video.
-    """
-    # 1. save scenic code to a file
-    # create temp_scenic_code directory if not exists
-    os.makedirs("temp_scenic_code/code", exist_ok=True)
-    os.makedirs("temp/video", exist_ok=True)
-    os.makedirs("temp/logs", exist_ok=True)
-    with open("temp_scenic_code/code/scenic_code.scenic", "w") as f:
-        f.write(scenic_code)
-
-    # 2. run simulation and save the video
-    result = subprocess.run(['src/utils/run_scenic_batch.sh', 'temp_scenic_code', '--outdir', 'temp/video', '--logdir', 'temp/logs'], capture_output=True, text=True)
-    if result.returncode != 0:
-        logger.error(f"Failed to run simulation: {result.stderr}")
-        return None
-    video_path = os.path.join('temp/video', 'BEV.mp4')
-    return video_path
 
 # ==========================================
 # TEST RUNNER
