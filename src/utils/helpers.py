@@ -205,12 +205,12 @@ def get_scenario_document_with_scenario_id(scenario_id: str) -> ScenarioDocument
         scenario_video = scenario_location / "video.mp4"
 
         if scenario_description.exists() and scenario_description.is_file():
-            scenario_description = scenario_description.read()
+            scenario_description = scenario_description.read_text(encoding="utf-8")
         else:
             scenario_description = None
 
         if scenario_scenic_code.exists() and scenario_scenic_code.is_file():
-            scenario_scenic_code = scenario_scenic_code.read()
+            scenario_scenic_code = scenario_scenic_code.read_text(encoding="utf-8")
         else:
             scenario_scenic_code = None
 

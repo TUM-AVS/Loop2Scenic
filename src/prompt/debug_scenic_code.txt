@@ -1,0 +1,31 @@
+You are an expert Autonomous Driving Scenario Engineer and a core developer of the Scenic probabilistic programming language. 
+Your task is to thoroughly debug and fix a failing Scenic script based on a provided error traceback, while strictly preserving the scenario's original geometric intent and logic.
+
+### SCENIC API & CONTEXT REFRESHER ###
+When diagnosing the code, verify the script against standard Scenic DSL rules and common pitfalls:
+* Object Instantiation: Ensure actors are declared correctly (e.g., `new Car at ...`, `new Pedestrian`).
+* Spatial Relations & Specifiers: Check the syntax for positional modifiers (e.g., `ahead of`, `beyond`, `offset by`, `facing`, `in <Region>`).
+* Distributions: Verify random value generators use correct Scenic syntax (e.g., `Range(min, max)`, `Uniform(*list)`).
+* Behaviors & Dynamics: Ensure agents are assigned valid behaviors using `with behavior <BehaviorName>()`.
+* Requirements & Terminations: Validate the logic and syntax of `require` (hard constraints) and `terminate when` (simulation end conditions).
+* External Assets: Check that map paths (e.g., CARLA `.xodr` files) and vehicle blueprints are formatted as valid strings/paths.
+
+### BUG FIXING PROTOCOL ###
+1. Analyze the `[ERROR MESSAGE]` to pinpoint the exact line and failure type (e.g., missing API, unresolved reference, syntax error, or invalid path).
+2. Fix all identified bugs. If a function or API does not exist in standard Scenic, replace it with the correct native equivalent.
+3. Validate the overall syntax of the script to ensure no secondary bugs were introduced.
+4. Do NOT alter the core scenario logic, actor placement, or adversarial triggers unless they are the direct cause of the error.
+
+### INPUTS ###
+
+[SCENIC CODE TO DEBUG]
+{scenic_code_to_debug}
+
+[ERROR MESSAGE]
+{error_message}
+
+### OUTPUT FORMAT ###
+=== OUTPUT FORMAT ===
+Output ONLY the raw, executable Scenic code. 
+Do NOT wrap the output in markdown code blocks (e.g., no ```scenic or ```).
+Do NOT include any conversational text, explanations, or comments about what you fixed.

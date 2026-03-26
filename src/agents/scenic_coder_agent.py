@@ -73,14 +73,14 @@ class ScenicCoderAgent(BaseAgent):
         """
 
         formatted_prompt = prompt_begin + few_shot_examples + prompt_end + output_format
-
-        print(formatted_prompt)
         formatted_prompt = formatted_prompt.strip()
         response = self.llm_service.chat([{"role": "user", "content": formatted_prompt}])
         return response
 
     def debug_code(self, scenic_code: str, error_message: str) -> str:
-        pass
+        static_prompt = load_prompt("debug_scenic_code").format(scenic_code_to_debug=scenic_code, error_message=error_message)
+        response = self.llm_service.chat([{"role": "user", "content": static_prompt}])
+        return response
 
 if __name__ == "__main__":
     from src.services import MilvusVectorStore

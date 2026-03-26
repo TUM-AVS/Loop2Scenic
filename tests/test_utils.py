@@ -56,6 +56,12 @@ def test_get_error_message_from_logs():
     error_message = get_error_message_from_logs("test_scenario")
     print(error_message)
 
+def test_get_scenario_document_with_scenario_id():
+    from src.utils.helpers import get_scenario_document_with_scenario_id
+    scenario_document = get_scenario_document_with_scenario_id("CARLA_Leaderboard_2")
+    print(scenario_document)
+
 if __name__ == "__main__":
     # test_video_recording()
-    test_get_error_message_from_logs()
+    # test_get_error_message_from_logs()
+    test_get_scenario_document_with_scenario_id()

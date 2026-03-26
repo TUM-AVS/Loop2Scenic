@@ -317,8 +317,8 @@ class ScenarioWorkflow:
         generation_count = state.get("generation_count", 0)
         scenario_dsl = state.get("scenario_dsl", {}) # aim dsl
         current_scenic_scenario = state.get("current_scenic_scenario", None)
-        if not current_scenic_scenario or not current_scenic_scenario.scenic_code or not current_scenic_scenario.evaluation_result or not scenario_dsl:
-            self.logger.error("No current scenic scenario or evaluation result or aim dsl provided")
+        if not current_scenic_scenario or not current_scenic_scenario.scenic_code or not scenario_dsl:
+            self.logger.error("No current scenic scenario or scenic code or aim dsl provided")
             return state
         current_scenic_code = current_scenic_scenario.scenic_code
         current_evaluation_result = current_scenic_scenario.evaluation_result

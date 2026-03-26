@@ -176,9 +176,9 @@ MAX_RATIO = 200
 
 # for videos
 FPS = 0.5
-MAX_FRAMES = 32
+MAX_FRAMES = 16
 FRAME_MAX_PIXELS = 224 * 224
-MAX_TOTAL_PIXELS = 32 * FRAME_MAX_PIXELS
+MAX_TOTAL_PIXELS = MAX_FRAMES * FRAME_MAX_PIXELS
 
 
 def sample_frames(frames, num_segments, max_segments):
