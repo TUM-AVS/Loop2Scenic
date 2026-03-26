@@ -420,6 +420,10 @@ def run_simulation_in_carla_and_save_video(scenic_code: str) -> str:
     Run the simulation in Carla and save the video.
     """
     # 1. save scenic code to a file
+    # create temp_scenic_code directory if not exists
+    os.makedirs("temp_scenic_code/code", exist_ok=True)
+    os.makedirs("temp/video", exist_ok=True)
+    os.makedirs("temp/logs", exist_ok=True)
     with open("temp_scenic_code/code/scenic_code.scenic", "w") as f:
         f.write(scenic_code)
 
@@ -428,7 +432,7 @@ def run_simulation_in_carla_and_save_video(scenic_code: str) -> str:
     if result.returncode != 0:
         logger.error(f"Failed to run simulation: {result.stderr}")
         return None
-    video_path = os.path.join('temp/video', 'simulation_video.mp4')
+    video_path = os.path.join('temp/video', 'BEV.mp4')
     return video_path
 
 # ==========================================

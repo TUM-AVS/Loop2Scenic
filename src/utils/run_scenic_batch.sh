@@ -413,9 +413,8 @@ start_carla() {
     fi
   fi
 
-  log_master "Starting CARLA: (source \"$CARLA_ENV_ACTIVATE\" && cd \"$CARLA_BINARY_DIR\" && ${CARLA_CMD_STR})"
+  log_master "Starting CARLA: (cd \"$CARLA_BINARY_DIR\" && ${CARLA_CMD_STR})"
   (
-    source "$CARLA_ENV_ACTIVATE" && \
     cd "$CARLA_BINARY_DIR" && \
     __NV_PRIME_RENDER_OFFLOAD=1 \
     __GLX_VENDOR_LIBRARY_NAME=nvidia

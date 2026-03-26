@@ -22,6 +22,7 @@ wheels/
 
 # Temp
 temp/
+temp_scenic_code/
 
 # Virtual Environment
 venv/

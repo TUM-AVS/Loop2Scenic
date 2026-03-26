@@ -244,7 +244,8 @@ def main():
     map_name = world.get_map().name.split("/")[-1]
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S_%f")[:-3]
 
-    scene_dir = os.path.join(args.outdir, f"{args.prefix}__{map_name}__{timestamp}")
+    # scene_dir = os.path.join(args.outdir, f"{args.prefix}__{map_name}__{timestamp}")
+    scene_dir = args.outdir
     os.makedirs(scene_dir, exist_ok=True)
 
     print("[RECORDER] waiting for first ego (no stability required)...", flush=True)
@@ -288,13 +289,14 @@ def main():
     writers = {}
     cams = {}
     smooth = {
-        "FPV": SmoothPose(alpha=args.smooth_alpha),
-        "TPV": SmoothPose(alpha=args.smooth_alpha),
+        # "FPV": SmoothPose(alpha=args.smooth_alpha),
+        # "TPV": SmoothPose(alpha=args.smooth_alpha),
         "BEV": SmoothPose(alpha=args.smooth_alpha),
     }
 
     def outpath(view):
-        return os.path.join(scene_dir, f"{args.prefix}__{map_name}__{view}__{timestamp}.mp4")
+        # return os.path.join(scene_dir, f"{args.prefix}__{map_name}__{view}__{timestamp}.mp4")
+        return os.path.join(scene_dir, "BEV.mp4")
 
     def spawn_cam(view, init_tf):
         writers[view] = AsyncFFmpegWriter(outpath(view), args.width, args.height, args.fps, crf=args.crf)
@@ -304,8 +306,8 @@ def main():
 
     # initial placement
     ego_tf = ego.get_transform()
-    spawn_cam("FPV", compose(ego_tf, rel_fpv))
-    spawn_cam("TPV", compose(ego_tf, rel_tpv))
+    # spawn_cam("FPV", compose(ego_tf, rel_fpv))
+    # spawn_cam("TPV", compose(ego_tf, rel_tpv))
     spawn_cam("BEV", carla.Transform(
         carla.Location(ego_tf.location.x, ego_tf.location.y, ego_tf.location.z + bev_h),
         carla.Rotation(pitch=-90.0, yaw=0.0, roll=0.0)
@@ -348,8 +350,8 @@ def main():
             # =================================================
             # B) FPV: HARD LOCK（必须在 tick 之前）
             # =================================================
-            desired_fpv = compose(tf, rel_fpv)
-            cams["FPV"].set_transform(desired_fpv)
+            # desired_fpv = compose(tf, rel_fpv)
+            # cams["FPV"].set_transform(desired_fpv)
             # cams["FPV"].set_transform(compose(tf, rel_fpv))
 
             # =================================================
@@ -374,12 +376,12 @@ def main():
             # =================================================
             # E) TPV: smoothing（tick 之后）
             # =================================================
-            desired_tpv = compose(tf, rel_tpv)
-            loc_tpv, rot_tpv = smooth["TPV"].update(
-                desired_tpv.location,
-                desired_tpv.rotation
-            )
-            cams["TPV"].set_transform(carla.Transform(loc_tpv, rot_tpv))
+            # desired_tpv = compose(tf, rel_tpv)
+            # loc_tpv, rot_tpv = smooth["TPV"].update(
+            #     desired_tpv.location,
+            #     desired_tpv.rotation
+            # )
+            # cams["TPV"].set_transform(carla.Transform(loc_tpv, rot_tpv))
 
             # =================================================
             # F) BEV: smoothing location only（tick 之后）
