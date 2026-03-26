@@ -330,8 +330,7 @@ class ScenarioWorkflow:
             adapted_scenic_code = self.coder.debug_code(current_scenic_code, current_scenic_code_error)
         else:
             adapted_scenic_code = self.coder.adapt_code(current_scenic_code, current_evaluation_result, scenario_dsl)
-        adapted_scenic_code_str = to_safe_string(adapted_scenic_code)
-        self.logger.info(f"🛠 Adapted Scenic code: {adapted_scenic_code_str}, generation count: {generation_count + 1}")
+        self.logger.info(f"🛠 Adapted Scenic code, generation count: {generation_count + 1}")
 
         # 3. update the scenic scenarios list with the adapted scenario
         adpated_scenario_id = f"{current_scenic_scenario.scenario_id}_adapted_{generation_count + 1}"
