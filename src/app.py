@@ -84,8 +84,8 @@ def _initialize_embedder(config, logger: logging.Logger):
     embedder_kwargs = {
         "provider": config.embedding.provider,
         "model_name": config.embedding.model_name,
-        "device": config.embedding.device,
-        "batch_size": config.embedding.batch_size,
+        # "device": config.embedding.device,
+        # "batch_size": config.embedding.batch_size,
     }
     if config.embedding.model_path:
         embedder_kwargs["model_path"] = config.embedding.model_path
@@ -93,6 +93,12 @@ def _initialize_embedder(config, logger: logging.Logger):
     logger.info("Embedder initialized.")
     return embedder
 
+def _initialize_snippet_embedder(logger: logging.Logger):
+    """Initialize snippet embedder."""
+    logger.info("Initializing Snippet Embedder...")
+    snippet_embedder = get_embedder(provider="huggingface", model_name="sentence-transformers/all-MiniLM-L6-v2", device="cuda")
+    logger.info("Snippet Embedder initialized.")
+    return snippet_embedder
 
 def _initialize_vector_store(config, embedder, logger: logging.Logger) -> MilvusVectorStore:
     """Initialize vector database (Milvus) using the embedder dimension."""
@@ -167,13 +173,15 @@ def _initialize_retriever(
 def _initialize_agents(
     shared_llm_service,
     vlm_service,
+    vector_db,
+    snippets_embedder,
     logger: logging.Logger,
 ) -> Tuple[InterpreterAgent, ScenicCoderAgent, CriticAgent]:
     """Initialize all agents."""
     logger.info("Initializing Agents...")
 
     interpreter_agent = InterpreterAgent(vlm_service=vlm_service)
-    scenic_coder_agent = ScenicCoderAgent(llm_service=shared_llm_service)
+    scenic_coder_agent = ScenicCoderAgent(llm_service=shared_llm_service, vector_store=vector_db, snippets_embedder=snippets_embedder)
     critic_agent = CriticAgent(vlm_service=vlm_service)
 
     logger.info("Agents initialized.")
@@ -196,6 +204,7 @@ def _initialize_workflow(
         critic=critic_agent,
         retriever=retrieval_pipeline,
         embedder=embedder,
+        logger=logger,
     )
     logger.info("Workflow initialized.")
     return workflow
@@ -224,6 +233,7 @@ class ChatbotWorkflow:
         shared_llm_service = _initialize_llm_service(config, logger)
         vlm_service = _initialize_vlm_service(config, logger)
         embedder = _initialize_embedder(config, logger)
+        snippets_embedder = _initialize_snippet_embedder(logger)
         vector_db = _initialize_vector_store(config, embedder, logger)
         reranker = _initialize_reranker(config, logger)
         retrieval_pipeline = _initialize_retriever(config, vector_db, reranker, logger)
@@ -231,6 +241,8 @@ class ChatbotWorkflow:
         interpreter_agent, scenic_coder_agent, critic_agent = _initialize_agents(
             shared_llm_service=shared_llm_service,
             vlm_service=vlm_service,
+            vector_db=vector_db,
+            snippets_embedder=snippets_embedder,
             logger=logger,
         )
         workflow = _initialize_workflow(

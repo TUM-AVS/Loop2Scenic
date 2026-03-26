@@ -1,6 +1,6 @@
 vector_db:
   collection_name: avs_new
-  snippets_collection_name: code_snippets
+  snippets_collection_name: scenario_components
   distance_metric: cosine # Options: cosine, l2, ip
 
   host: localhost

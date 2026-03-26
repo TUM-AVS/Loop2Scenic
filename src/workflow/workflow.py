@@ -19,9 +19,6 @@ from src.utils import find_scenic_code_with_scenario_id, get_error_message_from_
 from src.agents import InterpreterAgent, ScenicCoderAgent, CriticAgent
 from src.services import Retriever, BaseEmbeddingModel
 
-# Get a logger for this specific file
-logger = logging.getLogger(__name__)
-
 class ScenarioWorkflow:
     def __init__(
         self, 
@@ -29,7 +26,8 @@ class ScenarioWorkflow:
         coder: ScenicCoderAgent, 
         critic: CriticAgent, 
         retriever: Retriever, 
-        embedder: BaseEmbeddingModel
+        embedder: BaseEmbeddingModel,
+        logger: logging.Logger
         ):
         self.workflow = StateGraph(ScenarioWorkflowState)
         
@@ -39,6 +37,7 @@ class ScenarioWorkflow:
         self.critic = critic
         self.retriever = retriever
         self.embedder = embedder
+        self.logger = logger
 
         # 1. add nodes
         self.workflow.add_node("embed_query", self.embed_query)
@@ -99,30 +98,30 @@ class ScenarioWorkflow:
                 best_score = scenario.score
                 best_scenario = scenario
         
-        if best_scenario and (best_score >= 0 or count >= max_count):
-            logger.info(f"🚦 ROUTER: Best score {best_score} or max count {count}/{max_count} reached. Sending to User.")
+        if best_scenario and (best_score >= -1.0 or count >= max_count):
+            self.logger.info(f"🚦 ROUTER: Best score {best_score} or max count {count}/{max_count} reached. Sending to User.")
             return "output_best_scenario"
         else:
-            logger.info(f"🚦 ROUTER: Best score {best_score} is too low. Sending to Interpreter.")
+            self.logger.info(f"🚦 ROUTER: Best score {best_score} is too low. Sending to Interpreter.")
             return "interpret"
 
     def route_after_human_review(self, state: ScenarioWorkflowState) -> Literal["end", "interpret"]:
         if state.get("user_satisfied", False):
-            logger.info("🚦 ROUTER: User satisfied. Ending workflow.")
+            self.logger.info("🚦 ROUTER: User satisfied. Ending workflow.")
             return "end"
         else:
-            logger.info("🚦 ROUTER: User rejected. Routing to Interpreter.")
+            self.logger.info("🚦 ROUTER: User rejected. Routing to Interpreter.")
             return "interpret"
 
     # ==========================================
     # NODE IMPLEMENTATIONS
     # ==========================================
     def embed_query(self, state: ScenarioWorkflowState) -> Dict:
-        log_workflow_state(logger, "embed_query", state)
+        log_workflow_state(self.logger, "embed_query", state)
         
         query = state.get('user_query', None)
         if not query:
-            logger.error("No user query provided")
+            self.logger.error("No user query provided")
             return {}
         dsl, flattened_text = self.interpreter.generate_dsl_from_user_query(query) # flatten text to reduce the noise caused by the formatting of the DSL
         query_to_embed = MultimodalQuery(text=flattened_text, image_path=query.image_path, video_path=query.video_path)
@@ -130,7 +129,7 @@ class ScenarioWorkflow:
         
         # NOTE: embedder may return a Tensor; `if not tensor` is invalid in PyTorch.
         if query_embeddings is None:
-            logger.error("Failed to embed query (got None)")
+            self.logger.error("Failed to embed query (got None)")
             return {}
 
         # Handle both list-like batches and tensor-like batches
@@ -140,25 +139,26 @@ class ScenarioWorkflow:
             batch_size = int(getattr(query_embeddings, "shape", [0])[0] or 0)
 
         if batch_size == 0:
-            logger.error("Failed to embed query")
+            self.logger.error("Failed to embed query")
             return {}
 
         query_embedding = query_embeddings[0]
 
-        logger.info("🧹 CLEANUP: Wiping previous scenario data for fresh run...")
+        self.logger.info("🧹 CLEANUP: Wiping previous scenario data for fresh run...")
         state = CLEAN_STATE
+        state["user_query"] = query
         state["scenario_dsl"] = dsl
         state["query_embedding"] = query_embedding
         return state
 
     def retrieve_base_scenario(self, state: ScenarioWorkflowState) -> Dict:
-        log_workflow_state(logger, "retrieve_base_scenario", state)
+        log_workflow_state(self.logger, "retrieve_base_scenario", state)
         
         # 1. get user query and query embedding
         user_query = state.get("user_query", None)
         query_embedding = state.get("query_embedding", None)
         if user_query is None or query_embedding is None:
-            logger.error("No user query or query embedding provided")
+            self.logger.error("No user query or query embedding provided")
             return {}
             
         # 2. retrieve the base scenario
@@ -167,40 +167,41 @@ class ScenarioWorkflow:
             query_embedding=query_embedding,
         )
         if not best_scenarios or len(best_scenarios) == 0:
-            logger.error("No scenarios found for query")
+            self.logger.error("No scenarios found for query")
             return {}
             
         base_scenario_id = best_scenarios[0].scenario_id # only return the best 1 scenario
         scenic_code = find_scenic_code_with_scenario_id(base_scenario_id)
         
-        logger.info(f"🔍 Found best scenario: {base_scenario_id}")
+        self.logger.info(f"🔍 Found best scenario: {base_scenario_id}")
         base_scenario_document = get_scenario_document_with_scenario_id(base_scenario_id)
         scenic_scenario = ScenicScenario(scenario_id=base_scenario_id, scenic_code=scenic_code, description=base_scenario_document.description)
         return {
             "base_scenario_id": base_scenario_id,
             "current_scenic_scenario": scenic_scenario,
             "scenic_scenarios_list": [scenic_scenario],
+            "query_embedding": []
         }
 
     def run_simulation(self, state: ScenarioWorkflowState) -> Dict:
-        log_workflow_state(logger, "run_simulation", state)
+        log_workflow_state(self.logger, "run_simulation", state)
         
         # 1. get current scenario and scenic scenarios list
         scenic_scenario = state.get("current_scenic_scenario", None)
         scenic_scenarios_list = state.get("scenic_scenarios_list", [])
         if not scenic_scenario or not scenic_scenario.scenic_code or not scenic_scenario.scenario_id:
-            logger.error("No current scenic scenario provided")
+            self.logger.error("No current scenic scenario provided")
             return state
 
         # 2. run simulation
-        logger.info("🎬 Running Carla Simulation...")
+        self.logger.info("🎬 Running Carla Simulation...")
         video_path = run_simulation_in_carla_and_save_video(scenic_scenario.scenic_code, scenic_scenario.scenario_id)
 
         # 3. if simulation failed, put the error message and the score, this kind of scenario will not go to evaluate with vlm
         if not video_path:
             error_message = get_error_message_from_logs(scenic_scenario.scenario_id)
             if error_message:
-                logger.error(f"Simulation failed with error message: {error_message}")
+                self.logger.error(f"Simulation failed with error message: {error_message}")
                 scenic_scenario.error = error_message
                 scenic_scenario.score = None
 
@@ -210,7 +211,7 @@ class ScenarioWorkflow:
                         scenario.score = None
                         break
             else:
-                logger.error("Simulation failed, but no error message found in logs")
+                self.logger.error("Simulation failed, but no error message found in logs")
                 scenic_scenario.error = "Simulation failed, but no error message found in logs"
                 scenic_scenario.score = None
 
@@ -235,16 +236,16 @@ class ScenarioWorkflow:
         }
 
     def evaluate_with_vlm(self, state: ScenarioWorkflowState) -> Dict:
-        log_workflow_state(logger, "evaluate_with_vlm", state)
+        log_workflow_state(self.logger, "evaluate_with_vlm", state)
         
         # 1. get query and current scenario, if not provided, return the state
         original_query = state.get("user_query", None)
         current_scenic_scenario = state.get("current_scenic_scenario", None)
         if not original_query or not current_scenic_scenario or not current_scenic_scenario.scenario_id:
-            logger.error("No original query or scenario provided")
+            self.logger.error("No original query or scenario provided")
             return state
         if current_scenic_scenario.error: # if the scenario has error, skip the evaluation
-            logger.error("Scenario has error, skipping evaluation")
+            self.logger.error("Scenario has error, skipping evaluation")
             return state
 
         # 2. get video path and compose the scenario document
@@ -257,14 +258,14 @@ class ScenarioWorkflow:
             video_path=video_path
         )
         if not scenario_document:
-            logger.error("No scenario document found for id")
+            self.logger.error("No scenario document found for id")
             return state
         
         # 3. evaluate with vlm
         score, feedback, evaluation_result = self.critic.evaluate_with_vlm(original_query, scenario_document)
-        logger.info(f"📊 VLM Score: {score}")
+        self.logger.info(f"📊 VLM Score: {score}")
         if feedback is None:
-            logger.error("Failed to evaluate with VLM")
+            self.logger.error("Failed to evaluate with VLM")
             return state
 
         # 4. update the current scenario with the evaluation result
@@ -284,16 +285,16 @@ class ScenarioWorkflow:
         }
 
     def interpret(self, state: ScenarioWorkflowState) -> Dict:
-        log_workflow_state(logger, "interpret", state)
+        log_workflow_state(self.logger, "interpret", state)
 
         if state.get("user_modification"):
-            logger.info("🧠 Interpreting user modification into DSL...")
+            self.logger.info("🧠 Interpreting user modification into DSL...")
             feedback = state.get("user_modification")
             best_scenario = state.get("best_scenario", None)
             
             # if no best scenario, use the original scenario dsl for generation
             if not best_scenario: 
-                logger.error("No best scenario provided, will use the original \scenario_dsl\ dsl for generation")
+                self.logger.error("No best scenario provided, will use the original scenario_dsl for generation")
                 modified_dsl = self.interpreter.generate_dsl_from_user_feedback(feedback, state.get("scenario_dsl", {}))
             # if best scenario is provided, use the best scenario for generation
             else:
@@ -306,18 +307,18 @@ class ScenarioWorkflow:
                 ]
             }
         else:
-            logger.error("No feedback to interpret, using the original user query dsl for generation")
+            self.logger.error("No feedback to interpret, using the original user query dsl for generation")
             return {}
 
     def adapt_code(self, state: ScenarioWorkflowState) -> Dict:
-        log_workflow_state(logger, "adapt_code", state)
+        log_workflow_state(self.logger, "adapt_code", state)
 
         # 1. get generation count and current state
         generation_count = state.get("generation_count", 0)
         scenario_dsl = state.get("scenario_dsl", {}) # aim dsl
         current_scenic_scenario = state.get("current_scenic_scenario", None)
         if not current_scenic_scenario or not current_scenic_scenario.scenic_code or not current_scenic_scenario.evaluation_result or not scenario_dsl:
-            logger.error("No current scenic scenario or evaluation result or aim dsl provided")
+            self.logger.error("No current scenic scenario or evaluation result or aim dsl provided")
             return state
         current_scenic_code = current_scenic_scenario.scenic_code
         current_evaluation_result = current_scenic_scenario.evaluation_result
@@ -330,7 +331,7 @@ class ScenarioWorkflow:
         else:
             adapted_scenic_code = self.coder.adapt_code(current_scenic_code, current_evaluation_result, scenario_dsl)
         adapted_scenic_code_str = to_safe_string(adapted_scenic_code)
-        logger.info(f"🛠 Adapted Scenic code: {adapted_scenic_code_str}, generation count: {generation_count + 1}")
+        self.logger.info(f"🛠 Adapted Scenic code: {adapted_scenic_code_str}, generation count: {generation_count + 1}")
 
         # 3. update the scenic scenarios list with the adapted scenario
         adpated_scenario_id = f"{current_scenic_scenario.scenario_id}_adapted_{generation_count + 1}"
@@ -343,7 +344,7 @@ class ScenarioWorkflow:
         }
 
     def output_best_scenario(self, state: ScenarioWorkflowState) -> Dict:
-        log_workflow_state(logger, "output_best_scenario", state)
+        log_workflow_state(self.logger, "output_best_scenario", state)
         
         scenic_scenarios_list = state.get("scenic_scenarios_list", [])
         best_scenario = None
@@ -353,7 +354,7 @@ class ScenarioWorkflow:
                 best_score = scenario.score
                 best_scenario = scenario
         if best_scenario:
-            logger.info(f"🏆 Returning best scenario: {best_scenario.scenario_id}")
+            self.logger.info(f"🏆 Returning best scenario: {best_scenario.scenario_id}")
             return {
                 "messages":[
                     {"role": "assistant", "content": f"Best scenario id is {best_scenario.scenario_id}, scenic code is {best_scenario.scenic_code}"}
@@ -361,7 +362,7 @@ class ScenarioWorkflow:
                 "best_scenario": best_scenario,
             }
         else:
-            logger.error("No best scenario found")
+            self.logger.error("No best scenario found")
             return {
                 "messages":[
                     {"role": "assistant", "content": "Not able to generate a valid scenic code after multiple attempts."}
@@ -369,15 +370,15 @@ class ScenarioWorkflow:
             }
 
     def human_review(self, state: ScenarioWorkflowState) -> Dict:
-        log_workflow_state(logger, "human_review", state)
+        log_workflow_state(self.logger, "human_review", state)
         
         user_satisfied = state.get("user_satisfied", False)
         
         if user_satisfied:
-            logger.info("✅ Human Review: Accepted")
+            self.logger.info("✅ Human Review: Accepted")
             return {}
         else:
-            logger.info("❌ Human Review: Rejected/Modified")
+            self.logger.info("❌ Human Review: Rejected/Modified")
             user_modification = state.get("user_modification", {"text": "Make it better."})
             return {
                 "user_modification": user_modification,
@@ -390,49 +391,53 @@ class ScenarioWorkflow:
 if __name__ == "__main__":
     # 1. SETUP LOGGING FIRST
     setup_logging(level="INFO", run_name="scenic_workflow_test")
-    
-    workflow = ScenarioWorkflow()
+
+    # ScenarioWorkflow may require explicit dependency injection in some versions.
+    # Fallback to app-level bootstrap if direct construction is not available.
+    try:
+        workflow = ScenarioWorkflow()
+    except TypeError:
+        from src.app import ChatbotWorkflow
+        workflow = ChatbotWorkflow().initialize_system()
+
     user_query = MultimodalQuery(
-        text="highway scenario", 
-        image_path=None, 
+        text="Generate me a highway scenario looks like the one in this video",
+        image_path=None,
         video_path="/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testvideo.mp4"
     )
     initial_state = {"user_query": user_query}
     config = {"configurable": {"thread_id": "test_1"}}
-    
-    logger.info("🚀 STARTING INITIAL WORKFLOW RUN...")
-    for event in workflow.app.stream(initial_state, config=config):
+
+    def _resume_with_feedback(feedback: MultimodalQuery | None, satisfied: bool) -> None:
+        workflow.app.update_state(
+            config,
+            {
+                "user_satisfied": satisfied,
+                "user_modification": feedback,
+            },
+        )
+        for _event in workflow.app.stream(None, config=config):
+            pass
+
+    workflow.logger.info("🚀 STARTING INITIAL WORKFLOW RUN...")
+    for _event in workflow.app.stream(initial_state, config=config):
         pass
-        
-    logger.info("🛑 GRAPH PAUSED. Pretending user clicked 'Reject'...")
-    workflow.app.update_state(config, {
-        "user_satisfied": False,
-        "user_modification": MultimodalQuery(text="Make it rain", image_path=None, video_path=None)
-    })
-    
-    logger.info("🚀 RESUMING WITH HUMAN FEEDBACK...")
-    for event in workflow.app.stream(None, config=config):
-        pass
-        
-    logger.info("🛑 GRAPH PAUSED. Pretending user clicked 'Reject'...")
-    user_feedback = MultimodalQuery(
-        text="Please add another car in the scenario which turns left at the intersection behind the ego vehicle as I marked with a red box in the image.", 
-        image_path="/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testimage.png", 
-        video_path=None
-    )
-    workflow.app.update_state(
-        config, 
-        {"user_satisfied": False,
-        "user_modification": user_feedback
-        }
+
+    workflow.logger.info("🛑 GRAPH PAUSED. Pretending user clicked 'Reject' (round 1)...")
+    _resume_with_feedback(
+        feedback=MultimodalQuery(text="Please add another car in the scenario which turns left at the intersection behind the ego vehicle as I marked with a red box in the image.", image_path="/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testimage.png", video_path=None),
+        satisfied=False,
     )
 
-    logger.info("🚀 RESUMING WITH HUMAN FEEDBACK...")
-    
-    for event in workflow.app.stream(None, config=config):
-        pass
-    
-    logger.info("🛑 GRAPH PAUSED. Pretending user clicked 'Accept'...")
-    workflow.app.update_state(config, {"user_satisfied": True})
-    
-    logger.info("✅ WORKFLOW COMPLETED SUCCESSFULLY.")
+    workflow.logger.info("🛑 GRAPH PAUSED. Pretending user clicked 'Reject' (round 2)...")
+    user_feedback = MultimodalQuery(
+        text="Please add another car in the scenario which turns left at the intersection behind the ego vehicle as I marked with a red box in the image.",
+        image_path="/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testimage.png",
+        video_path=None
+    )
+    _resume_with_feedback(feedback=user_feedback, satisfied=False)
+
+    workflow.logger.info("🛑 GRAPH PAUSED. Pretending user clicked 'Accept'...")
+    _resume_with_feedback(feedback=None, satisfied=True)
+
+    workflow.logger.info("✅ WORKFLOW COMPLETED SUCCESSFULLY.")

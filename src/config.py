@@ -18,7 +18,7 @@ load_dotenv()
 
 class VectorDBConfig(BaseModel):
     collection_name: str = "avs_new"
-    snippets_collection_name: str = "code_snippets"
+    snippets_collection_name: str = "scenario_components"
     distance_metric: str = "cosine"
 
     host: str = "localhost"

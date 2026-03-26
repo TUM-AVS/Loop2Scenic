@@ -77,6 +77,9 @@ def log_workflow_state(logger_instance: logging.Logger, node_name: str, state: d
     """
     # Prints to terminal (INFO)
     logger_instance.info(f"🟢 INVOKING NODE: {node_name}")
+
+    state = state.copy()
+    state.pop("query_embedding", None)
     
     # Saves massive state dump to the file ONLY (DEBUG)
     clean_state = pprint.pformat(state, indent=2, width=120)
