@@ -20,7 +20,7 @@ class ScenicCoderAgent(BaseAgent):
     def process(self, state: dict) -> dict:
         return state
 
-    def adapt_code(self, original_scenic_code: str, evaluation_result: Dict[str, Any], aim_dsl: Dict[str, Any]) -> Dict[str, Any]:
+    def adapt_code(self, original_scenic_code: str, evaluation_result: Dict[str, Any], aim_dsl: Dict[str, Any]) -> str:
         """
         Adapt the original scenic code to the aim DSL.
         Take the original scenic code, the evaluation result, and the aim DSL as input.
@@ -78,6 +78,9 @@ class ScenicCoderAgent(BaseAgent):
         formatted_prompt = formatted_prompt.strip()
         response = self.llm_service.chat([{"role": "user", "content": formatted_prompt}])
         return response
+
+    def debug_code(self, scenic_code: str, error_message: str) -> str:
+        pass
 
 if __name__ == "__main__":
     from src.services import MilvusVectorStore

@@ -3,9 +3,10 @@ import logging
 
 from src.services import BaseLLMModel, BaseVLMModel
 from src.services.vlm import GeminiVLModel
+from src.utils import to_safe_string
 from .base_agent import BaseAgent
 from src.prompt import load_prompt
-from src.schema import MultimodalQuery, ScenarioDocument
+from src.schema import MultimodalQuery, ScenarioDocument, ScenicScenario
 
 logger = logging.getLogger(__name__)
 
@@ -51,33 +52,48 @@ class InterpreterAgent(BaseAgent):
     def generate_dsl_from_user_feedback(
         self, 
         user_feedback: MultimodalQuery, 
-        dsl_to_modify: Dict[str, Any]
+        scenario_to_modify: Dict[str, Any] | ScenicScenario
     ) -> Optional[Dict[str, Any]]:
         """
-        Generate a DSL (Domain-Specific Language) in json format from the user feedback and original scenario.
+        Generate a DSL (Domain-Specific Language) in json format from the user feedback and the previous best scenario.
         """
-        contents = []
-        static_promt = load_prompt("modify_dsl_from_user_feedback").format(scenario_dsl=dsl_to_modify)
-        contents.append(static_promt)
+        try:
+            contents = []
+            static_promt = load_prompt("modify_dsl_from_user_feedback")
+            contents.append(static_promt)
 
-        if user_feedback.text:
-            contents.append(f"User suggestion text: {user_feedback.text}")
-        if user_feedback.image_path:
-            contents.append("User suggestion image:")
-            contents.append(self.vlm_service.load_media(user_feedback.image_path))
-        if user_feedback.video_path:
-            contents.append("User suggestion video:")
-            contents.append(self.vlm_service.load_media(user_feedback.video_path))
+            # 1. deal with the input, if it is a ScenicScenario, we use the video as input
+            if isinstance(scenario_to_modify, ScenicScenario):
+                contents.append(f"=== EXISTING SCENARIO VIDEO FROM BIRD EYE VIEW ===")
+                video_path = f"temp/{scenario_to_modify.scenario_id}/video/BEV.mp4"
+                contents.append(self.vlm_service.load_media(video_path))
+            else:
+                contents.append(f"=== EXISTING SCENARIO DSL ===")
+                contents.append(to_safe_string(scenario_to_modify))
 
-        output_instructions = load_prompt("output_layer_model_format")
-        contents.append(output_instructions)
+            # 2. deal with the user feedback
+            contents.append(f"=== USER FEEDBACK ===")
+            if user_feedback.text:
+                contents.append(f"User suggestion text: {user_feedback.text}")
+            if user_feedback.image_path:
+                contents.append("User suggestion image:")
+                contents.append(self.vlm_service.load_media(user_feedback.image_path))
+            if user_feedback.video_path:
+                contents.append("User suggestion video:")
+                contents.append(self.vlm_service.load_media(user_feedback.video_path))
 
-        response = self.vlm_service.chat_with_content(contents)
-        json_response = self._clean_and_parse_json(response)
-        if json_response:
-            return json_response
-        else:
-            logger.error("Failed to parse JSON")
+            output_instructions = load_prompt("output_layer_model_format")
+            contents.append(output_instructions)
+
+            response = self.vlm_service.chat_with_content(contents)
+            json_response = self._clean_and_parse_json(response)
+            if json_response:
+                return json_response
+            else:
+                logger.error("Failed to parse JSON")
+                return None
+        except Exception as e:
+            logger.error(f"Failed to generate DSL from user feedback: {e}")
             return None
 
     def _flatten_dsl(self, dsl: Dict[str, Any]) -> str:

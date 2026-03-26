@@ -195,7 +195,7 @@ def find_scenic_code_with_scenario_id(scenario_id: str) -> str:
 
 def get_scenario_document_with_scenario_id(scenario_id: str) -> ScenarioDocument:
     """
-    Get the scenario document for a given scenario ID.
+    Get a local scenario document for a given scenario ID.
     """
     try:
         scenario_location = Path(f"data/scenarios/{scenario_id}").resolve()

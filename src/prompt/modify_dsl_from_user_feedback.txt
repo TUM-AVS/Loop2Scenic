@@ -8,5 +8,3 @@ Your task is to:
 3. Generate a NEW, updated DSL that applies the requested modifications.
 4. CRITICAL: You must PRESERVE all elements of the original DSL that are not affected by the modification suggestion.
 
-=== EXISTING SCENARIO DSL ===
-{scenario_dsl}
