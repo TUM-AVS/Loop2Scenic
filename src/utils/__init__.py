@@ -3,7 +3,7 @@ Utility functions and helpers.
 """
 
 from .logger import setup_logging, log_workflow_state
-from .helpers import ensure_directory, count_tokens, to_safe_string, find_scenic_code_with_scenario_id, run_simulation_in_carla_and_save_video
+from .helpers import ensure_directory, count_tokens, to_safe_string, find_scenic_code_with_scenario_id, run_simulation_in_carla_and_save_video, get_error_message_from_logs
 
 __all__ = [
     "setup_logging", 
@@ -12,5 +12,6 @@ __all__ = [
     "count_tokens", 
     "to_safe_string", 
     "find_scenic_code_with_scenario_id", 
-    "run_simulation_in_carla_and_save_video"
+    "run_simulation_in_carla_and_save_video",
+    "get_error_message_from_logs"
     ]

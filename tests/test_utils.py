@@ -1,4 +1,4 @@
-if __name__ == "__main__":
+def test_video_recording():
     scenic_code = """description = "Ego vehicle loses control on bad road conditions and recovers to its original lane."
 param map = localPath('../../../1data/maps/Town05.xodr')
 param carla_map = 'Town05'
@@ -50,3 +50,12 @@ terminate after 25 seconds
     print(f"Video saved to {video_path}")
 
     ### Run the script manually: src/utils/run_scenic_batch.sh temp_scenic_code --outdir temp/video --logdir temp/logs
+
+def test_get_error_message_from_logs():
+    from src.utils.helpers import get_error_message_from_logs
+    error_message = get_error_message_from_logs("test_scenario")
+    print(error_message)
+
+if __name__ == "__main__":
+    # test_video_recording()
+    test_get_error_message_from_logs()

@@ -4,8 +4,9 @@ Helper utility functions.
 
 import logging
 from pathlib import Path
+import re
 import shutil
-from typing import Any
+from typing import Any, Optional
 import tiktoken
 import json
 import os
@@ -234,7 +235,7 @@ def get_scenario_document_with_scenario_id(scenario_id: str) -> ScenarioDocument
         logger.error(f"Error getting scenario document for ID: {scenario_id}: {e}")
         return None
 
-def run_simulation_in_carla_and_save_video(scenic_code: str, scenario_id: str) -> str:
+def run_simulation_in_carla_and_save_video(scenic_code: str, scenario_id: str = "test_scenario") -> str:
     """
     Run the simulation in Carla and save the video.
     """
@@ -261,3 +262,40 @@ def run_simulation_in_carla_and_save_video(scenic_code: str, scenario_id: str) -
         return None
     video_path = os.path.join(f"temp/{scenario_id}/video", 'BEV.mp4')
     return video_path
+
+def get_error_message_from_logs(scenario_id: str) -> Optional[str]:
+    """
+    Return the text block between:
+      "=== RECORDING START ==="
+    and
+      "=== CARLA SETTINGS (post-scenic) ==="
+    from the first matching log file under temp/{scenario_id}/logs.
+    """
+    log_dir = f"temp/{scenario_id}/logs"
+    if not os.path.isdir(log_dir):
+        return None
+    # More permissive than only digits, matches files like:
+    # scenario_id__20260326.log / scenario_id__code__...log
+    pattern = re.compile(rf"^{re.escape(scenario_id)}.*\.log$")
+    for file in sorted(os.listdir(log_dir)):
+        if not pattern.match(file):
+            continue
+        path = os.path.join(log_dir, file)
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            lines = f.readlines()
+        start_idx = None
+        end_idx = None
+        for i, line in enumerate(lines):
+            if start_idx is None and "=== RECORDING START ===" in line:
+                start_idx = i
+                continue
+            if start_idx is not None and "=== CARLA SETTINGS (post-scenic) ===" in line:
+                end_idx = i
+                break
+        if start_idx is None:
+            continue
+        # If end marker missing, return everything after start marker.
+        block = lines[start_idx + 1:end_idx] if end_idx is not None else lines[start_idx + 1:]
+        text = "".join(block).strip()
+        return text if text else None
+    return None
