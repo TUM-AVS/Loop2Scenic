@@ -417,8 +417,9 @@ def main():
             # =================================================
             # H) 可选 duration（不想要可删）
             # =================================================
-            if now - start >= args.duration:
-                break
+            # if now - start >= args.duration:
+            #     print("[RECORDER] duration reached, stopping recorder", flush=True)
+            #     break
 
         if ego_first_time is not None:
             ego_alive_seconds = time.time() - ego_first_time
