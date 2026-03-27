@@ -52,24 +52,26 @@ class InterpreterAgent(BaseAgent):
     def generate_dsl_from_user_feedback(
         self, 
         user_feedback: MultimodalQuery, 
-        scenario_to_modify: Dict[str, Any] | ScenicScenario
-    ) -> Optional[Dict[str, Any]]:
+        original_dsl: Optional[Dict[str, Any]] | None,
+        scenario_to_modify: ScenicScenario | None
+    ) -> Optional[Dict[str, Any]] | None:
         """
-        Generate a DSL (Domain-Specific Language) in json format from the user feedback and the previous best scenario.
+        Generate a DSL (Domain-Specific Language) in json format from the user feedback and the original or previous best scenario.
         """
         try:
             contents = []
             static_promt = load_prompt("modify_dsl_from_user_feedback")
             contents.append(static_promt)
 
-            # 1. deal with the input, if it is a ScenicScenario, we use the video as input
+            # 1. deal with the original dsl and the scenario to modify
+            if original_dsl is not None:
+                contents.append(f"=== EXISTING SCENARIO DSL ===")
+                contents.append(to_safe_string(original_dsl))
+
             if isinstance(scenario_to_modify, ScenicScenario):
                 contents.append(f"=== EXISTING SCENARIO VIDEO FROM BIRD EYE VIEW ===")
                 video_path = f"temp/{scenario_to_modify.scenario_id}/video/BEV.mp4"
                 contents.append(self.vlm_service.load_media(video_path))
-            else:
-                contents.append(f"=== EXISTING SCENARIO DSL ===")
-                contents.append(to_safe_string(scenario_to_modify))
 
             # 2. deal with the user feedback
             contents.append(f"=== USER FEEDBACK ===")
@@ -90,7 +92,7 @@ class InterpreterAgent(BaseAgent):
             if json_response:
                 return json_response
             else:
-                logger.error("Failed to parse JSON")
+                logger.error("Failed to parse JSON, returning None")
                 return None
         except Exception as e:
             logger.error(f"Failed to generate DSL from user feedback: {e}")

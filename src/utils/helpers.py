@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 import re
 import shutil
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 import tiktoken
 import json
 import os
@@ -299,3 +299,41 @@ def get_error_message_from_logs(scenario_id: str) -> Optional[str]:
         text = "".join(block).strip()
         return text if text else None
     return None
+
+def flatten_scenario_dsl_to_str(dsl: Dict[str, Any] | str) -> str | None:
+    """
+    Flatten the scenario DSL dictionary into a string.
+    """
+    if isinstance(dsl, dict):
+        scenario_data = dsl
+    elif isinstance(dsl, str):
+        try:
+            scenario_data = json.loads(dsl)
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON from DSL: {e}")
+            return None
+    else:
+        logger.error(f"Unsupported DSL type: {type(dsl)}")
+        return None
+
+    text_parts = []
+    text_parts.append(f"Scenario: {scenario_data.get('Scenario', '')}")
+    text_parts.append(f"The ego vehicle is {scenario_data.get('Ego', '')}")
+    
+    adversarials = scenario_data.get('Adversarials', [])
+    if adversarials:
+        if isinstance(adversarials, list):
+            text_parts.append(f"Adversarial objects: {' '.join(map(str, adversarials))}")
+        else:
+            text_parts.append(f"Adversarial objects: {adversarials}")
+    else:
+        text_parts.append("There are no adversarials.")
+        
+    text_parts.append(f"Spatial Relation: {scenario_data.get('Spatial Relation', '')}")
+    
+    reqs = scenario_data.get('Requirement and restrictions', '')
+    if reqs:
+        text_parts.append(f"Requirements and restrictions: {reqs}")
+        
+    flattened_text = " ".join(text_parts)
+    return flattened_text

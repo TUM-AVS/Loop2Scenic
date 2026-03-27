@@ -15,7 +15,7 @@ if root_path not in sys.path:
     sys.path.append(root_path)
 
 from .scenario_workflow_state import CLEAN_STATE, MAX_COUNT, ScenarioWorkflowState
-from src.utils import find_scenic_code_with_scenario_id, get_error_message_from_logs, run_simulation_in_carla_and_save_video, setup_logging, log_workflow_state, to_safe_string
+from src.utils import find_scenic_code_with_scenario_id, flatten_scenario_dsl_to_str, get_error_message_from_logs, run_simulation_in_carla_and_save_video, setup_logging, log_workflow_state, to_safe_string
 from src.agents import InterpreterAgent, ScenicCoderAgent, CriticAgent
 from src.services import Retriever, BaseEmbeddingModel
 
@@ -93,6 +93,13 @@ class ScenarioWorkflow:
         best_score = -1.0
         best_scenario = None
         scenic_scenarios_list = state.get("scenic_scenarios_list", [])
+
+        # if to find the best scenario should depends on if user has provided any feedback
+        # if user provides feedback, which means the scenarios list should be cleaned, because that is already from the last round
+        if not scenic_scenarios_list or len(scenic_scenarios_list) == 0:
+            self.logger.info("🚦 ROUTER: No scenic scenarios list provided, sending to interpreter for dsl generation")
+            return "interpret"
+
         for scenario in scenic_scenarios_list:
             if scenario.score and scenario.score > best_score and scenario.error is None:
                 best_score = scenario.score
@@ -239,7 +246,7 @@ class ScenarioWorkflow:
         log_workflow_state(self.logger, "evaluate_with_vlm", state)
         
         # 1. get query and current scenario, if not provided, return the state
-        original_query = state.get("user_query", None)
+        original_query = state.get("user_query", None) # TODO: have to be combined with the user modification (chat history)
         current_scenic_scenario = state.get("current_scenic_scenario", None)
         if not original_query or not current_scenic_scenario or not current_scenic_scenario.scenario_id:
             self.logger.error("No original query or scenario provided")
@@ -295,12 +302,27 @@ class ScenarioWorkflow:
             # if no best scenario, use the original scenario dsl for generation
             if not best_scenario: 
                 self.logger.error("No best scenario provided, will use the original scenario_dsl for generation")
-                modified_dsl = self.interpreter.generate_dsl_from_user_feedback(feedback, state.get("scenario_dsl", {}))
-            # if best scenario is provided, use the best scenario for generation
+                modified_dsl = self.interpreter.generate_dsl_from_user_feedback(user_feedback=feedback, original_dsl=state.get("scenario_dsl", {}), scenario_to_modify=None)
+            # if best scenario is provided, use the best scenario for generation, the original dsl should also be considered
             else:
-                modified_dsl = self.interpreter.generate_dsl_from_user_feedback(feedback, best_scenario)
-            
+                modified_dsl = self.interpreter.generate_dsl_from_user_feedback(user_feedback=feedback, original_dsl=state.get("scenario_dsl", {}), scenario_to_modify=best_scenario)
+
+            # compose a new user query from the modified dsl for the vlm evaluation
+            flattened_modified_dsl = flatten_scenario_dsl_to_str(modified_dsl)
+            if not flattened_modified_dsl:
+                flattened_modified_dsl = to_safe_string(modified_dsl)
+            new_user_query = MultimodalQuery(
+                text=flattened_modified_dsl,
+                image_path=feedback.image_path,
+                video_path=feedback.video_path
+            )
             return {
+                "user_query": new_user_query,
+                "current_scenic_scenario": best_scenario, # use the best scenario for adapt code
+                "user_modification": None, # clean the user modification for the next round generation so it will not be interpreted again
+                "user_satisfied": None, # clean the user satisfied for the next round generation so it will not be interpreted again
+                "best_scenario": None, # clean the best scenario for the next round generation
+                "scenic_scenarios_list": [], # clean the scenarios list for the next round generation
                 "scenario_dsl": modified_dsl,
                 "messages": [
                     {"role": "assistant", "content": f"Modified DSL: {to_safe_string(modified_dsl)}"}
@@ -340,6 +362,7 @@ class ScenarioWorkflow:
         return {
             "scenic_scenarios_list": scenic_scenarios_list,
             "current_scenic_scenario": adapted_scenic_scenario,
+            "generation_count": generation_count + 1,
         }
 
     def output_best_scenario(self, state: ScenarioWorkflowState) -> Dict:
@@ -381,7 +404,7 @@ class ScenarioWorkflow:
             user_modification = state.get("user_modification", {"text": "Make it better."})
             return {
                 "user_modification": user_modification,
-                "generation_count": 0 
+                "generation_count": 0,
             }
 
 # ==========================================
@@ -400,7 +423,7 @@ if __name__ == "__main__":
         workflow = ChatbotWorkflow().initialize_system()
 
     user_query = MultimodalQuery(
-        text="Generate me a highway scenario looks like the one in this video",
+        text="Generate me a highway scenario looks like the one in this video, the ego vehicle should make a left turn at the intersection, and the adversarial should go straight.",
         image_path=None,
         video_path="/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testvideo.mp4"
     )
@@ -427,14 +450,6 @@ if __name__ == "__main__":
         feedback=MultimodalQuery(text="Please add another car in the scenario which turns left at the intersection behind the ego vehicle as I marked with a red box in the image.", image_path="/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testimage.png", video_path=None),
         satisfied=False,
     )
-
-    workflow.logger.info("🛑 GRAPH PAUSED. Pretending user clicked 'Reject' (round 2)...")
-    user_feedback = MultimodalQuery(
-        text="Please add another car in the scenario which turns left at the intersection behind the ego vehicle as I marked with a red box in the image.",
-        image_path="/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testimage.png",
-        video_path=None
-    )
-    _resume_with_feedback(feedback=user_feedback, satisfied=False)
 
     workflow.logger.info("🛑 GRAPH PAUSED. Pretending user clicked 'Accept'...")
     _resume_with_feedback(feedback=None, satisfied=True)
