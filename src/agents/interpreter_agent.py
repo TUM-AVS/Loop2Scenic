@@ -6,7 +6,7 @@ from src.services.vlm import GeminiVLModel
 from src.utils import to_safe_string
 from .base_agent import BaseAgent
 from src.prompt import load_prompt
-from src.schema import MultimodalQuery, ScenarioDocument, ScenicScenario
+from src.schema import MultimodalQuery, ScenarioDocument, ScenicScenario, HeaderSetting
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +18,47 @@ class InterpreterAgent(BaseAgent):
 
     def process(self, state: dict) -> dict:
         return state
+
+    def generate_header_settings(self, user_query: MultimodalQuery) -> HeaderSetting:
+        header_settings_detection_prompt = load_prompt("header_settings_detection")
+
+        # 1. compose user query
+        user_query_text = f"{user_query.text}\n"
+        if user_query.image_path:
+            user_query_text += f"User query image: {self.vlm_service.load_media(user_query.image_path)}\n"
+        if user_query.video_path:
+            user_query_text += f"User query video: {self.vlm_service.load_media(user_query.video_path)}\n"
+
+        # 2. call the VLM service
+        header_settings_detection_prompt = header_settings_detection_prompt.format(user_query=user_query_text)
+        response = self.vlm_service.chat(text=header_settings_detection_prompt)
+
+        # 3. parse the response
+        json_response = self._clean_and_parse_json(response)
+        logger.info(f"JSON response from header settings detection: {json_response}")
+        """
+        {{
+            "weather": "SoftRainNoon",
+            "map_type": "rural",
+            "suggested_map": "Town07",
+            "time_of_day": "noon",
+            "blueprint": "vehicle.tesla.model3",
+            "confidence": 0.9,
+            "reasoning": "Query mentions 'rainy weather', 'rural area' and 'Tesla' at noon"
+        }}
+        """
+        if json_response:
+            suggested_map = json_response.get("suggested_map", "Town05")
+            header_settings = HeaderSetting(
+                carla_map=suggested_map,
+                map_file_path=f"../../maps/{suggested_map}.xodr",
+                weather=json_response.get("weather", "ClearNoon"),
+                blueprint=json_response.get("blueprint", "vehicle.lincoln.mkz_2017"),
+            )
+            return header_settings
+        else:
+            logger.error("Failed to parse JSON, returning None")
+            return None
 
     def generate_dsl_from_user_query(self, user_query: MultimodalQuery) -> Tuple[Dict[str, Any], str]:
         """
@@ -129,44 +170,56 @@ class InterpreterAgent(BaseAgent):
 if __name__ == "__main__":
     interpreter = InterpreterAgent(vlm_service=GeminiVLModel(model="gemini-2.5-flash"))
 
-    # 1. generate original dsl
-    user_query = MultimodalQuery(
-        text="Please generate me a scenario like this.", 
-        image_path="/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testimage.png", 
-        video_path="/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testvideo.mp4"
-    )
-    dsl, flattened_text = interpreter.generate_dsl_from_user_query(user_query)
-    print(f"Successfully generated DSL: {dsl}")
+    def test_dsl_generation():
+        # 1. generate original dsl
+        user_query = MultimodalQuery(
+            text="Please generate me a scenario like this.", 
+            image_path="/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testimage.png", 
+            video_path="/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testvideo.mp4"
+        )
+        dsl, flattened_text = interpreter.generate_dsl_from_user_query(user_query)
+        print(f"Successfully generated DSL: {dsl}")
 
-    """
-    result = {
-        'Scenario': 'Ego vehicle approaches an intersection, waits for a traffic light, and proceeds straight after another car makes a right turn.', 
-        'Ego': 'A car approaches an intersection, stops at a red light, and then drives straight through the intersection when the light turns green.', 
-        'Adversarials': 
-            ['A car approaches an intersection from the left and makes a right turn.'], 
-        'Spatial Relation': 'The ego vehicle and an adversarial vehicle are positioned on different incoming lanes at a four-way intersection.', 
-        'Requirement and restrictions': "The ego vehicle and the adversarial vehicle are initially a certain distance from the intersection. The ego vehicle's traffic light is initially red and then turns green. The scenario terminates when the ego vehicle has cleared the intersection."
+        """
+        result = {
+            'Scenario': 'Ego vehicle approaches an intersection, waits for a traffic light, and proceeds straight after another car makes a right turn.', 
+            'Ego': 'A car approaches an intersection, stops at a red light, and then drives straight through the intersection when the light turns green.', 
+            'Adversarials': 
+                ['A car approaches an intersection from the left and makes a right turn.'], 
+            'Spatial Relation': 'The ego vehicle and an adversarial vehicle are positioned on different incoming lanes at a four-way intersection.', 
+            'Requirement and restrictions': "The ego vehicle and the adversarial vehicle are initially a certain distance from the intersection. The ego vehicle's traffic light is initially red and then turns green. The scenario terminates when the ego vehicle has cleared the intersection."
+            }
+        """
+
+        # 2. generate modified dsl
+        user_feedback = MultimodalQuery(
+            text="Please add another car in the scenario which turns left at the intersection behind the ego vehicle as I marked with a red box in the image.", 
+            image_path="/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testimage.png", 
+            video_path=None
+        )
+        modified_dsl = interpreter.generate_dsl_from_user_feedback(user_feedback, dsl)
+        print(f"Successfully generated modified DSL: {modified_dsl}")
+
+        """
+        result:
+        {
+            'Scenario': 'Ego vehicle approaches an intersection, waits for a traffic light, and proceeds straight after another car makes a right turn, while a third car turns left from behind the ego.', 
+            'Ego': 'A car approaches an intersection, stops at a red light, and then drives straight through the intersection when the light turns green.', 
+            'Adversarials': 
+                ['A car approaches an intersection from the left and makes a right turn.', 
+                'A car approaches the intersection from behind the ego vehicle and makes a left turn.'], 
+            'Spatial Relation': 'The ego vehicle and two adversarial vehicles are positioned at a four-way intersection; one adversarial car approaches from the left, and another is positioned behind the ego vehicle on the same lane.', 
+            'Requirement and restrictions': "The ego vehicle and the adversarial vehicles are initially a certain distance from the intersection. The ego vehicle's traffic light is initially red and then turns green. The scenario terminates when the ego vehicle has cleared the intersection."
         }
-    """
+        """
 
-    # 2. generate modified dsl
-    user_feedback = MultimodalQuery(
-        text="Please add another car in the scenario which turns left at the intersection behind the ego vehicle as I marked with a red box in the image.", 
-        image_path="/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testimage.png", 
-        video_path=None
-    )
-    modified_dsl = interpreter.generate_dsl_from_user_feedback(user_feedback, dsl)
-    print(f"Successfully generated modified DSL: {modified_dsl}")
+    def test_header_settings_generation():
+        user_query = MultimodalQuery(
+            text="Please generate me a scenario in a rainy weather in a rural area at noon.", 
+            image_path="/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testimage.png", 
+            video_path="/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testvideo.mp4"
+        )
+        header_settings = interpreter.generate_header_settings(user_query)
+        print(f"Successfully generated header settings: {header_settings}")
 
-    """
-    result:
-    {
-        'Scenario': 'Ego vehicle approaches an intersection, waits for a traffic light, and proceeds straight after another car makes a right turn, while a third car turns left from behind the ego.', 
-        'Ego': 'A car approaches an intersection, stops at a red light, and then drives straight through the intersection when the light turns green.', 
-        'Adversarials': 
-            ['A car approaches an intersection from the left and makes a right turn.', 
-             'A car approaches the intersection from behind the ego vehicle and makes a left turn.'], 
-        'Spatial Relation': 'The ego vehicle and two adversarial vehicles are positioned at a four-way intersection; one adversarial car approaches from the left, and another is positioned behind the ego vehicle on the same lane.', 
-        'Requirement and restrictions': "The ego vehicle and the adversarial vehicles are initially a certain distance from the intersection. The ego vehicle's traffic light is initially red and then turns green. The scenario terminates when the ego vehicle has cleared the intersection."
-    }
-    """
+    test_header_settings_generation()

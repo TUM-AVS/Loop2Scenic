@@ -20,7 +20,7 @@ class ScenicCoderAgent(BaseAgent):
     def process(self, state: dict) -> dict:
         return state
 
-    def generate_header(self, header_config: Dict[str, Any]) -> str:
+    def _generate_header(self, header_config: Dict[str, Any]) -> str:
         pass
 
     def adapt_code(self, original_scenic_code: str, evaluation_result: Dict[str, Any], aim_dsl: Dict[str, Any]) -> str:

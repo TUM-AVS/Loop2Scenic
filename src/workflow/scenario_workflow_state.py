@@ -17,6 +17,7 @@ class ScenarioWorkflowState(TypedDict):
     
     # --- 2. Understanding & Retrieval ---
     # The structured parameters extracted from the user's query/feedback
+    header_config: Dict[str, Any]
     scenario_dsl: Dict[str, Any]
     
     # The numerical vector used to search Milvus
