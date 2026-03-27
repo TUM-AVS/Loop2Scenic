@@ -1,6 +1,6 @@
 from typing import TypedDict, Annotated, List, Dict, Any, Optional
 from langgraph.graph.message import add_messages
-from src.schema import MultimodalQuery, ScenicScenario
+from src.schema import HeaderSetting, MultimodalQuery, ScenicScenario
 
 class ScenarioWorkflowState(TypedDict):
     """
@@ -17,7 +17,7 @@ class ScenarioWorkflowState(TypedDict):
     
     # --- 2. Understanding & Retrieval ---
     # The structured parameters extracted from the user's query/feedback
-    header_config: Dict[str, Any]
+    header_settings: HeaderSetting | None
     scenario_dsl: Dict[str, Any]
     
     # The numerical vector used to search Milvus
@@ -50,6 +50,7 @@ CLEAN_STATE: ScenarioWorkflowState = {
     "messages": [],
     "user_query": None,
     "scenario_dsl": None,
+    "header_settings": None,
     "query_embedding": None,
     "base_scenario_id": None,
     "scenic_scenarios_list": [],

@@ -19,7 +19,11 @@ class InterpreterAgent(BaseAgent):
     def process(self, state: dict) -> dict:
         return state
 
-    def generate_header_settings(self, user_query: MultimodalQuery) -> HeaderSetting:
+    def generate_header_settings(self, user_query: MultimodalQuery) -> HeaderSetting | None:
+        """
+        Generate the header settings for the scenario based on the user query.
+        Return None if the confidence is less than 0.5.
+        """
         header_settings_detection_prompt = load_prompt("header_settings_detection")
 
         # 1. compose user query
@@ -36,7 +40,7 @@ class InterpreterAgent(BaseAgent):
         # 3. parse the response
         json_response = self._clean_and_parse_json(response)
         logger.info(f"JSON response from header settings detection: {json_response}")
-        """
+        """ json response example:
         {{
             "weather": "SoftRainNoon",
             "map_type": "rural",
@@ -48,14 +52,18 @@ class InterpreterAgent(BaseAgent):
         }}
         """
         if json_response:
-            suggested_map = json_response.get("suggested_map", "Town05")
-            header_settings = HeaderSetting(
-                carla_map=suggested_map,
-                map_file_path=f"../../maps/{suggested_map}.xodr",
-                weather=json_response.get("weather", "ClearNoon"),
-                blueprint=json_response.get("blueprint", "vehicle.lincoln.mkz_2017"),
-            )
-            return header_settings
+            if json_response.get("confidence", 0.0) < 0.5:
+                logger.warning("Low confidence in header settings detection, returning None to not to change the header")
+                return None
+            else: 
+                suggested_map = json_response.get("suggested_map", "Town05")
+                header_settings = HeaderSetting(
+                    carla_map=suggested_map,
+                    map_file_path=f"../../maps/{suggested_map}.xodr",
+                    weather=json_response.get("weather", "ClearNoon"),
+                    blueprint=json_response.get("blueprint", "vehicle.lincoln.mkz_2017"),
+                )
+                return header_settings
         else:
             logger.error("Failed to parse JSON, returning None")
             return None

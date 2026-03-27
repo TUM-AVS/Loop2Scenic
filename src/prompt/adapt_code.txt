@@ -1,14 +1,33 @@
 You are an expert in autonomous driving scenario analysis and a master Scenic code developer.
 Your task is to adapt an existing Scenic script so that it strictly adheres to a target Domain Specific Language (DSL).
 
-### INPUTS ###
+<instructions>
+1. Adapt the original code to resolve all identified incompatibilities.
+2. Strictly mimic the syntax, structure, and logic demonstrated in the <few_shot_examples>.
+3. DO NOT hallucinate. You must only use APIs, keywords, and functions explicitly defined in the <target_dsl_specification> or the <few_shot_examples>.
+4. Ensure the final code is syntactically valid and logically sound for autonomous driving simulation.
+5. Header modification rule: {header_instruction}
+</instructions>
 
-[ORIGINAL SCENIC CODE]
+<original_scenic_code>
 {original_scenic_code}
+</original_scenic_code>
 
-[TARGET DSL SPECIFICATION]
+<target_dsl_specification>
 {aim_dsl}
+</target_dsl_specification>
 
-[IDENTIFIED INCOMPATIBILITIES]
+<identified_incompatibilities>
 Our evaluation identified the following aspects of the original code that violate the target DSL:
 {aspects}
+</identified_incompatibilities>
+
+<few_shot_examples>
+{few_shot_examples}
+</few_shot_examples>
+
+<output_format>
+Output ONLY the raw, executable Scenic code.
+Do NOT wrap the output in markdown code blocks (e.g., absolutely no ```scenic or ```).
+Do NOT include any conversational text, introductions, or explanations before or after the code.
+</output_format>

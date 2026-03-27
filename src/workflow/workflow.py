@@ -6,7 +6,7 @@ from langgraph.checkpoint.memory import MemorySaver
 import sys
 from pathlib import Path
 
-from src.schema import MultimodalQuery, ScenarioDocument, ScenicScenario
+from src.schema import HeaderSetting, MultimodalQuery, ScenarioDocument, ScenicScenario
 from src.utils.helpers import get_scenario_document_with_scenario_id
 
 # Add the project root (ads-mrag) to the python path
@@ -151,11 +151,18 @@ class ScenarioWorkflow:
 
         query_embedding = query_embeddings[0]
 
+        # detect header settings
+        header_settings = self.interpreter.generate_header_settings(query)
+        if not header_settings:
+            self.logger.info("🔍 Failed to generate header settings, use None to indicate not changing the header")
+            header_settings = None # use None to indicate not changing the header
+
         self.logger.info("🧹 CLEANUP: Wiping previous scenario data for fresh run...")
         state = CLEAN_STATE
         state["user_query"] = query
         state["scenario_dsl"] = dsl
         state["query_embedding"] = query_embedding
+        state["header_settings"] = header_settings
         return state
 
     def retrieve_base_scenario(self, state: ScenarioWorkflowState) -> Dict:
@@ -179,6 +186,12 @@ class ScenarioWorkflow:
             
         base_scenario_id = best_scenarios[0].scenario_id # only return the best 1 scenario
         scenic_code = find_scenic_code_with_scenario_id(base_scenario_id)
+
+        # 3. replace the header of the scenic code when header settings are provided
+        header_settings = state.get("header_settings", None) # None means not changing the header
+        if header_settings:
+            scenic_code = self.coder.replace_header(scenic_code, header_settings)
+            self.logger.info(f"🔍 Replaced header of the scenic code with the header settings.")
         
         self.logger.info(f"🔍 Found best scenario: {base_scenario_id}")
         base_scenario_document = get_scenario_document_with_scenario_id(base_scenario_id)
@@ -299,15 +312,15 @@ class ScenarioWorkflow:
             feedback = state.get("user_modification")
             best_scenario = state.get("best_scenario", None)
             
-            # if no best scenario, use the original scenario dsl for generation
+            # 1. if no best scenario, use the original scenario dsl for new dsl generation
             if not best_scenario: 
                 self.logger.error("No best scenario provided, will use the original scenario_dsl for generation")
                 modified_dsl = self.interpreter.generate_dsl_from_user_feedback(user_feedback=feedback, original_dsl=state.get("scenario_dsl", {}), scenario_to_modify=None)
-            # if best scenario is provided, use the best scenario for generation, the original dsl should also be considered
+            # 2. if best scenario is provided, use both original dsl and best scenario for new dsl generation
             else:
                 modified_dsl = self.interpreter.generate_dsl_from_user_feedback(user_feedback=feedback, original_dsl=state.get("scenario_dsl", {}), scenario_to_modify=best_scenario)
 
-            # compose a new user query from the modified dsl for the vlm evaluation
+            # 3. compose a new user query from the modified dsl for the vlm evaluation
             flattened_modified_dsl = flatten_scenario_dsl_to_str(modified_dsl)
             if not flattened_modified_dsl:
                 flattened_modified_dsl = to_safe_string(modified_dsl)
@@ -316,8 +329,18 @@ class ScenarioWorkflow:
                 image_path=feedback.image_path,
                 video_path=feedback.video_path
             )
+
+            # 4. generate a new header settings
+            new_header_settings = self.interpreter.generate_header_settings(new_user_query)
+            if not new_header_settings:
+                self.logger.info("🔍 Failed to generate new header settings, use None to indicate not changing the header")
+                new_header_settings = None # use None to indicate not changing the header
+            else:
+                new_header_settings = new_header_settings
+                self.logger.info(f"🔍 Generated new header settings: {new_header_settings}")
             return {
                 "user_query": new_user_query,
+                "header_settings": new_header_settings,
                 "current_scenic_scenario": best_scenario, # use the best scenario for adapt code
                 "user_modification": None, # clean the user modification for the next round generation so it will not be interpreted again
                 "user_satisfied": None, # clean the user satisfied for the next round generation so it will not be interpreted again
@@ -345,13 +368,14 @@ class ScenarioWorkflow:
         current_scenic_code = current_scenic_scenario.scenic_code
         current_evaluation_result = current_scenic_scenario.evaluation_result
         current_scenic_code_error = current_scenic_scenario.error
+        header_settings = state.get("header_settings", None)
 
         # 2. adapt the code, if the code has error, call debug function, otherwise call adapt function
         adapted_scenic_code = ""
         if current_scenic_code_error or not current_evaluation_result:
-            adapted_scenic_code = self.coder.debug_code(current_scenic_code, current_scenic_code_error)
+            adapted_scenic_code = self.coder.debug_code(current_scenic_code, current_scenic_code_error, header_settings)
         else:
-            adapted_scenic_code = self.coder.adapt_code(current_scenic_code, current_evaluation_result, scenario_dsl)
+            adapted_scenic_code = self.coder.adapt_code(current_scenic_code, current_evaluation_result, scenario_dsl, header_settings)
         self.logger.info(f"🛠 Adapted Scenic code, generation count: {generation_count + 1}")
 
         # 3. update the scenic scenarios list with the adapted scenario

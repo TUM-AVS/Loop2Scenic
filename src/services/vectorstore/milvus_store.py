@@ -393,7 +393,7 @@ class MilvusVectorStore:
         Returns:
             List of snippet dictionaries
         """
-# 1. Define search parameters
+        # 1. Define search parameters
         local_search_params = {
             "metric_type": "COSINE",
             "params": {"nprobe": 16}
@@ -404,32 +404,38 @@ class MilvusVectorStore:
         if component_type:
             expr = f'component_type == "{component_type}"'
             
-        # 3. Execute the search using MilvusClient
-        results = self.client.search(
-            collection_name=self.snippets_collection_name,
-            data=[query_embedding],
-            filter=expr if expr else "",
-            limit=k,
-            output_fields=[
-                "scenario_id", 
-                "component_type", 
-                "description", 
-                "code"
-            ],
-            search_params=local_search_params
-        )
-        
-        # 4. Parse the results into clean Python dictionaries
-        snippets = []
-        if not results:
-            return snippets
+        # 3. Execute the search and catch the exception
+        try:
+            results = self.client.search(
+                collection_name=self.snippets_collection_name,
+                data=[query_embedding], 
+                filter=expr if expr else "",
+                anns_field="embedding",
+                limit=k,
+                output_fields=[
+                    "scenario_id", 
+                    "component_type", 
+                    "description", 
+                    "code"
+                ],
+                search_params=local_search_params
+            )
             
-        # results[0] contains the list of hits for our single query vector
-        hits = results[0]
+            # MilvusClient.search returns a list of results for each query vector.
+            hits = results[0] if results else []
+
+        except Exception as e:
+            # Intercept the empty result bug
+            if "Unsupported field type: 0" in str(e):
+                logger.warning(f"Milvus empty result bug triggered. Likely 0 matches for filter: {expr}")
+                return [] # <-- FIX: Return immediately so we don't hit the raise e
+            
+            raise e # <-- Now this ONLY triggers on real, unexpected errors
         
+        # 4. Parse the results
+        snippets = []
         for hit in hits:
-            # In newer MilvusClient versions, output fields are nested inside an 'entity' dict.
-            # Using .get("entity", hit) safely handles both new and older PyMilvus versions.
+            # Safely handle both new and older PyMilvus versions.
             entity_data = hit.get("entity", hit)
             
             snippet = {
