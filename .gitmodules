@@ -1,3 +1,6 @@
 [submodule "src/utils/Scenic"]
 	path = src/utils/Scenic
 	url = https://github.com/google-research/scenic.git
+[submodule "scripts/cr2xodr"]
+	path = scripts/cr2xodr
+	url = https://github.com/yuangao-tum/frenetix-carla-replay.git
