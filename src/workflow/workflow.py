@@ -6,7 +6,7 @@ from langgraph.checkpoint.memory import MemorySaver
 import sys
 from pathlib import Path
 
-from src.schema import HeaderSetting, MultimodalQuery, ScenarioDocument, ScenicScenario
+from src.schema import MultimodalQuery, ScenarioDocument, ScenicScenario
 from src.utils.helpers import get_scenario_document_with_scenario_id
 
 # Add the project root (ads-mrag) to the python path
@@ -105,7 +105,7 @@ class ScenarioWorkflow:
                 best_score = scenario.score
                 best_scenario = scenario
         
-        if best_scenario and (best_score >= -1.0 or count >= max_count):
+        if best_scenario and (best_score >= 70 or count >= max_count):
             self.logger.info(f"🚦 ROUTER: Best score {best_score} or max count {count}/{max_count} reached. Sending to User.")
             return "output_best_scenario"
         else:

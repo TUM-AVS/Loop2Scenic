@@ -68,6 +68,7 @@ Important:
 - Combine time of day with weather (e.g., "rainy" + "noon" = "SoftRainNoon")
 - Provide clear reasoning for your detection
 - Be conservative with confidence scores
+- Please combine all modalities user inputs to generate the output
 
 Output Format (JSON only, no markdown, no explanations outside JSON):
 {{

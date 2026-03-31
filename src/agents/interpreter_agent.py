@@ -56,12 +56,20 @@ class InterpreterAgent(BaseAgent):
                 logger.warning("Low confidence in header settings detection, returning None to not to change the header")
                 return None
             else: 
-                suggested_map = json_response.get("suggested_map", "Town05")
+                suggested_map = json_response.get("suggested_map")
+                if suggested_map is None:
+                    suggested_map = "Town05"
+                weather = json_response.get("weather")
+                if weather is None:
+                    weather = "ClearNoon"
+                blueprint = json_response.get("blueprint")
+                if blueprint is None:
+                    blueprint = "vehicle.lincoln.mkz_2017"
                 header_settings = HeaderSetting(
                     carla_map=suggested_map,
                     map_file_path=f"../../maps/{suggested_map}.xodr",
-                    weather=json_response.get("weather", "ClearNoon"),
-                    blueprint=json_response.get("blueprint", "vehicle.lincoln.mkz_2017"),
+                    weather=weather,
+                    blueprint=blueprint,
                 )
                 return header_settings
         else:
