@@ -1,6 +1,3 @@
 [submodule "scripts/cr2xodr"]
 	path = scripts/cr2xodr
 	url = https://github.com/yuangao-tum/frenetix-carla-replay.git
-[submodule "Scenic"]
-	path = Scenic
-	url = https://github.com/CelanLi/Scenic-Commonroad.git
