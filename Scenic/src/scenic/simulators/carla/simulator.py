@@ -51,7 +51,12 @@ class CarlaSimulator(DrivingSimulator):
         else:
             if str(map_path).endswith(".xodr"):
                 with open(map_path) as odr_file:
-                    self.world = self.client.generate_opendrive_world(odr_file.read())
+                    settings = carla.OpendriveGenerationParameters(
+                                additional_width=1.0,      # Automatically builds the "fake shoulders" at the junctions
+                                smooth_junctions=True,
+                                enable_mesh_visibility=True
+                            )
+                    self.world = self.client.generate_opendrive_world(odr_file.read(), settings)
             else:
                 raise RuntimeError("CARLA only supports OpenDrive maps")
         self.timestep = timestep
