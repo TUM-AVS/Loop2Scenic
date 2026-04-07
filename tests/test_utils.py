@@ -1,7 +1,7 @@
 def test_video_recording():
     scenic_code = """from scenic.domains.driving.roads import ManeuverType
 
-param map = localPath('../../maps/BEL_Brussels-50_9_T-1.xodr')
+param map = localPath('../../maps/BEL_Brussels-11_2_T-1.xodr')
 param carla_map = None
 model scenic.simulators.carla.model
 
@@ -17,6 +17,38 @@ egoTrajectory = [egoInitLane, egoManeuver.connectingLane, egoManeuver.endLane]
 egoSpawnPt = new OrientedPoint in egoInitLane.centerline
 
 param OPT_EGO_SPEED = Range(3, 5)
+
+# ==============================================================================
+# --- AUTOMATED ENVIRONMENT RULES ---
+# ==============================================================================
+
+# RULE 1: Spawn 5 Kiosks/Bus Stops safely BESIDE the intersection corners
+corner_lane = Uniform(*intersection.incomingLanes)
+
+# 1. Get the raw coordinate at the exact RIGHT EDGE of the lane
+raw_edge_coord = corner_lane.rightEdge.pointAlongBy(1.0, normalized=True)
+
+# 2. Create the point at the edge, facing the traffic flow
+edge_pt = new OrientedPoint at raw_edge_coord, facing roadDirection
+
+# 3. THE FIX: X @ Y means Right @ Forward. 
+# '2 @ 0' pushes it exactly 2 meters to the RIGHT of the road edge!
+new Prop at (edge_pt offset by 5 @ 0),
+    with blueprint Uniform("static.prop.kiosk_01"),
+    with allowCollisions True,
+    with regionContainedIn everywhere
+
+new Prop at (edge_pt offset by 10 @ 0),
+    with blueprint Uniform("static.prop.busstop"),
+    with allowCollisions True,
+    with regionContainedIn everywhere
+
+new Prop at (edge_pt offset by 20 @ 0),
+    with blueprint Uniform("static.prop.foodcart"),
+    with allowCollisions True,
+    with regionContainedIn everywhere
+
+# ==============================================================================
 
 # 2. Ego Behavior: Follow the full path
 behavior EgoBehavior():
