@@ -2,7 +2,7 @@ import logging
 import re
 
 from src.schema import HeaderSetting
-from src.utils import to_safe_string
+from src.utils import setup_logging
 
 from .base_agent import BaseAgent
 from src.services import BaseLLMModel, MilvusVectorStore, BaseEmbeddingModel, get_embedder, get_llm_service
@@ -56,111 +56,201 @@ class ScenicCoderAgent(BaseAgent):
         Generate the header for the scenario based on the header settings.
         """
         header = f"""
-            # Header Settings:
-            description = "Null description"
-            param map = localPath('{header_settings.map_file_path}')
-            param carla_map = '{header_settings.carla_map}'
-            model scenic.simulators.carla.model
-            MODEL = '{header_settings.blueprint}'
-            param weather = '{header_settings.weather}'
-            # End of Header Settings
+description = "Using map {header_settings.map_file_path} with carla map {header_settings.carla_map} and weather {header_settings.weather}"
+param map = localPath('{header_settings.map_file_path}')
+param carla_map = '{header_settings.carla_map}'
+model scenic.simulators.carla.model
+MODEL = '{header_settings.blueprint}'
+param weather = '{header_settings.weather}'
         """
         return header
 
-    def adapt_code(self, original_scenic_code: str, evaluation_result: Dict[str, Any], aim_dsl: Dict[str, Any], header_settings: HeaderSetting | None) -> str:
-        """
-        Adapt the original scenic code to the aim DSL.
-        Take the original scenic code, the evaluation result, and the aim DSL as input.
-        Generate the new scenic code recursively, in each generation we put the previously generated scenic code as input to ensure compatibility.
-        """
+    def get_snippets(self, text: str, comp_type: str) -> List[str]:
+        try:
+            query_embedding = self.snippets_embedder.encode([{"text": text}])[0]
+            if hasattr(query_embedding, "tolist"): query_embedding = query_embedding.tolist()
+            similar_snippets = self.vector_store.similarity_search_snippets(
+                query_embedding=query_embedding, k=3, component_type=comp_type
+            )
+            results = [item["code"] for item in similar_snippets if item.get("code")]
+            return results if results else []
+        except Exception as e:
+            logger.error(f"❌ Failed to retrieve snippets for {comp_type}: {e}")
+            return []
 
-        # 0. Generate the header instruction
-        if not header_settings:
-            header_instruction = f"""
-            DO NOT modify the original header block. 
-            Identify the header block (which typically contains the description, map, model, and weather parameters, similar to the example below) and keep it exactly as it is in the original code.
-            {header_format_example}
-            """
-        else:
-            new_header = self.generate_header(header_settings)
-            header_instruction = f"""
-            REPLACE the original header block (which typically contains the description, map, model, and weather parameters) with the exact new header provided below.
-            {header_format_example}
-
-            <new_header_to_use>
-            {new_header}
-            </new_header_to_use>
-            """
-
-        # 1. Get the components needed to be modified in the aim DSL
-        components_to_modify = {}
-        for key, value in evaluation_result.items():
-            if not value: # Assuming False means it failed evaluation
-                components_to_modify[key] = aim_dsl[key] 
-
-        # 2. Search the vector store for similar snippets
-        def get_snippets(text: str, comp_type: str) -> List[str]:
-            try:
-                query_embedding = self.snippets_embedder.encode([{"text": text}])[0]
-                    
-                if hasattr(query_embedding, "tolist"):
-                    query_embedding = query_embedding.tolist()
-
-                similar_snippets = self.vector_store.similarity_search_snippets(
-                    query_embedding=query_embedding, 
-                    k=3, 
-                    component_type=comp_type
-                )
-                return [item["code"] for item in similar_snippets if item.get("code")]
-            except Exception as e:
-                logger.error(f"Failed to retrieve/process snippets for {comp_type}: {e}")
-                return []
-
-        snippets = {}
+    def build_context(self, current_state: dict) -> str:
+        """Formats previously generated components to provide context for the current generation."""
+        if not current_state: return "No components generated yet."
         
-        for key, value in components_to_modify.items():
-            if key == "Adversarials":
-                adversarial_snippets = []
-                # value is a list of descriptions for different adversarial agents
-                for adversarial_desc in value:
-                    result = get_snippets(text=adversarial_desc, comp_type="Adversarial")
-                    if result: # Only append if we actually found something
-                        adversarial_snippets.append(result)
-                snippets[key] = adversarial_snippets
+        context_str = "--- PREVIOUSLY GENERATED COMPONENTS (FOR CONTEXT ONLY) ---\n"
+        for key, val in current_state.items():
+            if isinstance(val, list):
+                context_str += f"// {key}:\n" + "\n".join(val) + "\n\n"
             else:
-                snippets[key] = get_snippets(text=value, comp_type=key)
+                context_str += f"// {key}:\n{val}\n\n"
+        return context_str
 
-        # 3. Format the few-shot examples
-        few_shot_examples = ""
-        if snippets:
-            few_shot_examples += "Use the following verified examples to resolve the specific incompatibilities. These represent the ground-truth syntax for the target DSL:\n\n"
+    def generate_and_clean(self, prompt_text: str) -> str:
+        response = self.llm_service.chat([{"role": "user", "content": prompt_text.strip()}])
+        return response.replace("```scenic", "").replace("```python", "").replace("```", "").strip()
+
+    def get_prompt_for_component(self, aspect: str) -> str:
+        if aspect == "Adversarials":
+            return load_prompt("component_generator_adv")
+        elif aspect == "Ego":
+            return load_prompt("component_generator_ego")
+        elif aspect == "Requirement and restrictions":
+            return load_prompt("component_generator_requirement")
+        elif aspect == "Spatial Relation":
+            return load_prompt("component_generator_spatial")
+        else:
+            logger.error(f"Invalid aspect: {aspect}")
+            return load_prompt("ego_generation")
+
+    def prepare_snippets(self, snippets: List[str]) -> str:
+        """
+        Prepare the snippets for the prompt.
+        """
+        prepared = "// Retrieved relevant snippets:\n"
+        if snippets and len(snippets) > 0:
+            for idx, snippet in enumerate(snippets):
+                prepared += f"// Snippet {idx+1}:\n{snippet}\n\n"
+        else:
+            prepared += "// No relevant snippets found.\n\n"
+        return prepared
+
+    def adapt_code(self, original_scenic_code: str, evaluation_result: Dict[str, Any], aim_dsl: Dict[str, Any], header_settings: Any) -> str:
+        """
+        Adapt the original scenic code to the aim DSL using a 'Generation + Assemble' architecture.
+        Each component is generated in isolation (to allow for heavy grammar instructions) 
+        and then assembled into the final script.
+        """
+        logger.info("🚀 Starting Generation + Assemble Scenic pipeline...")
+
+        # Dictionary to act as our "State" tracking the isolated components
+        retrieved_components = {}
+
+        # =========================================================
+        # STEP 1: INITIALIZE HEADER
+        # =========================================================
+        logger.info("📄 Generating/Extracting Header...")
+        if header_settings:
+            retrieved_components["Header"] = self.generate_header(header_settings)
+        else:
+            header_prompt = f"Extract the header block exactly as it is from this code. Output ONLY the extracted code:\n{original_scenic_code}"
+            retrieved_components["Header"] = self.generate_and_clean(header_prompt)
+
+        # =========================================================
+        # STEP 2: COMPONENT GENERATION
+        # =========================================================
+        generation_order = ["Spatial Relation", "Ego", "Adversarials", "Requirement and restrictions"]
+        
+        for aspect in generation_order:
+            logger.info(f"🧩 Processing Component: {aspect}")
+            needs_modification = not evaluation_result.get(aspect, True)
+            target_description = aim_dsl.get(aspect, "")
             
-            for key, value in snippets.items():
-                if not value: 
-                    continue # Skip empty results
-                    
-                if key == "Adversarials":
-                    # value is a list of lists: [["code1", "code2"], ["code3", "code4"]]
-                    for idx, adversarial_group in enumerate(value):
-                        few_shot_examples += f"--- Aspect: {key} (Agent {idx+1}) ---\n"
-                        few_shot_examples += f"Verified DSL-compliant patterns:\n{to_safe_string(adversarial_group)}\n\n"
-                else:
-                    few_shot_examples += f"--- Aspect: {key} ---\n"
-                    few_shot_examples += f"Verified DSL-compliant patterns:\n{to_safe_string(value)}\n\n"
+            # --- NON-MODIFIED EXTRACTION ---
+            if not needs_modification:
+                logger.info(f"⏭️ No modification needed. Extracting '{aspect}' from original code.")
 
-        # 4. Format the prompt
-        prompt = self.prompt_template.format(
-            original_scenic_code=original_scenic_code, 
-            header_instruction=header_instruction, 
-            aim_dsl=to_safe_string(aim_dsl), 
-            aspects=to_safe_string(components_to_modify), 
-            few_shot_examples=few_shot_examples
-        )
+                # has to add the previous generated components to the prompts
+                context = self.build_context(retrieved_components)
+                extract_prompt = load_prompt("component_generator_extract").format(
+                    aspect=aspect,
+                    context=context,
+                    original_scenic_code=original_scenic_code
+                )
+
+                # For adversarials, we wrap it in a list to maintain data structure
+                extracted = self.generate_and_clean(extract_prompt)
+                retrieved_components[aspect] = [extracted] if aspect == "Adversarials" else extracted
+                continue
+
+            # --- MODIFIED GENERATION ---
+            logger.warning(f"⚠️ Generating new '{aspect}' based on DSL requirements.")
+
+            if aspect == "Adversarials" and isinstance(target_description, list):
+                generated_adversarials = []
+                
+                for idx, desc in enumerate(target_description):
+                    logger.info(f"🤖 Processing Adversarial {idx+1}/{len(target_description)}...")
+                    
+                    # 1. Get snippets for THIS specific agent's description
+                    snippets = self.get_snippets(text=desc, comp_type="Adversarial")
+                    
+                    # 2. Re-build context so it includes any adversarials generated in previous loop iterations
+                    context = self.build_context(retrieved_components)
+                    
+                    # 3. Format the newly optimized prompt
+                    # Notice the variable names match the {placeholders} in the optimized prompt exactly
+                    adv_prompt = self.get_prompt_for_component("Adversarials").format(
+                        reference_components=self.prepare_snippets(snippets),
+                        ready_components=context,
+                        user_criteria=desc
+                    )
+                    logger.info(f"Adv prompt: \n{adv_prompt}")
+                    
+                    # 4. Send to LLM and clean the output
+                    new_code = self.generate_and_clean(adv_prompt)
+
+                    # 5. Save the result
+                    if new_code:
+                        generated_adversarials.append(new_code)
+                        retrieved_components["Adversarials"] = generated_adversarials
+                        logger.info(f"✅ Successfully generated Adversarial {idx+1}")
+                    else:
+                        logger.warning(f"⚠️ LLM returned empty code for Adversarial {idx+1}")
+            else:
+                snippets = self.get_snippets(text=target_description, comp_type=aspect)
+                context = self.build_context(retrieved_components)
+                
+                comp_prompt = self.get_prompt_for_component(aspect).format(
+                    reference_components=self.prepare_snippets(snippets),
+                    ready_components=context,
+                    user_criteria=target_description
+                )
+                logger.info(f"Comp prompt: \n{comp_prompt}")
+                new_code = self.generate_and_clean(comp_prompt)
+                logger.info(f"New code: {new_code}")
+                retrieved_components[aspect] = new_code
+                logger.info(f"✅ Generated {aspect}")
+
+        # =========================================================
+        # STEP 3: ASSEMBLE SCENARIO
+        # =========================================================
+        logger.info("🔗 Assembling final scenario from isolated components...")
+        logger.info(f"Retrieved components: {retrieved_components}")
+        code_parts = []
         
-        formatted_prompt = prompt.strip()
-        response = self.llm_service.chat([{"role": "user", "content": formatted_prompt}])
+        # We use a strict assembly order to ensure variables are declared before they are used
+        assembly_order = ["Header", "Spatial Relation", "Ego", "Adversarials", "Requirement and restrictions"]
         
-        return response
+        for comp_type in assembly_order:
+            if comp_type not in retrieved_components:
+                continue
+                
+            comp_data = retrieved_components[comp_type]
+            
+            if isinstance(comp_data, list):
+                # Unpack list of adversarials
+                for item in comp_data:
+                    if item.strip():
+                        code_parts.append(item.strip())
+            else:
+                # Standard component
+                if comp_data.strip():
+                    code_parts.append(comp_data.strip())
+                    
+        final_code = "\n\n".join(code_parts)
+        
+        logger.info("=" * 40)
+        logger.info("🎉 Assembly complete!")
+        logger.info(f"Final script length: {len(final_code)} characters.")
+        logger.info(f"Final script: \n{final_code}")
+        logger.info("=" * 40)
+        
+        return final_code
 
     def debug_code(self, scenic_code: str, error_message: str, header_settings: HeaderSetting | None) -> str:
         # 0. Generate the header instruction
@@ -197,6 +287,12 @@ if __name__ == "__main__":
     from src.services import MilvusVectorStore
     from src.config import get_config
     config = get_config()
+    setup_logging(
+        level=config.logging.level,
+        log_file=config.logging.file,
+        log_format=config.logging.format,
+    )
+    logger.info("Running ScenicCoderAgent standalone module.")
 
     llm_service = get_llm_service(provider="gemini", model="gemini-2.5-flash")
     connection_args = {
@@ -223,8 +319,8 @@ if __name__ == "__main__":
 
     def test_coder(mode: str = "adapt", error_message: str | None = None):
         header_settings = HeaderSetting(
-            map_file_path="../../maps/Town07.xodr",
-            carla_map="Town07",
+            map_file_path="../../maps/Town05.xodr",
+            carla_map="Town05",
             blueprint="vehicle.lincoln.mkz_2017",
             weather="MidRainyNoon"
         )
@@ -273,14 +369,15 @@ if __name__ == "__main__":
                             'Requirement and restrictions': True,
                             'Scenario': False,
                             'Spatial Relation': False}
-        aim_dsl = { 'Adversarials': [ 'A car approaches an intersection from a perpendicular road and makes a left '
-                                        'turn.',
-                                        'A car is positioned behind the ego vehicle and makes a left turn at the '
-                                        'intersection.'],
+        aim_dsl = { 'Adversarials': [ 'A car is positioned behind the ego vehicle and makes a left turn at the '
+                                        'intersection.',
+                                        'A car approaches an intersection from a perpendicular road and makes a left '
+                                        'turn.'
+                                        ],
                         'Ego': 'A car stops at an intersection, then proceeds straight.',
                         'Requirement and restrictions': 'The traffic light for the ego vehicle must initially be red and then turn green, allowing the ego vehicle to proceed.',
                         'Scenario': 'The ego vehicle proceeds straight through an intersection while an adversarial vehicle makes a left turn from a perpendicular road, and another adversarial vehicle turns left from behind the ego vehicle.',
-                        'Spatial Relation': 'The ego vehicle is positioned in a lane at an intersection under a highway overpass, with another adversarial vehicle behind it in the same lane.'}
+                        'Spatial Relation': 'The ego vehicle is positioned in a lane at an intersection, with the first adversarial vehicle behind it in the same lane, and the second adversarial vehicle approaches the ego car from a perpendicular road, then makes a left turn at the intersection.'}
         
         if mode == "adapt":
             adapted_scenic_code = agent.adapt_code(original_scenic_code, evaluation_result, aim_dsl, header_settings)

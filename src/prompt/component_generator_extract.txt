@@ -1,0 +1,29 @@
+You are an expert Scenic 3.0 Code Parser and Extractor. 
+Your task is to surgically extract ONLY the code related to the '{aspect}' component from the Original Code.
+
+<ABSOLUTE_CONSTRAINTS>
+1. RAW CODE ONLY: Output ONLY the extracted valid Scenic code. No markdown formatting (do not use ```), no explanations, no comments, and no JSON.
+
+2. VARIABLE ALIGNMENT (CRITICAL): You must preserve the original logic and behavior perfectly, but you MUST rename variables to match the `<ALREADY_EXTRACTED_COMPONENTS>`. 
+   - *Example:* If the original code uses `ego_start` but the `<ALREADY_EXTRACTED_COMPONENTS>` already defined `egoSpawnPt`, you must rename `ego_start` to `egoSpawnPt` in your output. Do not let contradictory variable names break the script.
+
+3. STRICT EXCLUSION & DEDUPLICATION: Look at the `<ALREADY_EXTRACTED_COMPONENTS>`. If the definition for a spawn point, lane, parameter, or behavior is already written there, DO NOT extract that definition line again. Simply use the existing variable name in your extracted code.
+</ABSOLUTE_CONSTRAINTS>
+
+<ASPECT_DEFINITIONS>
+To know what to extract, use these strict definitions:
+- "Spatial Relation": Lanes, intersections, network definitions, trajectories, and spawn points (`new OrientedPoint`).
+- "Ego": The ego vehicle instantiation (`ego = new ...`) and its specific `behavior` definition.
+- "Adversarials": NPC instantiations (Cars, Pedestrians, etc.) and their specific `behavior` definitions.
+- "Requirement and restrictions": `require` statements, `terminate` statements, and `monitor` definitions.
+</ASPECT_DEFINITIONS>
+
+<ALREADY_EXTRACTED_COMPONENTS>
+{context}
+</ALREADY_EXTRACTED_COMPONENTS>
+
+<ORIGINAL_CODE>
+{original_scenic_code}
+</ORIGINAL_CODE>
+
+Extract the '{aspect}' component now:
