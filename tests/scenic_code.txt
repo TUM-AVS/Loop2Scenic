@@ -8,34 +8,26 @@ param weather = 'MidRainyNoon'
 intersection = Uniform(*filter(lambda i: i.is4Way, network.intersections))
 
 egoInitLane = Uniform(*intersection.incomingLanes)
-egoManeuver = Uniform(*filter(lambda m: m.type is ManeuverType.STRAIGHT, egoInitLane.maneuvers))
-egoTrajectory = [egoInitLane, egoManeuver.connectingLane, egoManeuver.endLane]
-egoSpawnPt = new OrientedPoint in egoInitLane.centerline at 0.8
+egoReferenceManeuver = Uniform(*filter(lambda m: m.type is ManeuverType.STRAIGHT, egoInitLane.maneuvers))
 
-adv1InitLane = egoInitLane
-adv1SpawnPt = new OrientedPoint behind egoSpawnPt by Range(10, 20)
-adv1Trajectory = egoTrajectory
-
-adv2Maneuver = Uniform(*filter(lambda m: m.type is ManeuverType.LEFT_TURN, egoManeuver.conflictingManeuvers))
+adv2Maneuver = Uniform(*filter(lambda m: m.type is ManeuverType.LEFT_TURN, egoReferenceManeuver.conflictingManeuvers))
 adv2InitLane = adv2Maneuver.startLane
-adv2SpawnPt = new OrientedPoint in adv2InitLane.centerline at Range(0.1, 0.3)
 adv2Trajectory = [adv2InitLane, adv2Maneuver.connectingLane, adv2Maneuver.endLane]
+adv2SpawnPt = new OrientedPoint in adv2InitLane.centerline
+
+egoSpawnPt = new OrientedPoint in egoInitLane.centerline
+adv1SpawnPt = new OrientedPoint behind egoSpawnPt by Range(5, 15)
 
 param OPT_EGO_SPEED = Range(7, 10)
 param LOSS_CONTROL_STEER = 0.4
 param LOSS_CONTROL_DURATION = 35
 
 behavior EgoBehavior(speed, target_lane_sec):
-    # Phase 1: Normal driving
     do FollowLaneBehavior(target_speed=speed) for Range(2, 4) seconds
-    
-    # Phase 2: Loss of control (simulated by a sustained steering offset)
     count = 0
     while count < globalParameters.LOSS_CONTROL_DURATION:
         take SetSteerAction(globalParameters.LOSS_CONTROL_STEER), SetThrottleAction(0.5)
         count = count + 1
-    
-    # Phase 3: Recovery (return to the original lane section)
     do LaneChangeBehavior(laneSectionToSwitch=target_lane_sec, target_speed=speed)
     do FollowLaneBehavior(target_speed=speed)
 
@@ -46,28 +38,23 @@ ego = new Car at egoSpawnPt,
     with blueprint MODEL,
     with behavior EgoBehavior(globalParameters.OPT_EGO_SPEED, egoLaneSec)
 
-param ADV2_SPEED = Range(5, 8)
+param ADV2_SPEED = Range(7, 10)
 
-behavior Adversary2Behavior():
-    do FollowTrajectoryBehavior(target_speed=globalParameters.ADV2_SPEED, trajectory=adv2Trajectory)
+behavior Adv2Behavior(trajectory, speed):
+    do FollowTrajectoryBehavior(target_speed=speed, trajectory=trajectory)
 
-adversary2 = new Car at adv2SpawnPt,
+adv2 = new Car at adv2SpawnPt,
     with blueprint MODEL,
-    with behavior Adversary2Behavior()
+    with behavior Adv2Behavior(adv2Trajectory, globalParameters.ADV2_SPEED)
 
-adv3InitLane = Uniform(*filter(lambda l: l is not egoInitLane and l is not adv2InitLane, intersection.incomingLanes))
-adv3Maneuver = Uniform(*filter(lambda m: m.type is ManeuverType.LEFT_TURN, adv3InitLane.maneuvers))
-adv3Trajectory = [adv3InitLane, adv3Maneuver.connectingLane, adv3Maneuver.endLane]
-adv3SpawnPt = new OrientedPoint in adv3InitLane.centerline at Range(0.1, 0.3)
+param ADV1_SPEED = Range(7, 10)
 
-param ADV3_SPEED = Range(5, 8)
+behavior Adv1Behavior(lane, speed):
+    do FollowLaneBehavior(target_speed=speed, laneToFollow=lane)
 
-behavior Adversary3Behavior():
-    do FollowTrajectoryBehavior(target_speed=globalParameters.ADV3_SPEED, trajectory=adv3Trajectory)
-
-adversary3 = new Car at adv3SpawnPt,
+adv1 = new Car at adv1SpawnPt,
     with blueprint MODEL,
-    with behavior Adversary3Behavior()
+    with behavior Adv1Behavior(egoInitLane, globalParameters.ADV1_SPEED)
 
 require egoSpawnPt not in network.intersections
 require (distance from egoSpawnPt to intersection) > 30
