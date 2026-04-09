@@ -12,13 +12,13 @@ egoManeuver = Uniform(*filter(lambda m: m.type is ManeuverType.STRAIGHT, egoInit
 egoTrajectory = [egoInitLane, egoManeuver.connectingLane, egoManeuver.endLane]
 egoSpawnPt = new OrientedPoint in egoInitLane.centerline
 
-adv1SpawnPt = new OrientedPoint behind egoSpawnPt by Range(10, 20)
-adv1Trajectory = egoTrajectory
+adv1InitLane = egoInitLane
+adv1SpawnPt = new OrientedPoint behind egoSpawnPt by Range(25, 30)
 
-adv2InitLane = Uniform(*intersection.incomingLanes)
-adv2Maneuver = Uniform(*filter(lambda m: m.type is ManeuverType.LEFT_TURN, adv2InitLane.maneuvers))
+adv2Maneuver = Uniform(*filter(lambda m: m.type is ManeuverType.LEFT_TURN, egoManeuver.conflictingManeuvers))
+adv2InitLane = adv2Maneuver.startLane
 adv2Trajectory = [adv2InitLane, adv2Maneuver.connectingLane, adv2Maneuver.endLane]
-adv2SpawnPt = new OrientedPoint in adv2InitLane.centerline
+adv2SpawnPt = new OrientedPoint at adv2InitLane.centerline.start
 
 param OPT_EGO_SPEED = Range(3, 5)
 param OPT_EGO_YIELD_DIST = Range(15, 20)
@@ -43,25 +43,25 @@ ego = new Car at egoSpawnPt,
     with blueprint MODEL,
     with behavior EgoBehavior()
 
-param OPT_ADV1_SPEED = Range(3, 5)
-
 AdvAgent1 = new Car at adv1SpawnPt,
     with heading adv1SpawnPt.heading,
-    with behavior FollowTrajectoryBehavior(target_speed=globalParameters.OPT_ADV1_SPEED, trajectory=adv1Trajectory)
+    with behavior FollowLaneBehavior(target_speed=globalParameters.OPT_EGO_SPEED, laneToFollow=egoInitLane)
 
-param OPT_ADV2_SPEED = Range(7, 10)
+param ADV_SPEED_2 = Range(7, 10)
+
+behavior Adversary2Behavior(trajectory):
+    do FollowTrajectoryBehavior(target_speed=globalParameters.ADV_SPEED_2, trajectory=trajectory)
 
 AdvAgent2 = new Car at adv2SpawnPt,
     with heading adv2SpawnPt.heading,
-    with behavior FollowTrajectoryBehavior(target_speed=globalParameters.OPT_ADV2_SPEED, trajectory=adv2Trajectory)
+    with blueprint MODEL,
+    with behavior Adversary2Behavior(adv2Trajectory)
 
 monitor EgoTrafficLightControl():
     freezeTrafficLights()
     setClosestTrafficLightStatus(ego, "red")
-    wait until withinDistanceToTrafficLight(ego, 30)
+    wait until AdvAgent2 in adv2Maneuver.endLane
     setClosestTrafficLightStatus(ego, "green")
-    while True:
-        wait
+    wait
 
 require monitor EgoTrafficLightControl()
-require adv2InitLane.road != egoInitLane.road
