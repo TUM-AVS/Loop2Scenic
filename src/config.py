@@ -65,10 +65,10 @@ class RerankingConfig(BaseModel):
 
 class LLMConfig(BaseModel):
     provider: str = "gemini"  # openai, anthropic, gemini
-    model: str = "gpt-3.5-turbo"
+    model: str = "gemini-2.5-pro"
     api_key: Optional[str] = None
     temperature: float = 0.7
-    max_tokens: int = 10_000_000
+    max_tokens: int = 4096
     streaming: bool = False
 
     @model_validator(mode="after")

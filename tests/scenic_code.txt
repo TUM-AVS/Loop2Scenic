@@ -8,54 +8,63 @@ param weather = 'MidRainyNoon'
 intersection = Uniform(*filter(lambda i: i.is4Way, network.intersections))
 
 egoInitLane = Uniform(*intersection.incomingLanes)
-egoReferenceManeuver = Uniform(*filter(lambda m: m.type is ManeuverType.STRAIGHT, egoInitLane.maneuvers))
+egoManeuver = Uniform(*filter(lambda m: m.type is ManeuverType.STRAIGHT, egoInitLane.maneuvers))
+egoTrajectory = [egoInitLane, egoManeuver.connectingLane, egoManeuver.endLane]
+egoSpawnPt = new OrientedPoint in egoInitLane.centerline
 
-adv2Maneuver = Uniform(*filter(lambda m: m.type is ManeuverType.LEFT_TURN, egoReferenceManeuver.conflictingManeuvers))
+adv1InitLane = egoInitLane
+adv1SpawnPt = new OrientedPoint behind egoSpawnPt by Range(10, 20)
+
+adv2Maneuver = Uniform(*filter(lambda m: m.type is ManeuverType.LEFT_TURN, egoManeuver.conflictingManeuvers))
 adv2InitLane = adv2Maneuver.startLane
 adv2Trajectory = [adv2InitLane, adv2Maneuver.connectingLane, adv2Maneuver.endLane]
 adv2SpawnPt = new OrientedPoint in adv2InitLane.centerline
 
-egoSpawnPt = new OrientedPoint in egoInitLane.centerline
-adv1SpawnPt = new OrientedPoint behind egoSpawnPt by Range(5, 15)
+param OPT_EGO_SPEED = Range(3, 5)
+param OPT_EGO_YIELD_DIST = Range(15, 20)
+OPT_EGO_DECISION_DEGREE = 35 deg
 
-param OPT_EGO_SPEED = Range(7, 10)
-param LOSS_CONTROL_STEER = 0.4
-param LOSS_CONTROL_DURATION = 35
-
-behavior EgoBehavior(speed, target_lane_sec):
-    do FollowLaneBehavior(target_speed=speed) for Range(2, 4) seconds
-    count = 0
-    while count < globalParameters.LOSS_CONTROL_DURATION:
-        take SetSteerAction(globalParameters.LOSS_CONTROL_STEER), SetThrottleAction(0.5)
-        count = count + 1
-    do LaneChangeBehavior(laneSectionToSwitch=target_lane_sec, target_speed=speed)
-    do FollowLaneBehavior(target_speed=speed)
-
-egoLaneSec = egoInitLane.sections[0]
+behavior EgoBehavior():
+    initialDir = egoSpawnPt.heading
+    try:
+        do FollowTrajectoryBehavior(trajectory=egoTrajectory, target_speed=globalParameters.OPT_EGO_SPEED)
+    interrupt when withinDistanceToObjsInLane(self, globalParameters.OPT_EGO_YIELD_DIST):
+        currentDir = self.heading
+        if (abs(currentDir - initialDir) < OPT_EGO_DECISION_DEGREE):
+            take SetThrottleAction(0)
+            take SetBrakeAction(1)
+        else:
+            do FollowTrajectoryBehavior(trajectory=egoTrajectory, target_speed=globalParameters.OPT_EGO_SPEED + 2)
+            abort
+    terminate
 
 ego = new Car at egoSpawnPt,
     with rolename 'hero',
     with blueprint MODEL,
-    with behavior EgoBehavior(globalParameters.OPT_EGO_SPEED, egoLaneSec)
+    with behavior EgoBehavior()
 
-param ADV2_SPEED = Range(7, 10)
+AdvFollower = new Car behind ego by Range(10, 20),
+    facing ego.heading,
+    with regionContainedIn egoInitLane,
+    with behavior FollowLaneBehavior(target_speed=globalParameters.OPT_EGO_SPEED, laneToFollow=egoInitLane)
 
-behavior Adv2Behavior(trajectory, speed):
-    do FollowTrajectoryBehavior(target_speed=speed, trajectory=trajectory)
+param OPT_ADV_TURN_SPEED = Range(7, 10)
 
-adv2 = new Car at adv2SpawnPt,
+behavior AdvTurningBehavior():
+    do FollowTrajectoryBehavior(target_speed=globalParameters.OPT_ADV_TURN_SPEED, trajectory=adv2Trajectory)
+
+AdvTurner = new Car at adv2SpawnPt,
     with blueprint MODEL,
-    with behavior Adv2Behavior(adv2Trajectory, globalParameters.ADV2_SPEED)
+    with behavior AdvTurningBehavior()
 
-param ADV1_SPEED = Range(7, 10)
+param TL_CHANGE_DIST = Range(10, 20)
 
-behavior Adv1Behavior(lane, speed):
-    do FollowLaneBehavior(target_speed=speed, laneToFollow=lane)
+monitor TrafficLightControl():
+    freezeTrafficLights()
+    setClosestTrafficLightStatus(ego, "red")
+    wait until withinDistanceToTrafficLight(ego, globalParameters.TL_CHANGE_DIST)
+    setClosestTrafficLightStatus(ego, "green")
+    while True:
+        wait
 
-adv1 = new Car at adv1SpawnPt,
-    with blueprint MODEL,
-    with behavior Adv1Behavior(egoInitLane, globalParameters.ADV1_SPEED)
-
-require egoSpawnPt not in network.intersections
-require (distance from egoSpawnPt to intersection) > 30
-terminate after 25 seconds
+require monitor TrafficLightControl()

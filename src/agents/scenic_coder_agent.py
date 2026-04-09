@@ -1,8 +1,9 @@
 import logging
 import re
-
+import time
 from src.schema import HeaderSetting
 from src.utils import setup_logging
+from tests.test_utils import test_video_recording
 
 from .base_agent import BaseAgent
 from src.services import BaseLLMModel, MilvusVectorStore, BaseEmbeddingModel, get_embedder, get_llm_service
@@ -92,7 +93,15 @@ param weather = '{header_settings.weather}'
 
     def generate_and_clean(self, prompt_text: str) -> str:
         response = self.llm_service.chat([{"role": "user", "content": prompt_text.strip()}])
-        return response.replace("```scenic", "").replace("```python", "").replace("```", "").strip()
+        logger.info(f"Response from LLM: \n{response}")
+        # add a sleep to avoid rate limit
+        time.sleep(1)
+        if not response:
+            logger.error(f"Response text was None! Finish Reason: {response.candidates[0].finish_reason}")
+            logger.error(f"Raw Response: {response}")
+            return ""
+        else:
+            return response.replace("```scenic", "").replace("```python", "").replace("```", "").strip()
 
     def get_prompt_for_component(self, aspect: str) -> str:
         if aspect == "Adversarials":
@@ -150,7 +159,7 @@ param weather = '{header_settings.weather}'
             needs_modification = not evaluation_result.get(aspect, True)
             target_description = aim_dsl.get(aspect, "")
             
-            # --- NON-MODIFIED EXTRACTION ---
+            # --- MODIFIED EXTRACTION ---
             if not needs_modification:
                 logger.info(f"⏭️ No modification needed. Extracting '{aspect}' from original code.")
 
@@ -189,7 +198,6 @@ param weather = '{header_settings.weather}'
                         ready_components=context,
                         user_criteria=desc
                     )
-                    logger.info(f"Adv prompt: \n{adv_prompt}")
                     
                     # 4. Send to LLM and clean the output
                     new_code = self.generate_and_clean(adv_prompt)
@@ -210,9 +218,7 @@ param weather = '{header_settings.weather}'
                     ready_components=context,
                     user_criteria=target_description
                 )
-                logger.info(f"Comp prompt: \n{comp_prompt}")
                 new_code = self.generate_and_clean(comp_prompt)
-                logger.info(f"New code: {new_code}")
                 retrieved_components[aspect] = new_code
                 logger.info(f"✅ Generated {aspect}")
 
@@ -242,10 +248,24 @@ param weather = '{header_settings.weather}'
                 if comp_data.strip():
                     code_parts.append(comp_data.strip())
                     
-        final_code = "\n\n".join(code_parts)
+        assembled_code = "\n\n".join(code_parts)
         
         logger.info("=" * 40)
         logger.info("🎉 Assembly complete!")
+        logger.info(f"Final script length: {len(assembled_code)} characters.")
+        logger.info(f"Final script: \n{assembled_code}")
+        logger.info("=" * 40)
+
+        # =========================================================
+        # STEP 4: LINTING AND VALIDATION OF THE ASSEMBLED CODE
+        # =========================================================
+        logger.info("🔍 Linting and validating the assembled code...")
+        validate_prompt = load_prompt("validate_scenic_code").format(
+            assembled_code=assembled_code
+        )
+        final_code = self.generate_and_clean(validate_prompt)
+        logger.info("=" * 40)
+        logger.info("🎉 Validation complete!")
         logger.info(f"Final script length: {len(final_code)} characters.")
         logger.info(f"Final script: \n{final_code}")
         logger.info("=" * 40)
@@ -294,7 +314,7 @@ if __name__ == "__main__":
     )
     logger.info("Running ScenicCoderAgent standalone module.")
 
-    llm_service = get_llm_service(provider="gemini", model="gemini-2.5-pro")
+    llm_service = get_llm_service(provider=config.llm.provider, model=config.llm.model, temperature=config.llm.temperature, max_tokens=config.llm.max_tokens)
     connection_args = {
         "host": config.vector_db.host,
         "port": config.vector_db.port,
@@ -394,13 +414,14 @@ require EGO_INIT_DIST[0] <= (distance from egoSpawnPt to intersection) <= EGO_IN
 require ADV_INIT_DIST[0] <= (distance from advSpawnPt to intersection) <= ADV_INIT_DIST[1]
 terminate when (distance from ego to egoSpawnPt) > TERM_DIST
         """
+
+        # Spatial relation has to be consistant with the adversarial description, otherwise it will generate wrong thing.
         evaluation_result = {'Adversarials': False,
                             'Ego': True,
-                            'Requirement and restrictions': True,
+                            'Requirement and restrictions': False,
                             'Scenario': False,
                             'Spatial Relation': False}
-        aim_dsl = { 'Adversarials': [ 'A car is positioned behind the ego vehicle and makes a left turn at the '
-                                        'intersection.',
+        aim_dsl = { 'Adversarials': [ 'A car is positioned behind the ego vehicle and follow the ego vehicle.',
                                         'A car approaches an intersection from a perpendicular road and makes a left '
                                         'turn.'
                                         ],
@@ -415,7 +436,12 @@ terminate when (distance from ego to egoSpawnPt) > TERM_DIST
             adapted_scenic_code = agent.debug_code(original_scenic_code, error_message, header_settings)
         else:
             raise ValueError(f"Invalid mode: {mode}")
-        print(adapted_scenic_code)
+
+        
+        logger.info(f"Adapted scenic code: \n{adapted_scenic_code}")
+        with open("tests/scenic_code.txt", "w") as f:
+            f.write(adapted_scenic_code)
+        test_video_recording()
 
     test_coder(mode="adapt")
     error_message = """Traceback (most recent call last; use -b to show Scenic internals):

@@ -232,11 +232,26 @@ advTrajectory = [advInitLane, advManeuver.connectingLane, advManeuver.endLane]
 
 9. Random Control Flow Rule
 This is a hard rule. Violating it will produce invalid Scenic code.
-You must NEVER use if, filter, or conditional expressions whose condition depends on:
+You must NEVER use Python `if` statements, `for` loops, list comprehensions (`[x for x in ...]`), `filter()`, or `len()` whose condition depends on:
 - a variable created by Uniform(...)
 - any property of a random object
 - any comparison involving a random object
+```
+# Wrong example:
+`[m for m in advManeuver.conflictingManeuvers]` (where advManeuver is random)
+# Correct example:
+`Uniform(*filter(lambda m: m.type == 'straight', intersection.maneuvers))` # Filter the deterministic list FIRST, then pick randomly. 
+```
 
+10. Invalid "offset by" Usage (CRITICAL): The `offset by` operator expects a `<vector>`. You CANNOT offset a `Region` or `centerline` by a scalar (float or Range). If you need to place a vehicle at a certain distance along a lane, simply place it `on the centerline` and let the Requirement component handle the specific distance.
+   - WRONG: `new OrientedPoint at (lane.centerline offset by -Range(15, 25))`
+   - CORRECT: `new OrientedPoint on lane.centerline`
+
+11. Strict ManeuverType Enum Rule (CRITICAL):
+   When filtering maneuvers, you MUST ONLY use the exact valid Scenic `ManeuverType` enums.
+   - Valid attributes: `ManeuverType.STRAIGHT`, `ManeuverType.LEFT_TURN`, `ManeuverType.RIGHT_TURN`, `ManeuverType.U_TURN`.
+   - WRONG: `ManeuverType.LEFT`, `ManeuverType.RIGHT`
+   - CORRECT: `ManeuverType.LEFT_TURN`, `ManeuverType.RIGHT_TURN`
 
 **Illustrative Examples (Structural Reference Only)**
 All identifiers below are placeholders and must NOT be reused unless explicitly defined.

@@ -12,8 +12,6 @@ class GeminiModel(BaseLLMModel):
     def __init__(
         self,
         model: str = "gemini-2.5-flash",
-        temperature: float = 0.7,
-        max_tokens: int = 8192,  # Fixed: Max output limit is 8k, not 512k.
         **kwargs
     ):
         """
@@ -34,10 +32,10 @@ class GeminiModel(BaseLLMModel):
             raise ImportError("New Google GenAI package not installed. Install with: pip install google-genai")
         
         self._model_name = model
-        self.temperature = temperature
+        self.temperature = kwargs.get('temperature', 0.7)
         
         # Enforce the strict 8k output limit to prevent API 503/504 hangs
-        self.max_tokens = min(max_tokens, 8192)
+        self.max_tokens = min(kwargs.get('max_tokens', 4096), 8192)
         
         # Initialize the new Client architecture
         api_key = kwargs.get('api_key')
@@ -52,7 +50,7 @@ class GeminiModel(BaseLLMModel):
     # Built-in robust retry logic to catch network hiccups and temporary 503s
     @retry(
         stop=stop_after_attempt(5),
-        wait=wait_exponential(multiplier=2, min=2, max=30),
+        wait=wait_exponential(multiplier=5, min=5, max=120),
         before_sleep=lambda retry_state: logger.warning(f"⚠️ API Timeout or 503. Retrying in {retry_state.next_action.sleep} seconds...")
     )
     def chat(
