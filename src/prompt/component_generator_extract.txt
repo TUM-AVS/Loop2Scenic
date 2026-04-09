@@ -1,21 +1,97 @@
 You are an expert Scenic 3.0 Code Parser and Extractor. 
-Your task is to surgically extract ONLY the code related to the '{aspect}' component from the Original Code.
+Your task is to surgically extract ONLY the code related to the '{aspect}' component from the <ORIGINAL_CODE>.
 
 <ABSOLUTE_CONSTRAINTS>
-1. RAW CODE ONLY: Output ONLY the extracted valid Scenic code. No markdown formatting (do not use ```), no explanations, no comments, and no JSON.
+1. RAW CODE ONLY: Output ONLY the extracted valid Scenic code. No markdown formatting (do not use ```scenic), no explanations, no comments, and no JSON.
 
-2. VARIABLE ALIGNMENT (CRITICAL): You must preserve the original logic and behavior perfectly, but you MUST rename variables to match the `<ALREADY_EXTRACTED_COMPONENTS>`. 
+2. STRICT EXTRACTION (CRITICAL): You are a parser, NOT a generator. You must extract the logic strictly from the <ORIGINAL_CODE>. Do NOT invent new behaviors or parameters. The code in <ASPECT_DEFINITIONS> is strictly for structural reference; DO NOT copy those specific examples into your output unless that exact code naturally exists in the <ORIGINAL_CODE>.
+
+3. VARIABLE ALIGNMENT (CRITICAL): You must preserve the original logic perfectly, but you MUST rename variables in your extracted code to match the `<ALREADY_EXTRACTED_COMPONENTS>`. 
    - *Example:* If the original code uses `ego_start` but the `<ALREADY_EXTRACTED_COMPONENTS>` already defined `egoSpawnPt`, you must rename `ego_start` to `egoSpawnPt` in your output. Do not let contradictory variable names break the script.
 
-3. STRICT EXCLUSION & DEDUPLICATION: Look at the `<ALREADY_EXTRACTED_COMPONENTS>`. If the definition for a spawn point, lane, parameter, or behavior is already written there, DO NOT extract that definition line again. Simply use the existing variable name in your extracted code.
+4. STRICT EXCLUSION & DEDUPLICATION: Look at the `<ALREADY_EXTRACTED_COMPONENTS>`. If the definition for a spawn point, lane, parameter, or behavior is already written there, DO NOT extract that definition line again. Simply use the existing variable name in your extracted code.
 </ABSOLUTE_CONSTRAINTS>
 
 <ASPECT_DEFINITIONS>
 To know what to extract, use these strict definitions:
+
 - "Spatial Relation": Lanes, intersections, network definitions, trajectories, and spawn points (`new OrientedPoint`).
-- "Ego": The ego vehicle instantiation (`ego = new ...`) and its specific `behavior` definition.
+   <SPATIAL_RELATION_EXAMPLE>
+      # NOTE: This is a syntax reference. Do not copy these exact variables.
+      intersection = Uniform(*filter(lambda i: i.is4Way, network.intersections))
+
+      egoInitLane = Uniform(*intersection.incomingLanes)
+      egoSpawnPt = new OrientedPoint in egoInitLane.centerline
+
+      adv1SpawnPt = new OrientedPoint behind egoSpawnPt by Range(10, 20)
+
+      egoManeuverForConflict = Uniform(*filter(lambda m: m.type is ManeuverType.STRAIGHT, egoInitLane.maneuvers))
+      egoTrajectory = [egoInitLane, egoManeuverForConflict.connectingLane, egoManeuverForConflict.endLane]
+      adv2Maneuver = Uniform(*filter(lambda m: m.type is ManeuverType.LEFT_TURN, egoManeuverForConflict.conflictingManeuvers))
+      adv2InitLane = adv2Maneuver.startLane
+      adv2Trajectory = [adv2InitLane, adv2Maneuver.connectingLane, adv2Maneuver.endLane]
+      adv2SpawnPt = new OrientedPoint in adv2InitLane.centerline
+   </SPATIAL_RELATION_EXAMPLE>
+
+- "Ego": The ego vehicle instantiation and its specific `behavior` definition.
+   <EGO_SYNTAX_EXAMPLE>
+      # NOTE: This is a syntax reference. Do not copy these exact variables.
+      param OPT_EGO_SPEED = Range(3, 5)
+      param OPT_EGO_YIELD_DIST = Range(15, 20)
+      OPT_EGO_DECISION_DEGREE = 35 deg
+
+      behavior EgoBehavior(speed, target_lane_sec):
+            # Phase 1: Normal driving
+            do FollowLaneBehavior(target_speed=speed) for Range(2, 4) seconds
+            # Phase 2: Loss of control
+            count = 0
+            while count < globalParameters.LOSS_CONTROL_DURATION:
+               take SetSteerAction(globalParameters.LOSS_CONTROL_STEER), SetThrottleAction(0.5)
+               count = count + 1
+            # Phase 3: Recovery
+            do LaneChangeBehavior(laneSectionToSwitch=target_lane_sec, target_speed=speed)
+
+      egoLaneSec = egoInitLane.sections[0]
+      ego = new Car at egoSpawnPt,
+            with rolename 'hero',
+            with blueprint MODEL,
+            with behavior EgoBehavior(globalParameters.OPT_EGO_SPEED, egoLaneSec)
+   </EGO_SYNTAX_EXAMPLE>
+
 - "Adversarials": NPC instantiations (Cars, Pedestrians, etc.) and their specific `behavior` definitions.
+   <ADVERSARIALS_SYNTAX_EXAMPLE>
+      # NOTE: This is a syntax reference. Do not copy these exact variables.
+      param ADV_SPEED = Range(7, 10)
+
+      behavior AdversaryBehavior(trajectory):
+         do FollowTrajectoryBehavior(target_speed=globalParameters.ADV_SPEED, trajectory=trajectory)
+
+      adversary = new Car at advSpawnPt,
+         with blueprint MODEL,
+         with behavior AdversaryBehavior(advTrajectory)
+   </ADVERSARIALS_SYNTAX_EXAMPLE>
+
 - "Requirement and restrictions": `require` statements, `terminate` statements, and `monitor` definitions.
+   <REQUIREMENT_SYNTAX_EXAMPLE>
+      # NOTE: This is a syntax reference. Do not copy these exact variables.
+      EGO_INIT_DIST = [10, 15]
+      ADV_INIT_DIST = [15, 25]
+      TERM_DIST = 50
+
+      monitor TrafficLights():
+         freezeTrafficLights()
+         while True:
+            if withinDistanceToTrafficLight(ego, 100):
+                  setClosestTrafficLightStatus(ego, "green")
+            if withinDistanceToTrafficLight(adversary, 100):
+                  setClosestTrafficLightStatus(adversary, "green")
+            wait
+
+      require monitor TrafficLights()
+      require EGO_INIT_DIST[0] <= (distance from egoSpawnPt to intersection) <= EGO_INIT_DIST[1]
+      require ADV_INIT_DIST[0] <= (distance from advSpawnPt to intersection) <= ADV_INIT_DIST[1]
+      terminate when (distance from ego to egoSpawnPt) > TERM_DIST
+   </REQUIREMENT_SYNTAX_EXAMPLE>
 </ASPECT_DEFINITIONS>
 
 <ALREADY_EXTRACTED_COMPONENTS>

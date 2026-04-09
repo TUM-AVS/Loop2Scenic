@@ -32,7 +32,7 @@ class GeminiModel(BaseLLMModel):
             raise ImportError("New Google GenAI package not installed. Install with: pip install google-genai")
         
         self._model_name = model
-        self.temperature = kwargs.get('temperature', 0.7)
+        self.temperature = kwargs.get('temperature', 0)
         
         # Enforce the strict 8k output limit to prevent API 503/504 hangs
         self.max_tokens = min(kwargs.get('max_tokens', 4096), 8192)

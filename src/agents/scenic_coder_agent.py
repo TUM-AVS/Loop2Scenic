@@ -421,13 +421,13 @@ terminate when (distance from ego to egoSpawnPt) > TERM_DIST
                             'Requirement and restrictions': False,
                             'Scenario': False,
                             'Spatial Relation': False}
-        aim_dsl = { 'Adversarials': [ 'A car is positioned behind the ego vehicle and follow the ego vehicle.',
+        aim_dsl = { 'Adversarials': [ 'A car is positioned behind the ego vehicle and follows the ego vehicle.',
                                         'A car approaches an intersection from a perpendicular road and makes a left '
                                         'turn.'
                                         ],
-                        'Ego': 'A car stops at an intersection, then proceeds straight.',
+                        'Ego': 'A car stops at an intersection, then proceeds left turn at the intersection.',
                         'Requirement and restrictions': 'The traffic light for the ego vehicle must initially be red and then turn green, allowing the ego vehicle to proceed.',
-                        'Scenario': 'The ego vehicle proceeds straight through an intersection while an adversarial vehicle makes a left turn from a perpendicular road, and another adversarial vehicle turns left from behind the ego vehicle.',
+                        'Scenario': 'The ego vehicle proceeds left turn at the intersection while an adversarial vehicle follows the ego vehicle.',
                         'Spatial Relation': 'The ego vehicle is positioned in a lane at an intersection, with the first adversarial vehicle behind it in the same lane, and the second adversarial vehicle approaches the ego car from a perpendicular road, then makes a left turn at the intersection.'}
         
         if mode == "adapt":

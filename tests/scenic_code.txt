@@ -12,11 +12,11 @@ egoManeuver = Uniform(*filter(lambda m: m.type is ManeuverType.STRAIGHT, egoInit
 egoTrajectory = [egoInitLane, egoManeuver.connectingLane, egoManeuver.endLane]
 egoSpawnPt = new OrientedPoint in egoInitLane.centerline
 
-adv1InitLane = egoInitLane
 adv1SpawnPt = new OrientedPoint behind egoSpawnPt by Range(10, 20)
+adv1Trajectory = egoTrajectory
 
-adv2Maneuver = Uniform(*filter(lambda m: m.type is ManeuverType.LEFT_TURN, egoManeuver.conflictingManeuvers))
-adv2InitLane = adv2Maneuver.startLane
+adv2InitLane = Uniform(*intersection.incomingLanes)
+adv2Maneuver = Uniform(*filter(lambda m: m.type is ManeuverType.LEFT_TURN, adv2InitLane.maneuvers))
 adv2Trajectory = [adv2InitLane, adv2Maneuver.connectingLane, adv2Maneuver.endLane]
 adv2SpawnPt = new OrientedPoint in adv2InitLane.centerline
 
@@ -43,28 +43,25 @@ ego = new Car at egoSpawnPt,
     with blueprint MODEL,
     with behavior EgoBehavior()
 
-AdvFollower = new Car behind ego by Range(10, 20),
-    facing ego.heading,
-    with regionContainedIn egoInitLane,
-    with behavior FollowLaneBehavior(target_speed=globalParameters.OPT_EGO_SPEED, laneToFollow=egoInitLane)
+param OPT_ADV1_SPEED = Range(3, 5)
 
-param OPT_ADV_TURN_SPEED = Range(7, 10)
+AdvAgent1 = new Car at adv1SpawnPt,
+    with heading adv1SpawnPt.heading,
+    with behavior FollowTrajectoryBehavior(target_speed=globalParameters.OPT_ADV1_SPEED, trajectory=adv1Trajectory)
 
-behavior AdvTurningBehavior():
-    do FollowTrajectoryBehavior(target_speed=globalParameters.OPT_ADV_TURN_SPEED, trajectory=adv2Trajectory)
+param OPT_ADV2_SPEED = Range(7, 10)
 
-AdvTurner = new Car at adv2SpawnPt,
-    with blueprint MODEL,
-    with behavior AdvTurningBehavior()
+AdvAgent2 = new Car at adv2SpawnPt,
+    with heading adv2SpawnPt.heading,
+    with behavior FollowTrajectoryBehavior(target_speed=globalParameters.OPT_ADV2_SPEED, trajectory=adv2Trajectory)
 
-param TL_CHANGE_DIST = Range(10, 20)
-
-monitor TrafficLightControl():
+monitor EgoTrafficLightControl():
     freezeTrafficLights()
     setClosestTrafficLightStatus(ego, "red")
-    wait until withinDistanceToTrafficLight(ego, globalParameters.TL_CHANGE_DIST)
+    wait until withinDistanceToTrafficLight(ego, 30)
     setClosestTrafficLightStatus(ego, "green")
     while True:
         wait
 
-require monitor TrafficLightControl()
+require monitor EgoTrafficLightControl()
+require adv2InitLane.road != egoInitLane.road

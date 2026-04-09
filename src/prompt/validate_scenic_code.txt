@@ -38,6 +38,15 @@ You must read the code from top to bottom and fix the following specific Integra
 
 8. The Premature Termination Bug:
    - NEVER use the `terminate` keyword inside an adversary's `behavior` block. It kills the entire simulation. Only the Ego car or the global constraints at the bottom of the file should contain `terminate` conditions.
+
+9. The Fake "Wait" Syntax Hallucination:
+   - The LLM will sometimes invent syntax like `wait 5 steps` or `wait for 5 seconds`. This is strictly INVALID in Scenic.
+   - The `wait` keyword can ONLY be used completely by itself on a single line to wait for one simulation tick.
+   - If you need a vehicle or monitor to wait for multiple steps, you MUST wrap a single `wait` command inside a standard Python loop.
+   - WRONG: `wait 5 steps`
+   - CORRECT: 
+     for _ in range(5):
+         wait
 </DEBUGGING_CHECKLIST>
 
 <ORIGINAL_ASSEMBLED_CODE>
