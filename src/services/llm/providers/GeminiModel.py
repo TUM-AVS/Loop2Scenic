@@ -50,7 +50,7 @@ class GeminiModel(BaseLLMModel):
     # Built-in robust retry logic to catch network hiccups and temporary 503s
     @retry(
         stop=stop_after_attempt(5),
-        wait=wait_exponential(multiplier=5, min=5, max=120),
+        wait=wait_exponential(multiplier=5, min=10, max=120),
         before_sleep=lambda retry_state: logger.warning(f"⚠️ API Timeout or 503. Retrying in {retry_state.next_action.sleep} seconds...")
     )
     def chat(

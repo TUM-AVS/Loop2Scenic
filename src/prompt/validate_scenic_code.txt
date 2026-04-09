@@ -43,10 +43,20 @@ You must read the code from top to bottom and fix the following specific Integra
    - The LLM will sometimes invent syntax like `wait 5 steps` or `wait for 5 seconds`. This is strictly INVALID in Scenic.
    - The `wait` keyword can ONLY be used completely by itself on a single line to wait for one simulation tick.
    - If you need a vehicle or monitor to wait for multiple steps, you MUST wrap a single `wait` command inside a standard Python loop.
+   - If the wait time is too long, change it to 5.
    - WRONG: `wait 5 steps`
    - CORRECT: 
      for _ in range(5):
          wait
+
+10. The Distance Operator Bug:
+   - NEVER use object-oriented method calls like `self.distanceTo(X)`. 
+   - You MUST use the built-in Scenic operator: `(distance to X)` or `(distance from self to X)`.
+   
+11. Action vs. Behavior Rule:
+   - You CANNOT use the `do` keyword or the `until` keyword with an Action (e.g., `SetSpeedAction`, `SetBrakeAction`). 
+   - You can only use `do X until Y` with Behaviors (e.g., `FollowLaneBehavior`, `FollowTrajectoryBehavior`).
+   - If you must use an Action repeatedly, wrap it in a while loop: `while (distance to X) > 5: take SetBrakeAction(1)`
 </DEBUGGING_CHECKLIST>
 
 <ORIGINAL_ASSEMBLED_CODE>
