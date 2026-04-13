@@ -47,7 +47,7 @@ class Qwen3Plus(BaseVLMModel):
     def model_name(self) -> str:
         return self._model_name
 
-    def _encode_local_file(self, file_path: str) -> str:
+    def load_media(self, file_path: str) -> str:
         import base64
         import mimetypes
         import os
@@ -76,11 +76,11 @@ class Qwen3Plus(BaseVLMModel):
         
         # 1. Process local image using Native DashScope format (No 'type' key needed)
         if image:
-            content.append({"image": self._encode_local_file(image)})
+            content.append({"image": self.load_media(image)})
             
         # 2. Process local video using Native DashScope format
         if video:
-            content.append({"video": self._encode_local_file(video)})
+            content.append({"video": self.load_media(video)})
             
         # 3. Add text prompt
         if text:
