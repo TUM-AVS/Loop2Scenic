@@ -6,6 +6,8 @@ from PIL import Image
 import os
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+from src.utils import clean_and_parse_json
+
 from ..base import BaseVLMModel
 
 logger = logging.getLogger(__name__)
@@ -55,7 +57,7 @@ class GeminiVLModel(BaseVLMModel):
 
     @retry(
         stop=stop_after_attempt(5),
-        wait=wait_exponential(multiplier=2, min=2, max=30),
+        wait=wait_exponential(multiplier=5, min=10, max=120),
         before_sleep=lambda retry_state: logger.warning(f"⚠️ API Timeout or 503. Retrying in {retry_state.next_action.sleep} seconds...")
     )
     def chat(
@@ -124,7 +126,7 @@ class GeminiVLModel(BaseVLMModel):
                 contents=contents,
                 config=config
             )
-            result = response.text
+            result = clean_and_parse_json(response.text)
         except Exception as e:
             logger.error(f"Error during generation: {e}")
             raise
@@ -161,7 +163,7 @@ class GeminiVLModel(BaseVLMModel):
             contents=contents,
             config=config
         )
-        return response.text
+        return clean_and_parse_json(response.text)
 
     def load_media(self, file_path: str):
         """

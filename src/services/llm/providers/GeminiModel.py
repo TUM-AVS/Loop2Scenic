@@ -2,6 +2,8 @@ import logging
 from typing import List, Dict
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+from src.utils import clean_and_parse_json
+
 from ..base import BaseLLMModel
 
 logger = logging.getLogger(__name__)
@@ -94,7 +96,7 @@ class GeminiModel(BaseLLMModel):
             config=config
         )
         
-        return response.text
+        return clean_and_parse_json(response.text)
 
     @property
     def model_name(self) -> str:

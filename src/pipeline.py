@@ -13,7 +13,7 @@ from .schema import MultimodalQuery
 from .config import Config, get_config
 from .ingestion import MultimodalDocumentInterpreter
 from .services import MilvusVectorStore, get_reranker, get_vlm_service, get_embedder, Retriever
-from .utils import setup_logging
+from .utils import clean_and_parse_json, setup_logging
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +111,7 @@ class RAGPipeline:
         # **vlm_kwargs will automatically map 'provider', 'temperature', etc., to the correct arguments
         self.vlm_service = get_vlm_service(**vlm_kwargs)
         
-        logger.info(f"VLM Service initialized successfully with {self.config.vlm.provider}.")
+        logger.info(f"VLM Service initialized successfully with {self.config.vlm.provider}, model: {self.config.vlm.model}")
 
     def _initialize_multimodal_interpreter(self):
         """Initialize multimodal document interpreter."""
@@ -157,52 +157,35 @@ class RAGPipeline:
             similarity_threshold=self.config.retrieval.similarity_threshold,
         )
 
-    def _initialize_vector_store(self, embedding_dim: int):
-        """Initialize vector store (Milvus)."""
-        logger.info("Initializing Vector Store...")
-        
-        # if not hasattr(self, 'embedder'):
-        #     raise ValueError("Embedder must be initialized before vector store. Call _initialize_embedder() first.")
-        
-        # Milvus supports both Lite and Server modes
-        use_lite = getattr(self.config.vector_db, "use_lite", True)
-        
-        if use_lite:
-            # Milvus Lite (no Docker required)
-            connection_args = {
-                "uri": getattr(self.config.vector_db, "lite_db_path", "./data/vector_db/milvus.db")
-            }
-            logger.info(f"Using Milvus Lite mode (no Docker): {connection_args['uri']}")
-            index_params = None
-            search_params = None
-        else:
-            # Milvus Server (requires Docker)
-            connection_args = {
-                "host": getattr(self.config.vector_db, "host", "localhost"),
-                "port": getattr(self.config.vector_db, "port", "19530")
-            }
-            logger.info(f"Using Milvus Server mode: {connection_args['host']}:{connection_args['port']}")
-            
-            index_params = {
-                "metric_type": self.config.vector_db.distance_metric.upper(),
-                "index_type": getattr(self.config.vector_db, "index_type", "IVF_FLAT"),
-                "params": {"nlist": getattr(self.config.vector_db, "nlist", 1024)}
-            }
-            
-            search_params = {
-                "metric_type": self.config.vector_db.distance_metric.upper(),
-                "params": {"nprobe": getattr(self.config.vector_db, "nprobe", 10)}
-            }
-        
-        self.vectorstore = MilvusVectorStore(
+    def _initialize_vector_store(self, embedding_dim: int) -> MilvusVectorStore:
+        """Initialize vector database (Milvus) using the embedder dimension."""
+        logger.info(
+            f"Initializing Vector Store (Milvus "
+        )
+        connection_args = {
+            "host": self.config.vector_db.host,
+            "port": self.config.vector_db.port,
+        }
+        index_params = {
+            "metric_type": self.config.vector_db.distance_metric.upper(),
+            "index_type": self.config.vector_db.index_type,
+            "params": {"nlist": self.config.vector_db.nlist},
+        }
+        search_params = {
+            "metric_type": self.config.vector_db.distance_metric.upper(),
+            "params": {"nprobe": self.config.vector_db.nprobe},
+        }
+
+        vector_db = MilvusVectorStore(
             embedding_dim=embedding_dim,
             collection_name=self.config.vector_db.collection_name,
+            snippets_collection_name=self.config.vector_db.snippets_collection_name,
             connection_args=connection_args,
             index_params=index_params,
-            search_params=search_params
+            search_params=search_params,
         )
-        
-        logger.info("Vector Store initialized successfully.")
+        logger.info("Vector Store initialized.")
+        return vector_db
 
     def interpret_scenarios(self, directory_path: Union[str, Path]):
         """
@@ -221,7 +204,7 @@ class RAGPipeline:
 
             # 2. Parse the string into a Python dictionary
             try:
-                scenario_data = json.loads(scenario_description_str)
+                scenario_data = clean_and_parse_json(scenario_description_str)
             except json.JSONDecodeError as e:
                 logger.error(f"Failed to parse JSON from VLM output: {e}. Skipping this scenario.")
                 logger.debug(f"Raw malformed output: {scenario_description_str}")
@@ -315,7 +298,7 @@ class RAGPipeline:
             directory_path: Path to the directory
 
         Returns:
-            List of document IDs
+            List of dictionaries, each representing a multimodal document
         """
         self.interpret_scenarios(directory_path)
         scenarios_dicts = self.multimodal_interpreter.extract_from_directory(directory_path, use_new_description=True)

@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 import re
 import shutil
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 import tiktoken
 import json
 import os
@@ -337,3 +337,27 @@ def flatten_scenario_dsl_to_str(dsl: Dict[str, Any] | str) -> str | None:
         
     flattened_text = " ".join(text_parts)
     return flattened_text
+
+def clean_and_parse_json(raw_text: str | Dict[str, Any] | List[Any]) -> Dict[str, Any] | None:
+    """
+    Clean and parse the raw text as a JSON object.
+    """
+
+    if isinstance(raw_text, (dict, list)):
+        return raw_text
+    
+    try: 
+        return json.loads(raw_text)
+    except json.JSONDecodeError as e:
+        # try to find ```json {...} ``` or just ```{...}```
+        match = re.search(r"```(?:json)?\s*([\{\[].*?[\}\]])\s*```", raw_text, re.DOTALL)
+        if match:
+            json_str = match.group(1)
+            json_obj = json.loads(json_str)
+            return json_obj
+        else:
+            logger.error(f"Failed to find JSON in text: {raw_text}")
+            return None
+    except Exception as e:
+        logger.error(f"Failed to parse JSON from text: {e}. Raw text: {raw_text}")
+        return None

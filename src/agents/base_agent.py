@@ -14,13 +14,16 @@ class BaseAgent(ABC):
     def process(self, state: dict) -> dict:
         pass
 
-    def _clean_and_parse_json(self, raw_text: str) -> Dict[str, Any]:
+    def _clean_and_parse_json(self, raw_text: Any) -> Dict[str, Any]:
         """
         Clean and parse the raw text as a JSON object.
         """
         
-        try: 
-            json.loads(raw_text)
+        # If the VLM already returned a parsed JSON object, use it directly.
+        if isinstance(raw_text, (dict, list)):
+            return raw_text
+
+        try:
             return json.loads(raw_text)
         except json.JSONDecodeError as e:
             # try to find ```json {...} ``` or just ```{...}```
