@@ -2,7 +2,7 @@ import logging
 import re
 import time
 from src.schema import HeaderSetting
-from src.utils import setup_logging
+from src.utils import setup_logging, strip_code_fence_markers
 from tests.test_utils import test_video_recording
 
 from .base_agent import BaseAgent
@@ -256,21 +256,23 @@ param weather = '{header_settings.weather}'
         logger.info(f"Final script: \n{assembled_code}")
         logger.info("=" * 40)
 
+        return assembled_code
+
         # =========================================================
         # STEP 4: LINTING AND VALIDATION OF THE ASSEMBLED CODE
         # =========================================================
-        logger.info("🔍 Linting and validating the assembled code...")
-        validate_prompt = load_prompt("validate_scenic_code").format(
-            assembled_code=assembled_code
-        )
-        final_code = self.generate_and_clean(validate_prompt)
-        logger.info("=" * 40)
-        logger.info("🎉 Validation complete!")
-        logger.info(f"Final script length: {len(final_code)} characters.")
-        logger.info(f"Final script: \n{final_code}")
-        logger.info("=" * 40)
+        # logger.info("🔍 Linting and validating the assembled code...")
+        # validate_prompt = load_prompt("validate_scenic_code").format(
+        #     assembled_code=assembled_code
+        # )
+        # final_code = self.generate_and_clean(validate_prompt)
+        # logger.info("=" * 40)
+        # logger.info("🎉 Validation complete!")
+        # logger.info(f"Final script length: {len(final_code)} characters.")
+        # logger.info(f"Final script: \n{final_code}")
+        # logger.info("=" * 40)
         
-        return final_code
+        # return final_code
 
     def debug_code(self, scenic_code: str, error_message: str, header_settings: HeaderSetting | None) -> str:
         # 0. Generate the header instruction
@@ -301,7 +303,7 @@ param weather = '{header_settings.weather}'
 
         # 2. Call the LLM service
         response = self.llm_service.chat([{"role": "user", "content": formatted_prompt}])
-        return response
+        return strip_code_fence_markers(response)
 
 if __name__ == "__main__":
     from src.services import MilvusVectorStore

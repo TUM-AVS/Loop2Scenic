@@ -53,6 +53,12 @@ class BaseVLMModel(ABC):
         """
         pass
 
+    def load_media(self, file_path: str) -> str:
+        """
+        Load media file and return the media path.
+        """
+        pass
+
     @property
     @abstractmethod
     def model_name(self) -> str:

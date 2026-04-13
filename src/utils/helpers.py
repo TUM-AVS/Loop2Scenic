@@ -338,26 +338,63 @@ def flatten_scenario_dsl_to_str(dsl: Dict[str, Any] | str) -> str | None:
     flattened_text = " ".join(text_parts)
     return flattened_text
 
+def strip_code_fence_markers(raw_text: str) -> str:
+    """
+    Remove markdown code-fence wrappers and language tags from text.
+
+    Examples removed:
+    - ```json ... ```
+    - ```python ... ```
+    - ```scenic ... ```
+    """
+    text = raw_text.strip()
+    fence_match = re.match(r"^```[a-zA-Z0-9_+-]*\s*([\s\S]*?)\s*```$", text)
+    if fence_match:
+        return fence_match.group(1).strip()
+    return text
+
+
+def parse_raw_text_to_json_dict(raw_text: str | Dict[str, Any] | List[Any]) -> Dict[str, Any] | None:
+    """
+    Parse raw text/object into a JSON dictionary.
+    """
+    if isinstance(raw_text, dict):
+        return raw_text
+
+    if isinstance(raw_text, list):
+        logger.error("Expected JSON object (dict), but got JSON array (list).")
+        return None
+
+    cleaned_text = strip_code_fence_markers(raw_text)
+
+    try:
+        parsed = json.loads(cleaned_text)
+        if isinstance(parsed, dict):
+            return parsed
+        logger.error(f"Expected JSON object (dict), but got {type(parsed).__name__}.")
+        return None
+    except json.JSONDecodeError:
+        match = re.search(r"[\{\[][\s\S]*[\}\]]", cleaned_text)
+        if match:
+            try:
+                parsed = json.loads(match.group(0))
+                if isinstance(parsed, dict):
+                    return parsed
+                logger.error(f"Expected JSON object (dict), but got {type(parsed).__name__}.")
+                return None
+            except Exception as e:
+                logger.error(f"Failed to parse extracted JSON text: {e}. Raw text: {raw_text}")
+                return None
+        logger.error(f"Failed to find JSON in text: {raw_text}")
+        return None
+    except Exception as e:
+        logger.error(f"Failed to parse JSON from text: {e}. Raw text: {raw_text}")
+        return None
+
+
 def clean_and_parse_json(raw_text: str | Dict[str, Any] | List[Any]) -> Dict[str, Any] | None:
     """
     Clean and parse the raw text as a JSON object.
     """
 
-    if isinstance(raw_text, (dict, list)):
-        return raw_text
-    
-    try: 
-        return json.loads(raw_text)
-    except json.JSONDecodeError as e:
-        # try to find ```json {...} ``` or just ```{...}```
-        match = re.search(r"```(?:json)?\s*([\{\[].*?[\}\]])\s*```", raw_text, re.DOTALL)
-        if match:
-            json_str = match.group(1)
-            json_obj = json.loads(json_str)
-            return json_obj
-        else:
-            logger.error(f"Failed to find JSON in text: {raw_text}")
-            return None
-    except Exception as e:
-        logger.error(f"Failed to parse JSON from text: {e}. Raw text: {raw_text}")
-        return None
+    return parse_raw_text_to_json_dict(raw_text)

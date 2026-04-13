@@ -1,55 +1,61 @@
-description = "Using map ../../maps/Town05.xodr with carla map Town05 and weather MidRainyNoon"
+description = "Ego vehicle performs a lane change to avoid a stationary obstacle blocking its lane."
 param map = localPath('../../maps/Town05.xodr')
 param carla_map = 'Town05'
 model scenic.simulators.carla.model
 MODEL = 'vehicle.lincoln.mkz_2017'
-param weather = 'MidRainyNoon'
+param weather = 'ClearNoon'
 
-intersection = Uniform(*filter(lambda i: any(m.type is ManeuverType.LEFT_TURN for m in i.maneuvers), network.intersections))
+# 1. Store pairs of valid (ego_section, adjacent_section) tuples
+validSectionPairs = []
+for lane in network.lanes:
+    for sec in lane.sections:
+        if sec._laneToLeft and sec._laneToLeft.isForward == sec.isForward:
+            validSectionPairs.append((sec, sec._laneToLeft))
+        elif sec._laneToRight and sec._laneToRight.isForward == sec.isForward:
+            validSectionPairs.append((sec, sec._laneToRight))
 
-egoManeuver = Uniform(*filter(lambda m: m.type is ManeuverType.LEFT_TURN and any(cm.type is ManeuverType.STRAIGHT for cm in m.conflictingManeuvers), intersection.maneuvers))
-egoInitLane = egoManeuver.startLane
-egoTrajectory = [egoInitLane, egoManeuver.connectingLane, egoManeuver.endLane]
-egoSpawnPt = new OrientedPoint in egoInitLane.centerline
+# 2. Randomly select the pair together to avoid control flow on random variables
+selectedPair = Uniform(*validSectionPairs)
+egoSection = selectedPair[0]
+adjSection = selectedPair[1]
 
-advManeuver = Uniform(*filter(lambda m: m.type is ManeuverType.STRAIGHT, egoManeuver.conflictingManeuvers))
-advInitLane = advManeuver.startLane
-advTrajectory = [advInitLane, advManeuver.connectingLane, advManeuver.endLane]
-advSpawnPt = new OrientedPoint in advInitLane.centerline
+egoSpawnPt = new OrientedPoint in egoSection.centerline
 
-param EGO_STOP_SPEED = 0
-param EGO_TURN_SPEED = 6
+propSpawnPt = new OrientedPoint following egoSection.orientation from egoSpawnPt for Range(25, 35)
 
-behavior EgoBehavior(trajectory):
-    do FollowTrajectoryBehavior(target_speed=globalParameters.EGO_TURN_SPEED, trajectory=trajectory)
+# 3. Calculate NPC spawn based on the paired adjacent section
+npcBasePt = adjSection.centerline.project(egoSpawnPt.position)
+npcSpawnPt = new OrientedPoint following adjSection.orientation from npcBasePt for Range(-5, 5)
+
+param EGO_SPEED = Range(7, 10)
+param AVOIDANCE_DIST = Range(15, 20)
+
+behavior EgoBehavior(target_speed, avoidance_dist, target_lane):
+    do FollowLaneBehavior(target_speed=target_speed) until withinDistanceToObjsInLane(self, avoidance_dist)
+    do LaneChangeBehavior(laneSectionToSwitch=target_lane, target_speed=target_speed)
+    do FollowLaneBehavior(target_speed=target_speed)
 
 ego = new Car at egoSpawnPt,
+    with rolename 'hero',
     with blueprint MODEL,
-    with behavior EgoBehavior(egoTrajectory)
+    with behavior EgoBehavior(
+        globalParameters.EGO_SPEED,
+        globalParameters.AVOIDANCE_DIST,
+        adjSection
+    )
 
-param ADV_SPEED = Range(7, 10)
+blocker = new Trash at propSpawnPt,
+    with heading propSpawnPt.heading,
+    with regionContainedIn None
 
-behavior AdversaryBehavior(trajectory):
-    do FollowTrajectoryBehavior(target_speed=globalParameters.ADV_SPEED, trajectory=trajectory)
+param NPC_SPEED = Range(7, 10)
 
-adversary = new Car at advSpawnPt,
+behavior NPCBehavior(speed):
+    do FollowLaneBehavior(target_speed=speed)
+
+npc = new NPCCar at npcSpawnPt,
     with blueprint MODEL,
-    with behavior AdversaryBehavior(advTrajectory)
+    with behavior NPCBehavior(globalParameters.NPC_SPEED)
 
-EGO_INIT_DIST = [10, 15]
-ADV_INIT_DIST = [15, 25]
-TERM_DIST = 50
-
-monitor TrafficLights():
-    freezeTrafficLights()
-    while True:
-        if withinDistanceToTrafficLight(ego, 100):
-            setClosestTrafficLightStatus(ego, "green")
-        if withinDistanceToTrafficLight(adversary, 100):
-            setClosestTrafficLightStatus(adversary, "green")
-        wait
-
-require monitor TrafficLights()
-require EGO_INIT_DIST[0] <= (distance from egoSpawnPt to intersection) <= EGO_INIT_DIST[1]
-require ADV_INIT_DIST[0] <= (distance from advSpawnPt to intersection) <= ADV_INIT_DIST[1]
-terminate when (distance from ego to egoSpawnPt) > TERM_DIST
+require 25 <= (distance from egoSpawnPt to propSpawnPt) <= 35
+terminate when (ego in adjSection) and (distance from ego to egoSpawnPt > 50)
