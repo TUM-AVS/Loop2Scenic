@@ -85,8 +85,11 @@ class GeminiModel(BaseLLMModel):
         
         # Configure generation parameters
         config = self.types.GenerateContentConfig(
-            temperature=temperature,
-            max_output_tokens=max_tokens,
+            temperature=self.temperature,
+            max_output_tokens=self.max_tokens,
+            thinking_config=self.types.ThinkingConfig(
+                thinking_budget=0  # This explicitly disables thinking
+            )
         )
         
         # Call the new endpoint
@@ -96,7 +99,7 @@ class GeminiModel(BaseLLMModel):
             config=config
         )
         
-        return clean_and_parse_json(response.text)
+        return response.text
 
     @property
     def model_name(self) -> str:
