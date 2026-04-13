@@ -105,7 +105,7 @@ class ScenarioWorkflow:
                 best_score = scenario.score
                 best_scenario = scenario
         
-        if best_scenario and (best_score >= 70 or count >= max_count):
+        if count >= max_count or (best_scenario and best_score >= 70):
             self.logger.info(f"🚦 ROUTER: Best score {best_score} or max count {count}/{max_count} reached. Sending to User.")
             return "output_best_scenario"
         else:
@@ -447,9 +447,9 @@ if __name__ == "__main__":
         workflow = ChatbotWorkflow().initialize_system()
 
     user_query = MultimodalQuery(
-        text="Generate me a highway scenario looks like the one in this video, the ego vehicle should make a left turn at the intersection, and the adversarial should go straight.",
+        text="Generate me a scenario with the following requirements: The ego-vehicle encounters an obstacle blocking the lane and must perform a lane change into traffic moving in the same direction to avoid it. The obstacle may be a construction site, an accident or a parked vehicle.",
         image_path=None,
-        video_path="/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testvideo.mp4"
+        video_path=None
     )
     initial_state = {"user_query": user_query}
     config = {"configurable": {"thread_id": "test_1"}}
@@ -469,11 +469,11 @@ if __name__ == "__main__":
     for _event in workflow.app.stream(initial_state, config=config):
         pass
 
-    workflow.logger.info("🛑 GRAPH PAUSED. Pretending user clicked 'Reject' (round 1)...")
-    _resume_with_feedback(
-        feedback=MultimodalQuery(text="Please add another car in the scenario which turns left at the intersection behind the ego vehicle as I marked with a red box in the image.", image_path="/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testimage.png", video_path=None),
-        satisfied=False,
-    )
+    # workflow.logger.info("🛑 GRAPH PAUSED. Pretending user clicked 'Reject' (round 1)...")
+    # _resume_with_feedback(
+    #     feedback=MultimodalQuery(text="Please add another car in the scenario which turns left at the intersection behind the ego vehicle as I marked with a red box in the image.", image_path="/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testimage.png", video_path=None),
+    #     satisfied=False,
+    # )
 
     workflow.logger.info("🛑 GRAPH PAUSED. Pretending user clicked 'Accept'...")
     _resume_with_feedback(feedback=None, satisfied=True)
