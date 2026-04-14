@@ -5,57 +5,11 @@ model scenic.simulators.carla.model
 MODEL = 'vehicle.lincoln.mkz_2017'
 param weather = 'ClearNoon'
 
-# 1. Store pairs of valid (ego_section, adjacent_section) tuples
-validSectionPairs = []
-for lane in network.lanes:
-    for sec in lane.sections:
-        if sec._laneToLeft and sec._laneToLeft.isForward == sec.isForward:
-            validSectionPairs.append((sec, sec._laneToLeft))
-        elif sec._laneToRight and sec._laneToRight.isForward == sec.isForward:
-            validSectionPairs.append((sec, sec._laneToRight))
+egoLane = Uniform(*network.lanes)
+egoSection = Uniform(*egoLane.sections)
+egoSpawnPt = new OrientedPoint on egoLane.centerline
 
-# 2. Randomly select the pair together to avoid control flow on random variables
-selectedPair = Uniform(*validSectionPairs)
-egoSection = selectedPair[0]
-adjSection = selectedPair[1]
+targetSection = Uniform(egoSection, egoSection._laneToLeft, egoSection._laneToRight)
+require targetSection is not None
 
-egoSpawnPt = new OrientedPoint in egoSection.centerline
-
-propSpawnPt = new OrientedPoint following egoSection.orientation from egoSpawnPt for Range(25, 35)
-
-# 3. Calculate NPC spawn based on the paired adjacent section
-npcBasePt = adjSection.centerline.project(egoSpawnPt.position)
-npcSpawnPt = new OrientedPoint following adjSection.orientation from npcBasePt for Range(-5, 5)
-
-param EGO_SPEED = Range(7, 10)
-param AVOIDANCE_DIST = Range(15, 20)
-
-behavior EgoBehavior(target_speed, avoidance_dist, target_lane):
-    do FollowLaneBehavior(target_speed=target_speed) until withinDistanceToObjsInLane(self, avoidance_dist)
-    do LaneChangeBehavior(laneSectionToSwitch=target_lane, target_speed=target_speed)
-    do FollowLaneBehavior(target_speed=target_speed)
-
-ego = new Car at egoSpawnPt,
-    with rolename 'hero',
-    with blueprint MODEL,
-    with behavior EgoBehavior(
-        globalParameters.EGO_SPEED,
-        globalParameters.AVOIDANCE_DIST,
-        adjSection
-    )
-
-blocker = new Trash at propSpawnPt,
-    with heading propSpawnPt.heading,
-    with regionContainedIn None
-
-param NPC_SPEED = Range(7, 10)
-
-behavior NPCBehavior(speed):
-    do FollowLaneBehavior(target_speed=speed)
-
-npc = new NPCCar at npcSpawnPt,
-    with blueprint MODEL,
-    with behavior NPCBehavior(globalParameters.NPC_SPEED)
-
-require 25 <= (distance from egoSpawnPt to propSpawnPt) <= 35
-terminate when (ego in adjSection) and (distance from ego to egoSpawnPt > 50)
+obstacleSpawnPt = new OrientedPoint on targetSection.centerline, ahead of egoSpawnPt by Range(20, 40)

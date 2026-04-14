@@ -39,15 +39,15 @@ def main():
     # Validate source is a directory
     source_path = args.source
     if args.source is None:
-        source_path = Path("/home/dellpro2/chenli/ads-mrag/ads-mrag/data/test")
+        source_path = Path("/home/dellpro2/chenli/ads-mrag/ads-mrag/data/prompt_opt")
     else:
         source_path = Path(args.source)
     if not source_path.exists():
-        print(f"Error: Path does not exist: {args.source}")
+        print(f"Error: Path does not exist: {source_path}")
         sys.exit(1)
     
     if not source_path.is_dir():
-        print(f"Error: Source must be a directory: {args.source}")
+        print(f"Error: Source must be a directory: {source_path}")
         sys.exit(1)
     
     # Initialize pipeline
@@ -55,7 +55,7 @@ def main():
     pipeline = RAGPipeline()
     
     # Ingest scenarios
-    print(f"Ingesting scenarios from: {args.source}")
+    print(f"Ingesting scenarios from: {source_path}")
     print("Step 1: Interpreting scenarios with VLM...")
 
     pipeline.interpret_scenarios(directory_path=source_path)

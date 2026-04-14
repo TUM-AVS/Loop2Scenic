@@ -42,11 +42,15 @@ ENV/
 .env.local
 
 # Data
+data/*
 data/raw/*
 data/processed/*
 data/vector_db/*
 data/scenarios/*
 data/test/*
+data/prompt_opt/*
+
+maps/*
 
 !data/raw/.gitkeep
 !data/processed/.gitkeep
