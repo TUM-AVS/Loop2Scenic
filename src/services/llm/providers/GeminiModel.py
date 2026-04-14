@@ -61,10 +61,12 @@ class GeminiModel(BaseLLMModel):
         **kwargs
     ) -> str:
         """Chat with Gemini model using proper multi-turn conversation formatting."""
-        temperature = kwargs.get('temperature', self.temperature)
-        max_tokens = kwargs.get('max_tokens', self.max_tokens)
-        
         logger.debug(f"Chatting with {self._model_name}")
+
+        def _clip_text(text: str, max_chars: int = 4000) -> str:
+            if len(text) <= max_chars:
+                return text
+            return f"{text[:max_chars]} ...[truncated {len(text) - max_chars} chars]"
         
         # Map generic messages to the strict google-genai Content schema
         formatted_contents = []
@@ -82,24 +84,67 @@ class GeminiModel(BaseLLMModel):
                     parts=[self.types.Part.from_text(text=content)]
                 )
             )
-        
-        # Configure generation parameters
-        config = self.types.GenerateContentConfig(
-            temperature=self.temperature,
-            max_output_tokens=self.max_tokens,
-            thinking_config=self.types.ThinkingConfig(
-                thinking_budget=0  # This explicitly disables thinking
+
+        # for different models, we need to set the thinking mode by different ways
+        if self._model_name == "gemini-2.5-flash":
+            config = self.types.GenerateContentConfig(
+                temperature=self.temperature,
+                max_output_tokens=self.max_tokens,
+                thinking_config=self.types.ThinkingConfig(
+                    thinking_budget=0  # This explicitly disables thinking
+                )
             )
-        )
-        
+        elif self._model_name == "gemini-2.5-pro":
+            config = self.types.GenerateContentConfig(
+                temperature=self.temperature,
+                max_output_tokens=self.max_tokens,
+                thinking_config=self.types.ThinkingConfig(thinking_budget=128)
+            )
+        elif self._model_name == "gemini-3-flash-preview" or self._model_name == "gemini-3-flash" or self._model_name == "gemini-3-flash-lite" or self._model_name == "gemini-3.1-flash-lite-preview":
+            config = self.types.GenerateContentConfig(
+                temperature=self.temperature,
+                max_output_tokens=self.max_tokens,
+                thinking_config=self.types.ThinkingConfig(thinking_level="medium")
+            )
+        elif self._model_name == "gemini-3.1-pro-preview":
+            config = self.types.GenerateContentConfig(
+                temperature=self.temperature,
+                max_output_tokens=self.max_tokens,
+                thinking_config=self.types.ThinkingConfig(thinking_level="low")
+            )
+
+        request_lines = [
+            "=== GEMINI REQUEST ===",
+            f"model={self._model_name}",
+            f"temperature={self.temperature}",
+            f"max_output_tokens={self.max_tokens}",
+            f"message_count={len(messages)}",
+            "messages:",
+        ]
+        for idx, msg in enumerate(messages, start=1):
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            request_lines.append(
+                f"[{idx}] role={role} chars={len(content)}\n{_clip_text(content)}"
+            )
+        request_lines.append("======================")
+        logger.info("\n".join(request_lines))
+
         # Call the new endpoint
         response = self.client.models.generate_content(
             model=self._model_name,
             contents=formatted_contents,
             config=config
         )
-        
-        return response.text
+        response_text = response.text or ""
+        logger.info(
+            "=== GEMINI RESPONSE ===\nmodel=%s\nresponse_chars=%d\n%s\n======================",
+            self._model_name,
+            len(response_text),
+            _clip_text(response_text),
+        )
+
+        return response_text
 
     @property
     def model_name(self) -> str:
