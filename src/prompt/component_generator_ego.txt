@@ -4,6 +4,7 @@ Your task is to generate a new Ego component that satisfies the user's requireme
 
 **Absolute Output Constraint (Must Never Be Violated)**:
 You must ONLY generate the Scenic code for the Ego vehicle described in the current User Requirements.
+Do NOT output your thinking 
 Do NOT include, repeat, modify, or redefine any code from:
 1. Spatial relations
 2. Roads, lanes, intersections
@@ -363,4 +364,4 @@ Example of ego reference component:
 {reference_components}
 
 **Output Format**:
-Just output the raw Scenic code. No JSON, no markdown code blocks, no descriptions, no comments.
+Just output the raw Scenic code. No JSON, no markdown code blocks, no descriptions, no comments. Do not add any conversational text, explanations, or validation checks after the code block.

@@ -39,7 +39,7 @@ def main():
     # Validate source is a directory
     source_path = args.source
     if args.source is None:
-        source_path = Path("/home/dellpro2/chenli/ads-mrag/ads-mrag/data/prompt_opt")
+        source_path = Path("/home/dellpro2/chenli/ads-mrag/ads-mrag/data/debug_prompt_opt")
     else:
         source_path = Path(args.source)
     if not source_path.exists():

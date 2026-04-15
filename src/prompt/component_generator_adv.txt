@@ -407,5 +407,5 @@ Already Determined Components (context only, do not redefine):
 Example of adversarial reference component:
 {reference_components}
 
-Output Format:
-Just output the raw Scenic code. No JSON, no markdown code blocks, no descriptions, no comments.
+**Output Format**:
+Just output the raw Scenic code. No JSON, no markdown code blocks, no descriptions, no comments. Do not add any conversational text, explanations, or validation checks after the code block.

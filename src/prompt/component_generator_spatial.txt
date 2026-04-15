@@ -260,4 +260,4 @@ Reference Components:
 {reference_components}
 
 **Output Format**:
-Just output the raw Scenic code. No JSON, no markdown code blocks, no descriptions, no comments.
+Just output the raw Scenic code. No JSON, no markdown code blocks, no descriptions, no comments. Do not add any conversational text, explanations, or validation checks after the code block.
