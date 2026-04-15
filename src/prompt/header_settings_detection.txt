@@ -1,36 +1,13 @@
 You are an expert at analyzing scenario descriptions and extracting environmental settings.
-
-Analyze the following user query and detect:
+Your task is to analyze all provided user inputs to identify the following conditions:
 1. Weather conditions (rain, clear, cloudy, wet, etc.)
 2. Map type (urban, rural, highway, intersection)
 3. Time of day (noon, sunset, night, dawn)
 4. Vehicle model (e.g., "tesla", "audi", "lincoln", "truck", "motorcycle", "bike", "bicycle", "pedestrian")
+Please actively look for visual evidence in any provided images or videos (e.g., visible raindrops, dark skies, dirt roads, specific car shapes) to confirm, supplement, or override the text description.
 
-User Query:
-{user_query}
-
-Available Weather Options:
-- ClearNoon, CloudyNoon, WetNoon, WetCloudyNoon, SoftRainNoon, MidRainyNoon, HardRainNoon
-- ClearSunset, CloudySunset, WetSunset, WetCloudySunset, SoftRainSunset, MidRainSunset, HardRainSunset
-
-Map Type to CARLA Map Mapping:
-- urban/city/intersection/crossroad → Town05 (default, has many intersections)
-- urban/downtown → Town03 or Town10HD (dense urban areas)
-- rural/countryside/village → Town07 (rural environment)
-- highway/freeway/motorway → Town04 or Town06 (highway scenarios)
-
-Common CARLA Blueprints:
-- "lincoln" or "car" (default) → vehicle.lincoln.mkz_2017
-- "tesla" → vehicle.tesla.model3
-- "audi" → vehicle.audi.tt
-- "truck" → vehicle.carlamotors.firetruck
-- "motorcycle" → vehicle.yamaha.yzf
-- "bike" or "bicycle" → vehicle.diamondback.century
-- "pedestrian" → walker.pedestrian.0001
-
-Detection Rules:
-
-1. Weather keywords:
+** Reasoning & Implementation Plan (Internal Guidance) **
+1. Detect Weather keywords:
    - "rainy", "rain", "raining" with intensity:
      * "light rain", "soft rain", "drizzle" → SoftRainNoon/SoftRainSunset
      * "rain", "rainy" (no modifier) → MidRainyNoon/MidRainSunset
@@ -39,16 +16,14 @@ Detection Rules:
    - "cloudy", "overcast", "gray" → CloudyNoon/CloudySunset
    - "wet", "damp" (without active rain) → WetNoon/WetSunset
 
-2. Time keywords:
+2. Detect Time keywords:
    - "noon", "midday", "daytime", "afternoon" or other daytime-related keywords → Noon
    - "sunset", "dusk", "evening", "twilight", "night" or other night-related keywords → Sunset
    - Default to Noon if not specified
 
-3. Map keywords:
-   - "intersection", "crossroad", "junction", "traffic light", "turning" → Town05
-   - "urban", "city", "downtown", "metropolitan" → Town05 (or Town03/Town10HD for very dense)
-   - "rural", "countryside", "village", "farmland" → Town07
-   - "highway", "freeway", "motorway", "expressway" → Town04
+3. Detect Map keywords:
+   - Analyze text keywords and any visual evidence in the user input to determine the appropriate CARLA map.
+   - Use the <Keywords to CARLA Map Mapping> section below to make your selection.
 
 4. Vehicle keywords:
    - Detect the brand or type of vehicle.
@@ -63,14 +38,42 @@ Detection Rules:
    - 0.4: Weak implication or context-based guess
    - 0.0: No information detected
 
-Important:
-- If no specific setting is detected, use null for that field
+** Available Weather Options **
+- ClearNoon, CloudyNoon, WetNoon, WetCloudyNoon, SoftRainNoon, MidRainyNoon, HardRainNoon
+- ClearSunset, CloudySunset, WetSunset, WetCloudySunset, SoftRainSunset, MidRainSunset, HardRainSunset
+
+** Keywords to CARLA Map Mapping **
+- small/river/bridges/simple → Town01 (small, simple town layout with a river and several bridges)
+- small/residential/commercial → Town02 (small town combining residential and commercial buildings)
+- urban/roundabout/junctions → Town03 (larger urban map featuring a roundabout and complex, large junctions)
+- mountain/highway/figure-8 → Town04 (small town embedded in mountains with an infinite "figure of 8" highway)
+- grid/intersection/multiple-lanes → Town05 (squared-grid town with cross junctions and a bridge, ideal for lane changes)
+- highway/freeway/interchange → Town06 (long, multi-lane highways with many entrances, exits, and a Michigan left)
+- rural/countryside/village → Town07 (rural environment with narrow roads, cornfields, barns, and barely any traffic lights)
+- downtown/urban/promenade → Town10 or Town10HD (dense downtown urban environment with glossy skyscrapers, avenues, and an ocean promenade)
+
+** Common CARLA Blueprints **
+- "lincoln" or "car" (default) → vehicle.lincoln.mkz_2017
+- "tesla" → vehicle.tesla.model3
+- "audi" → vehicle.audi.tt
+- "truck" → vehicle.carlamotors.firetruck
+- "motorcycle" → vehicle.yamaha.yzf
+- "bike" or "bicycle" → vehicle.diamondback.century
+- "pedestrian" → walker.pedestrian.0001
+
+** Important **
+- If no specific setting is detected, use None for that field
 - Combine time of day with weather (e.g., "rainy" + "noon" = "SoftRainNoon")
 - Provide clear reasoning for your detection
 - Be conservative with confidence scores
 - Please combine all modalities user inputs to generate the output
 
-Output Format (JSON only, no markdown, no explanations outside JSON):
+** Inputs **
+User Requirements:
+{user_query}
+
+** Output Format **
+ (JSON only, no markdown, no explanations outside JSON)
 {{
   "weather": "SoftRainNoon",
   "map_type": "rural",

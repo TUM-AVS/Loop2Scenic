@@ -57,13 +57,13 @@ class InterpreterAgent(BaseAgent):
                 return None
             else: 
                 suggested_map = json_response.get("suggested_map")
-                if suggested_map is None:
+                if not suggested_map or suggested_map is None:
                     suggested_map = "Town05"
                 weather = json_response.get("weather")
-                if weather is None:
+                if not weather or weather is None:
                     weather = "ClearNoon"
                 blueprint = json_response.get("blueprint")
-                if blueprint is None:
+                if not blueprint or blueprint is None:
                     blueprint = "vehicle.lincoln.mkz_2017"
                 header_settings = HeaderSetting(
                     carla_map=suggested_map,
@@ -231,9 +231,8 @@ if __name__ == "__main__":
 
     def test_header_settings_generation():
         user_query = MultimodalQuery(
-            text="Please generate me a scenario in a rainy weather in a rural area at noon.", 
+            text="Please generate me a scenario like this, and it is cloudy.", 
             image_path="/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testimage.png", 
-            video_path="/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testvideo.mp4"
         )
         header_settings = interpreter.generate_header_settings(user_query)
         print(f"Successfully generated header settings: {header_settings}")
