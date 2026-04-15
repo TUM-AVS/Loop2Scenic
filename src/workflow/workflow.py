@@ -447,7 +447,7 @@ if __name__ == "__main__":
         workflow = ChatbotWorkflow().initialize_system()
 
     user_query = MultimodalQuery(
-        text="Generate me a scenario with the following requirements: The ego-vehicle encounters an obstacle blocking the lane and must perform a lane change into traffic moving in the same direction to avoid it. The obstacle may be a construction site, an accident or a parked vehicle.",
+        text="Vehicle A and vehicle B were both heading in the same direction on a multi-lane road in different lanes. B attempted to turn from the curb lane across the path of A onto a side street. Driver A struck illegally turning B in the driver's side.",
         image_path=None,
         video_path=None
     )
