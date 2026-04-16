@@ -15,7 +15,7 @@ if root_path not in sys.path:
     sys.path.append(root_path)
 
 from .scenario_workflow_state import CLEAN_STATE, MAX_COUNT, ScenarioWorkflowState
-from src.utils import find_scenic_code_with_scenario_id, flatten_scenario_dsl_to_str, get_error_message_from_logs, run_simulation_in_carla_and_save_video, setup_logging, log_workflow_state, to_safe_string
+from src.utils import find_scenic_code_with_scenario_id, get_error_message_from_logs, run_simulation_in_carla_and_save_video, setup_logging, log_workflow_state, to_safe_string
 from src.agents import InterpreterAgent, ScenicCoderAgent, CriticAgent
 from src.services import Retriever, BaseEmbeddingModel
 
@@ -320,11 +320,10 @@ class ScenarioWorkflow:
             else:
                 modified_dsl = self.interpreter.generate_dsl_from_user_feedback(user_feedback=feedback, original_dsl=state.get("scenario_dsl", {}), scenario_to_modify=best_scenario)
 
-            # 3. compose a new user query from the modified dsl for the vlm evaluation
-            flattened_modified_dsl = "Previous scenario in the chat history: "
-            flattened_modified_dsl += flatten_scenario_dsl_to_str(modified_dsl)
-            if not flattened_modified_dsl:
-                flattened_modified_dsl += to_safe_string(modified_dsl)
+            # 3. compose a new user query for header settings generation, includes old header settings and user feedback
+            new_header_settings_prompt = "Previous header settings in the chat history: \n"
+            if state.get("header_settings", None):
+                new_header_settings_prompt += to_safe_string(state.get("header_settings")) + "\n"
 
             if feedback.text:
                 flattened_modified_dsl += f"\nUser suggestion text: {feedback.text}\n"
