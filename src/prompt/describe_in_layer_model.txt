@@ -1,60 +1,98 @@
-You are an expert autonomous driving scenario analyzer. Your task is to extract the high-level logical structure of a driving scenario by analyzing the provided Scenic code, the text description, the provided image, AND the attached video of the scenario.
+You are an expert autonomous driving scenario analyzer. Your task is to extract the high-level logical structure of a driving scenario by analyzing the provided text description, the provided image, and the attached video of the scenario.
 
 Synthesize all these inputs to understand the scenario's layout and dynamic timeline, then convert it into a structured JSON format.
 
+** Output Format **
 Output ONLY a valid JSON object with the following structure. Do NOT wrap the output in markdown code blocks (e.g., no ```json) and do NOT include any conversational text.
-
-{{
-    "Scenario": "<ONE short sentence describing the main overall event>",
-    "Ego": "<ONE short sentence describing the ego vehicle (type is restricted to 'car') and its behavior>",
-    "Adversarials": [
-    "<ONE short sentence describing an adversarial object, combining its type and behavior>",
-    "<Include additional strings here for EACH distinct adversarial object present, or leave as a single item if there is only one>"
+{
+    "scenario": "<A single short sentence describing the overall scenario event.>",
+    "ego": "<A single short sentence describing the ego vehicle (restricted to type 'car') and its planned behavior.>",
+    "adversarials": [
+        "<A single short sentence describing the type and behavior of an adversarial object.>",
+        "<Include additional strings for each distinct adversarial object present, or remove if there is only one.>"
     ],
-    "Spatial Relation": "<ONE short sentence describing the road type (e.g., straight road, highway, intersection) and how all entities are positioned relative to each other and the road>",
-    "Requirement and restrictions": "<Describe initial distance requirements (e.g., distance between ego and intersection) and termination restrictions (how the scenario ends). Leave empty if none apply.>"
-}}
+    "spatial_relation": "<A single short sentence defining the road type (e.g., straight road, highway, intersection) and the relative positioning of all entities within the environment.>",
+    "requirements_and_restrictions": "<Describe any initial distance constraints (e.g., distance between the ego and the intersection) and termination conditions. Leave empty if none apply.>",
+    "road_side_structures": [
+        {
+            "object": "<Name of the static roadside object.>",
+            "position": "<Relative position of the object compared to the ego, adversarials, or road geometry (e.g., 5 meters from the ego car on the right side).>"
+        }
+    ],
+    "temporary_modifications": [
+        {
+            "object": "<Name of the temporary object or obstacle placed directly on the road.>",
+            "position": "<Relative position of the object compared to the ego, adversarials, or road geometry (e.g., exactly in the center of the intersection).>"
+        }
+    ],
+    "reasoning_chain": "<Write your step-by-step analysis here, covering the 3 phases and identifying the ego vehicle.>"
+}
 
-Allowed Adversarial Types:
-Car, NPCCar, Bicycle, Motorcycle, Truck, Pedestrian, Prop, Trash, Cone, Debris, VendingMachine, Chair, BusStop, Advertisement, Garbage, Container, Table, Barrier, PlantPot, Mailbox, Gnome, CreasedBox, Case, Box, Bench, Barrel, ATM, Kiosk, IronPlate, TrafficWarning.
-
-Strict Rules to Follow:
+** Strict Rules to Follow **
 - Cross-Reference Modalities: Use the image or video to visually confirm the static entities, road types, and initial spatial layouts.
 - Use the video to confirm the dynamic behaviors and trajectories of the Ego and Adversarial objects over time.
 - Subject-First Descriptions: Start descriptions with the subject (e.g., "The ego vehicle travels...", "A debris object remains...").
 - Separation of Concerns: Exclude spatial relations from the "Ego" and "Adversarials" components. Spatial data belongs ONLY in the "Spatial Relation" component.
 - Adversarials Parsing: Create a separate array entry for each distinct adversarial object. Combine its type (from the allowed list) and behavior in a single sentence.
 - Traffic Lights: Any mention of traffic lights (e.g., red lights) must be placed in the "Requirement and restrictions" component, NOT in the Ego or Adversarials components.
-- No Quantitative Details: Do NOT include specific numbers, distances, speeds, or durations (e.g., say "a certain distance" instead of "50 meters").
+- Quantitative Details Only allowed for road side structures and temporary modifications: Do NOT include specific numbers, distances, speeds, or durations for all other perspectives, but can be included in the <road_side_structures> and <temporary_modifications> (e.g., say "a certain distance" instead of "50 meters").
+
+** Allowed Adversarial Types **
+Car, NPCCar, Bicycle, Motorcycle, Truck, Pedestrian, Trash, Garbage, Container, CreasedBox, Case, Box, Gnome.
+
+** Allowed Road Side Structure Objects **
+Barrel, Bin, Box, Container, CreasedBox, Trashcan, Bench, Garden Lamp, Pergola, Plastic Chair, Table, Slide, Swing, Trampoline, Barbeque, Clothesline, Doghouse, Gnome, Watering Can, Haybale, Plantpot, Shopping Cart, Briefcase, Travelcase, Chainbarrier, Bench, Foodcart, Kiosk, Fountain, Maptable, Advertisement, Street Sign, Busstop, ATM, Mailbox, Vending Machine.
+
+** Allowed Temporary Modifications Objects**
+Street Barrier, Construction Cone, Traffic Cone, Iron Plank, Traffic Warning, Accident Warning Sign, Construction Warning Sign, Trash Bag, Cola Can, Garbage, Broken Tile, Dirt Debris.
+
+** Reasoning and Implementation plan **
+1. Identify the Actors: 
+First, explicitly define the Ego vehicle and all adversarial entities. If the Ego vehicle is not specified by the user, you must default to identifying the Ego as either the vehicle positioned in the center of the frame, or the vehicle from whose first-person perspective the video is recorded.
+
+2. Conduct a Chronological Analysis: 
+Break the video sequence into three strict temporal phases: Initial (start), Midpoint, and Ending. Track the exact spatial positions of the Ego and adversarials during each phase. By directly comparing how their relative positions change across these three distinct frames, deduce their dynamic behaviors (e.g., accelerating, yielding, remaining stationary).
+
+3. Ground Conclusions in Visual Evidence: 
+You must explicitly state the visual evidence that justifies your conclusions regarding dynamic behavior. Do not guess; cite specific spatial cues (e.g., "The adversarial vehicle is decelerating because its distance to the intersection visibly decreases between the Midpoint and Ending phases").
 
 Example 1 (single ego, single adversarial):
-{{
-    "Scenario": "Ego vehicle goes straight and an adversary vehicle makes a right turn at a 3-way intersection.",
-    "Ego": "A car travels forward and decelerates if it gets too close to other objects.",
-    "Adversarials": [
-    "A car travels forward, then makes a right turn."
+{
+    "reasoning_chain": "1. Actors: The ego vehicle is identified from the first-person perspective; the adversarial is the vehicle in the opposing lane. 2. Chronological Analysis: Initially, both approach the 3-way intersection. At the midpoint, the ego initiates a right turn while the adversarial continues straight into the intersection. In the ending phase, the ego completes its turn while the adversarial clears the intersection. 3. Evidence: The ego's trajectory visually arcs 90 degrees right relative to the static lane markings, whereas the adversarial maintains a constant forward vector without deviation.",
+    "scenario": "The ego vehicle executes a right turn at a 3-way intersection while an adversarial vehicle proceeds straight ahead.",
+    "ego": "A car that turns right at the intersection and automatically decelerates to prevent collisions with nearby objects.",
+    "adversarials": [
+        "A car that travels straight forward through the intersection."
     ],
-    "Spatial Relation": "The ego and adversarial vehicles are positioned on incoming lanes at a 3-way intersection.",
-    "Requirement and restrictions": "The initial distance of the ego vehicle to the intersection and the adversarial vehicle to the intersection are restricted. The scenario terminates when the ego vehicle has traveled a certain distance from its spawn point."
-}}
+    "spatial_relation": "Both the ego and adversarial vehicles start on separate incoming lanes approaching a 3-way intersection.",
+    "requirements_and_restrictions": "Initial distances to the intersection are strictly defined for both vehicles, and the scenario terminates once the ego vehicle travels a specified distance beyond its spawn point.",
+    "road_side_structures": [
+    {
+        "object": "Kiosk",
+        "position": "Positioned on the right-hand sidewalk relative to the ego vehicle."
+    }
+    ],
+    "temporary_modifications": [
+    {
+        "object": "Street Barrier",
+        "position": "Placed exactly in the center of the ego vehicle's current lane."
+    }
+    ]
+}
 
 Example 2 (single ego, multiple adversarials):
 {{
-    "Scenario": "Ego vehicle encounters a chain of debris in its lane but continues to drive in the same lane.",
-    "Ego": "A car travels forward.",
-    "Adversarials": [
-    "A debris object remains stationary on the road.",
-    "A debris object remains stationary on the road.",
-    "A debris object remains stationary on the road."
+    "scenario": "The ego vehicle encounters two pedestrians on the road, where one is standing still and the other is crossing the street.",
+    "ego": "A car that travels straight forward along its lane.",
+    "adversarials": [
+        "A pedestrian that remains completely stationary on the road.",
+        "A pedestrian that is actively crossing the road in front of the ego vehicle."
     ],
-    "Spatial Relation": "The ego vehicle spawns on the centerline of a random lane. A chain of three debris objects are spawned in sequence in the ego vehicle's lane.",
-    "Requirement and restrictions": "The ego vehicle must initially be a certain distance away from any intersection. The scenario terminates when the ego vehicle has passed the chain of debris and traveled a certain distance from its spawn point."
+    "spatial_relation": "The ego vehicle is positioned on a standard road lane, approaching the two pedestrians who are located within its path.",
+    "requirements_and_restrictions": "The ego vehicle must spawn a set distance away from the pedestrians, and the scenario terminates once the ego vehicle has traveled safely past both of them.",
+    "road_side_structures": [],
+    "temporary_modifications": [],
+    "reasoning_chain":""
 }}
 
 Extract and convert the following scenario into the exact JSON format requested. Output ONLY the JSON object.
-
-Scenic Code:
-{scenic_code}
-
-Description Text:
-{description_text}

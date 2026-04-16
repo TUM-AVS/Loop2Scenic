@@ -1,9 +1,13 @@
+
 from typing import Any, Dict, Optional, Tuple
 import logging
 
+from google.genai import types
+
+from src.schema.dsl import DSL
 from src.services import BaseLLMModel, BaseVLMModel
 from src.services.vlm import GeminiVLModel
-from src.utils import to_safe_string
+from src.utils import clean_and_parse_json, to_safe_string
 from .base_agent import BaseAgent
 from src.prompt import load_prompt
 from src.schema import MultimodalQuery, ScenarioDocument, ScenicScenario, HeaderSetting
@@ -76,13 +80,13 @@ class InterpreterAgent(BaseAgent):
             logger.error("Failed to parse JSON, returning None")
             return None
 
-    def generate_dsl_from_user_query(self, user_query: MultimodalQuery) -> Tuple[Dict[str, Any], str]:
+    def generate_dsl_from_user_query(self, user_query: MultimodalQuery) -> Tuple[DSL | None, str | None]:
         """
         Generate a DSL (Domain-Specific Language) in json format from the natural language user query.
         """
 
         # 1. Get the content from the user query
-        description = user_query.text
+        description = user_query.text or ""
         image = user_query.image_path
         video = user_query.video_path
         
@@ -91,17 +95,30 @@ class InterpreterAgent(BaseAgent):
             raise ValueError("At least one of 'description', 'image', or 'video' must be provided")
 
         # 2. Prepare the prompt
-        formatted_prompt = self.prompt_template.format(description_text=description or "", scenic_code="")
+        system_instruction = load_prompt("describe_in_layer_model")
+        contents = []
+        contents.append(types.Part.from_text(text=f"** Inputs **"))
+        if description:
+            contents.append(types.Part.from_text(text=f"Scenario Description Text: {description}"))
+        if image:
+            contents.append(types.Part.from_text(text=f"Scenario Image: "))
+            image_file = self.vlm_service.load_media(image)
+            contents.append(types.Part.from_uri(file_uri=image_file.uri, mime_type=image_file.mime_type))
+        if video:
+            contents.append(types.Part.from_text(text=f"Scenario Video: "))
+            video_file = self.vlm_service.load_media(video)
+            contents.append(types.Part.from_uri(file_uri=video_file.uri, mime_type=video_file.mime_type))
 
         # 3. Call the VLM service and process response
-        response = self.vlm_service.chat(text=formatted_prompt, image=image, video=video)
-        json_response = self._clean_and_parse_json(response) # clean the response and parse it as a JSON object
+        response = self.vlm_service.chat_with_content(contents=contents, system_instruction=system_instruction)
+        json_response = clean_and_parse_json(response) # clean the response and parse it as a JSON object
+        dsl = DSL(**json_response) if json_response else None
 
         # 4. Flatten the DSL into text
-        flattened_text = self._flatten_dsl(json_response)
+        flattened_text = self._flatten_dsl(dsl)
 
-        if json_response and flattened_text:
-            return json_response, flattened_text
+        if dsl and flattened_text:
+            return dsl, flattened_text
         else:
             logger.error("Failed to parse JSON")
             return None, None
@@ -155,25 +172,37 @@ class InterpreterAgent(BaseAgent):
             logger.error(f"Failed to generate DSL from user feedback: {e}")
             return None
 
-    def _flatten_dsl(self, dsl: Dict[str, Any]) -> str:
+    def _flatten_dsl(self, dsl: DSL) -> str:
         if not dsl:
             return None
         try:    
             text_parts = []
-            text_parts.append(f"Scenario: {dsl.get('Scenario', '')}")
-            text_parts.append(f"The ego vehicle is {dsl.get('Ego', '')}")
+            text_parts.append(f"Scenario: {dsl['scenario']}")
+            text_parts.append(f"The ego vehicle is {dsl['ego']}")
             
-            adversarials = dsl.get('Adversarials', [])
+            adversarials = dsl['adversarials']
             if adversarials:
-                text_parts.append(f"Adversarial objects: {' '.join(adversarials)}")
+                text_parts.append(f"Adversarial objects: {' '.join(map(str, adversarials))}")
             else:
                 text_parts.append("There are no adversarials.")
                 
-            text_parts.append(f"Spatial Relation: {dsl.get('Spatial Relation', '')}")
+            text_parts.append(f"Spatial Relation: {dsl['spatial_relation']}")
             
-            reqs = dsl.get('Requirement and restrictions', '')
+            reqs = dsl['requirements_and_restrictions']
             if reqs:
                 text_parts.append(f"Requirements and restrictions: {reqs}")
+
+            road_side_structures = dsl['road_side_structures']
+            if road_side_structures:
+                text_parts.append(f"Road side structures: {', '.join(map(str, road_side_structures))}")
+            else:
+                text_parts.append("There are no road side structures.")
+
+            temporary_modifications = dsl['temporary_modifications']
+            if temporary_modifications:
+                text_parts.append(f"Temporary modifications: {', '.join(map(str, temporary_modifications))}")
+            else:
+                text_parts.append("There are no temporary modifications.")
                 
             flattened_text = " ".join(text_parts)
                 
@@ -184,13 +213,13 @@ class InterpreterAgent(BaseAgent):
             return None
 
 if __name__ == "__main__":
-    interpreter = InterpreterAgent(vlm_service=GeminiVLModel(model="gemini-2.5-flash"))
+    interpreter = InterpreterAgent(vlm_service=GeminiVLModel(model="gemini-3-flash-preview"))
 
     def test_dsl_generation():
         # 1. generate original dsl
         user_query = MultimodalQuery(
-            text="Please generate me a scenario like this.", 
-            image_path="/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testimage.png", 
+            text="Please generate me a scenario like shown in the video, additionally, on the intersection, please add a kiosk on the right sidewalk of the ego vehicle and a street barrier in the center of the ego vehicle's lane. The scenario video is a third person view of the ego vehicle.", 
+            # image_path="/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testimage.png", 
             video_path="/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testvideo.mp4"
         )
         dsl, flattened_text = interpreter.generate_dsl_from_user_query(user_query)
@@ -198,23 +227,24 @@ if __name__ == "__main__":
 
         """
         result = {
-            'Scenario': 'Ego vehicle approaches an intersection, waits for a traffic light, and proceeds straight after another car makes a right turn.', 
-            'Ego': 'A car approaches an intersection, stops at a red light, and then drives straight through the intersection when the light turns green.', 
-            'Adversarials': 
-                ['A car approaches an intersection from the left and makes a right turn.'], 
-            'Spatial Relation': 'The ego vehicle and an adversarial vehicle are positioned on different incoming lanes at a four-way intersection.', 
-            'Requirement and restrictions': "The ego vehicle and the adversarial vehicle are initially a certain distance from the intersection. The ego vehicle's traffic light is initially red and then turns green. The scenario terminates when the ego vehicle has cleared the intersection."
-            }
+        'scenario': 'The ego vehicle encounters an adversarial vehicle turning right at an intersection and proceeds straight after it passes.', 
+        'ego': 'A car that initially waits at an intersection, then proceeds straight through it.', 
+        'adversarials': ['A NPCCar that approaches the intersection and executes a right turn.'], 
+        'spatial_relation': "The ego vehicle is situated at an intersection, facing a straight road that passes under an overpass, while an adversarial vehicle approaches from an adjacent lane to the ego's left.", 
+        'requirements_and_restrictions': 'The traffic lights are green for the ego vehicle to proceed.', 
+        
+        'road_side_structures': [{'object': 'Kiosk', 'position': 'Positioned on the right-hand sidewalk relative to the ego vehicle at the intersection.'}], 
+        'temporary_modifications': [{'object': 'Street Barrier', 'position': "Placed in the center of the ego vehicle's lane at the intersection."}]}
         """
 
         # 2. generate modified dsl
-        user_feedback = MultimodalQuery(
-            text="Please add another car in the scenario which turns left at the intersection behind the ego vehicle as I marked with a red box in the image.", 
-            image_path="/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testimage.png", 
-            video_path=None
-        )
-        modified_dsl = interpreter.generate_dsl_from_user_feedback(user_feedback, dsl)
-        print(f"Successfully generated modified DSL: {modified_dsl}")
+        # user_feedback = MultimodalQuery(
+        #     text="Please add another car in the scenario which turns left at the intersection behind the ego vehicle as I marked with a red box in the image.", 
+        #     image_path="/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testimage.png", 
+        #     video_path=None
+        # )
+        # modified_dsl = interpreter.generate_dsl_from_user_feedback(user_feedback, dsl)
+        # print(f"Successfully generated modified DSL: {modified_dsl}")
 
         """
         result:
@@ -237,4 +267,4 @@ if __name__ == "__main__":
         header_settings = interpreter.generate_header_settings(user_query)
         print(f"Successfully generated header settings: {header_settings}")
 
-    test_header_settings_generation()
+    test_dsl_generation()

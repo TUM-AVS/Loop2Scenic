@@ -18,7 +18,7 @@ class GeminiVLModel(BaseVLMModel):
     def __init__(
         self,
         model: str = "gemini-1.5-pro", # 1.5-pro is highly recommended for complex multimodal tasks
-        temperature: float = 0.7,
+        temperature: float = 0,
         max_tokens: int = 8192, # Fixed: Max output limit is 8192. 
         api_key: Optional[str] = None,
         **kwargs

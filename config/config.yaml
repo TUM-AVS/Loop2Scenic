@@ -49,7 +49,7 @@ vlm:
   model_path: None # Required for Qwen3VL, path to local model directory
   model: gemini-3-flash-preview # For OpenAI Vision (e.g., "gpt-4-vision-preview", "gpt-4o")
   temperature: 0 # Sampling temperature
-  max_tokens: 4096 # Maximum tokens to generate
+  max_tokens: 8192 # Maximum tokens to generate
 
 logging:
   level: INFO
