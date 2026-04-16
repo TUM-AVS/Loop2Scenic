@@ -92,6 +92,6 @@ if __name__ == "__main__":
             description="",  
             video_path="/home/dellpro2/chenli/ads-mrag/ads-mrag/data/scenarios/CARLA_Leaderboard_1/video.mp4")
 
-    # score, feedback_query, evaluation = critic_agent.evaluate_with_vlm(query, matched_scenario)
-    score, feedback, evaluation = critic_agent.evaluate_with_vlm(query, unmatched_scenario)
+    score, feedback, evaluation = critic_agent.evaluate_with_vlm(query, matched_scenario)
+    # score, feedback, evaluation = critic_agent.evaluate_with_vlm(query, unmatched_scenario)
     print(score, feedback, evaluation)
