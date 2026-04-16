@@ -321,9 +321,13 @@ class ScenarioWorkflow:
                 modified_dsl = self.interpreter.generate_dsl_from_user_feedback(user_feedback=feedback, original_dsl=state.get("scenario_dsl", {}), scenario_to_modify=best_scenario)
 
             # 3. compose a new user query from the modified dsl for the vlm evaluation
-            flattened_modified_dsl = flatten_scenario_dsl_to_str(modified_dsl)
+            flattened_modified_dsl = "Previous scenario in the chat history: "
+            flattened_modified_dsl += flatten_scenario_dsl_to_str(modified_dsl)
             if not flattened_modified_dsl:
-                flattened_modified_dsl = to_safe_string(modified_dsl)
+                flattened_modified_dsl += to_safe_string(modified_dsl)
+
+            if feedback.text:
+                flattened_modified_dsl += f"\nUser suggestion text: {feedback.text}\n"
             new_user_query = MultimodalQuery(
                 text=flattened_modified_dsl,
                 image_path=feedback.image_path,
