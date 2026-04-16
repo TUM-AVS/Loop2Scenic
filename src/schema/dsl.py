@@ -1,5 +1,13 @@
 from typing import List, Optional, TypedDict
 
+class Adversarial(TypedDict):
+    object: str
+    behavior: str
+
+class Ego(TypedDict):
+    object: str
+    behavior: str
+
 class RoadSideStructure(TypedDict):
     object: str
     position: str
@@ -13,9 +21,15 @@ class DSL(TypedDict):
     DSL example:
     {   
         'adversarials': [
-            'A car travels forward in an adjacent lane and then performs a turn across the ego vehicle\'s path.'
+            {
+                'object': 'car',
+                'behavior': 'travels forward in an adjacent lane and then performs a turn across the ego vehicle\'s path.'
+            }
         ],
-        'ego': 'A car travels forward along its lane.',
+        'ego': {
+            'object': 'car',
+            'behavior': 'travels forward along its lane.'
+        },
         'requirements_and_restrictions': 'The scenario terminates when the ego vehicle has traveled a '
                                         'certain distance from its starting point.',
         'scenario': 'Ego vehicle travels straight on a multi-lane road while an adversarial vehicle turns '
@@ -34,8 +48,8 @@ class DSL(TypedDict):
     }
     """
     scenario: Optional[str]
-    ego: Optional[str]
-    adversarials: Optional[List[str]]
+    ego: Optional[Ego]
+    adversarials: Optional[List[Adversarial]]
     spatial_relation: Optional[str]
     requirements_and_restrictions: Optional[str]
 

@@ -270,32 +270,24 @@ if __name__ == "__main__":
 
     def test_dsl_generation_from_user_feedback():
         # 1. generate original dsl
-        # user_query = MultimodalQuery(
-        #     text="Please generate me a scenario like shown in the video, additionally, on the intersection, please add a kiosk on the right sidewalk of the ego vehicle and a street barrier in the center of the ego vehicle's lane. The scenario video is a third person view of the ego vehicle.", 
-        #     # image_path="/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testimage.png", 
-        #     video_path="/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testvideo.mp4"
-        # )
-        # dsl, flattened_text = interpreter.generate_dsl_from_user_query(user_query)
-        # print(f"Successfully generated DSL: {dsl}")
+        user_query = MultimodalQuery(
+            text="Please generate me a scenario like shown in the video, additionally, on the intersection, please add a kiosk on the right sidewalk of the ego vehicle and a street barrier in the center of the ego vehicle's lane. The scenario video is a third person view of the ego vehicle.", 
+            # image_path="/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testimage.png", 
+            video_path="/home/dellpro2/chenli/ads-mrag/ads-mrag/data/processed/test_data/testvideo.mp4"
+        )
+        dsl, flattened_text = interpreter.generate_dsl_from_user_query(user_query)
+        print(f"Successfully generated DSL: {dsl}")
 
         """
-        {'scenario': 'The ego vehicle performs a left turn at a four-way intersection after yielding to an adversarial vehicle crossing from the left.', 
-        'ego': 'A car that moves straight toward an intersection, pauses to allow another vehicle to pass, and then executes a left turn.', 
-        'adversarials': ["A car that enters the intersection from the left and travels across the ego vehicle's path to the right."], 
-        'spatial_relation': 'The ego vehicle and the adversarial vehicle approach a four-way intersection from perpendicular directions, with the ego on a multi-lane straight road.', 
-        'requirements_and_restrictions': 'The ego vehicle faces a green traffic light upon arrival at the intersection. The scenario concludes once the ego vehicle completes its left turn and travels a certain distance on the new road.', 
-        'road_side_structures': [{'object': 'Kiosk', 'position': 'Positioned on the sidewalk to the right of the ego vehicle near the intersection corner.'}], 
-        'temporary_modifications': [{'object': 'Street Barrier', 'position': "Located in the middle of the ego vehicle's lane at the entrance to the intersection."}], 
-        'reasoning_chain': "1. Actors: The ego vehicle is the primary car viewed from a third-person perspective; the adversarial is the black car entering from the left. 2. Chronological Analysis: In the initial phase, the ego approaches the intersection. At the midpoint, the adversarial car crosses the intersection from left to right, and the ego vehicle decelerates to a stop. In the final phase, the ego vehicle turns left into the crossroad. 3. Evidence: The ego vehicle's speed decreases to zero as the adversarial car's lateral trajectory intersects its forward path, followed by the ego vehicle following a 90-degree leftward arc."}
+        {'scenario': 'The ego vehicle travels through an intersection where an adversarial car crosses its path, while navigating past a kiosk and a street barrier.', 
+        'ego': {'object': 'Car', 'behavior': 'The car travels straight forward, slows down to avoid a collision at the intersection, and then continues its path.'}, 
+        'adversarials': [{'object': 'NPCCar', 'behavior': 'The car crosses the intersection from the left side to the right side, passing directly in front of the ego vehicle.'}], 
+        'spatial_relation': 'The ego vehicle and the adversarial vehicle approach a 4-way intersection from perpendicular directions.', 
+        'requirements_and_restrictions': "The traffic lights for the ego vehicle's direction are green. The scenario terminates once the ego vehicle has passed under the overpass.", 
+        'road_side_structures': [{'object': 'Kiosk', 'position': 'Positioned on the right-hand sidewalk at the intersection relative to the ego vehicle.'}], 
+        'temporary_modifications': [{'object': 'Street Barrier', 'position': "Located in the center of the ego vehicle's lane at the intersection."}], 
+        'reasoning_chain': "1. Actors: The ego vehicle is identified as the car in the center of the third-person view; the adversarial is the black car entering from the left. 2. Chronological Analysis: Initially, the ego approaches the intersection. At the midpoint, the adversarial car crosses the intersection, forcing the ego to adjust its speed. Finally, the ego continues straight under the bridge. 3. Evidence: The ego vehicle's deceleration is evident as the black car passes across its lane, and its continued forward motion is seen after the intersection is clear."}
         """
-        dsl = {'scenario': 'The ego vehicle performs a left turn at a four-way intersection after yielding to an adversarial vehicle crossing from the left.', 
-        'ego': 'A car that moves straight toward an intersection, pauses to allow another vehicle to pass, and then executes a left turn.', 
-        'adversarials': ["A car that enters the intersection from the left and travels across the ego vehicle's path to the right."], 
-        'spatial_relation': 'The ego vehicle and the adversarial vehicle approach a four-way intersection from perpendicular directions, with the ego on a multi-lane straight road.', 
-        'requirements_and_restrictions': 'The ego vehicle faces a green traffic light upon arrival at the intersection. The scenario concludes once the ego vehicle completes its left turn and travels a certain distance on the new road.', 
-        'road_side_structures': [{'object': 'Kiosk', 'position': 'Positioned on the sidewalk to the right of the ego vehicle near the intersection corner.'}], 
-        'temporary_modifications': [{'object': 'Street Barrier', 'position': "Located in the middle of the ego vehicle's lane at the entrance to the intersection."}], 
-        'reasoning_chain': "1. Actors: The ego vehicle is the primary car viewed from a third-person perspective; the adversarial is the black car entering from the left. 2. Chronological Analysis: In the initial phase, the ego approaches the intersection. At the midpoint, the adversarial car crosses the intersection from left to right, and the ego vehicle decelerates to a stop. In the final phase, the ego vehicle turns left into the crossroad. 3. Evidence: The ego vehicle's speed decreases to zero as the adversarial car's lateral trajectory intersects its forward path, followed by the ego vehicle following a 90-degree leftward arc."}
 
         # 2. generate modified dsl
         user_feedback = MultimodalQuery(
@@ -311,15 +303,16 @@ if __name__ == "__main__":
         print(f"Successfully generated modified DSL: {modified_dsl}")
 
         """
-        {
-        'scenario': 'The ego vehicle and a following car both perform left turns at a four-way intersection after yielding to an adversarial vehicle crossing from the left.', 
-        'ego': 'A car that moves straight toward an intersection, pauses to allow another vehicle to pass, and then executes a left turn.', 
-        'adversarials': ["A car that enters the intersection from the left and travels across the ego vehicle's path to the right.", 'A car that follows behind the ego vehicle and executes a left turn at the intersection after the ego vehicle.'], 
-        'spatial_relation': 'The ego vehicle and the first adversarial vehicle approach a four-way intersection from perpendicular directions, while the second adversarial vehicle is positioned directly behind the ego vehicle on the same multi-lane straight road.', 
+        {'scenario': 'The ego vehicle performs a left turn at a four-way intersection after yielding to an adversarial vehicle crossing from the left, followed by another adversarial vehicle that also turns left behind it.', 
+        'ego': {'object': 'Car', 'behavior': 'The car moves straight toward an intersection, pauses to allow another vehicle to pass, and then executes a left turn.'}, 
+        'adversarials': [
+        {'object': 'Car', 'behavior': "The car enters the intersection from the left and travels across the ego vehicle's path to the right."}, 
+        {'object': 'Car', 'behavior': 'The car follows the ego vehicle and executes a left turn at the intersection.'}], 
+        'spatial_relation': 'The ego vehicle and one adversarial vehicle are on a multi-lane straight road approaching a four-way intersection, with the adversarial vehicle positioned directly behind the ego, while another adversarial vehicle approaches from the perpendicular road on the left.', 
         'requirements_and_restrictions': 'The ego vehicle faces a green traffic light upon arrival at the intersection. The scenario concludes once the ego vehicle completes its left turn and travels a certain distance on the new road.', 
         'road_side_structures': [{'object': 'Kiosk', 'position': 'Positioned on the sidewalk to the right of the ego vehicle near the intersection corner.'}], 
         'temporary_modifications': [{'object': 'Street Barrier', 'position': "Located in the middle of the ego vehicle's lane at the entrance to the intersection."}], 
-        'reasoning_chain': "1. Actors: The ego vehicle is the primary car viewed from a third-person perspective; the first adversarial is the black car entering from the left; the second adversarial is the car added behind the ego as requested. 2. Chronological Analysis: Initially, the ego and the second adversarial approach the intersection in the same lane. At the midpoint, the first adversarial car crosses from left to right, causing the ego and the second adversarial to decelerate. In the final phase, the ego vehicle turns left, followed by the second adversarial vehicle also making a left turn. 3. Evidence: The ego vehicle's speed decreases as the first adversarial's path crosses its own. The second adversarial maintains a following distance behind the ego. Both vehicles then follow a 90-degree leftward arc into the crossroad, as seen in the original video's trajectory for the ego and the user's modification request for the second car."}
+        'reasoning_chain': "1. Actors: The ego vehicle is the car viewed from a third-person perspective; the first adversarial is the car entering from the left; the second adversarial is the car positioned behind the ego as indicated by the user's red box. 2. Chronological Analysis: Initially, the ego and the second adversarial approach the intersection from the same direction while the first adversarial approaches from the left. At the midpoint, the first adversarial car crosses the intersection, and the ego vehicle decelerates to a stop with the second adversarial waiting behind it. In the final phase, the ego vehicle turns left, followed by the second adversarial vehicle also executing a left turn. 3. Evidence: The video shows the ego yielding to the lateral traffic before turning. The user's modification request and image explicitly place a new car behind the ego and specify that it follows the ego's left-turn trajectory."}
         """
 
     test_dsl_generation_from_user_feedback()

@@ -13,10 +13,15 @@ Synthesize all the inputs to understand the scenario's layout and dynamic timeli
 Output ONLY a valid JSON object with the following structure. Do NOT wrap the output in markdown code blocks (e.g., no ```json) and do NOT include any conversational text.
 {
     "scenario": "<A single short sentence describing the overall scenario event.>",
-    "ego": "<A single short sentence describing the ego vehicle (restricted to type 'car') and its planned behavior.>",
+    "ego": "{
+        "object": "<Name of the Ego object>",
+        "behavior": "<A short description of the behavior of the Ego object>"
+    }",
     "adversarials": [
-        "<A single short sentence describing the type and behavior of an adversarial object.>",
-        "<Include additional strings for each distinct adversarial object present, or remove if there is only one.>"
+        {
+            "object":"<Name of the Adversarial object>",
+            "behavior": "<A short description of the behavior of the Adversarial object>"
+        }
     ],
     "spatial_relation": "<A single short sentence defining the road type (e.g., straight road, highway, intersection) and the relative positioning of all entities within the environment.>",
     "requirements_and_restrictions": "<Describe any initial distance constraints (e.g., distance between the ego and the intersection) and termination conditions. Leave empty if none apply.>",
@@ -44,7 +49,10 @@ Output ONLY a valid JSON object with the following structure. Do NOT wrap the ou
 - Traffic Lights: Any mention of traffic lights (e.g., red lights) must be placed in the "Requirement and restrictions" component, NOT in the Ego or Adversarials components.
 - Quantitative Details Only allowed for road side structures and temporary modifications: Do NOT include specific numbers, distances, speeds, or durations for all other perspectives, but can be included in the <road_side_structures> and <temporary_modifications> (e.g., say "a certain distance" instead of "50 meters").
 
-** Allowed Adversarial Types **
+** Allowed Ego Objects **
+Car, Motorcycle, Truck.
+
+** Allowed Adversarial Objects **
 Car, NPCCar, Bicycle, Motorcycle, Truck, Pedestrian, Trash, Garbage, Container, CreasedBox, Case, Box, Gnome.
 
 ** Allowed Road Side Structure Objects **
@@ -66,13 +74,21 @@ Cross-reference the baseline video analysis with the <modification suggestion>. 
 4. Ground Conclusions in Visual Evidence:
 You must explicitly state the visual evidence that justifies your baseline conclusions regarding dynamic behavior. Do not guess; cite specific spatial cues (e.g., "The adversarial vehicle is decelerating because its distance to the intersection visibly decreases between the Midpoint and Ending phases"). Finally, confirm how the newly modified elements fit logically into this proven visual layout.
 
+** Examples **
 Example 1 (single ego, single adversarial):
 {
     "reasoning_chain": "1. Actors: The ego vehicle is identified from the first-person perspective; the adversarial is the vehicle in the opposing lane. 2. Chronological Analysis: Initially, both approach the 3-way intersection. At the midpoint, the ego initiates a right turn while the adversarial continues straight into the intersection. In the ending phase, the ego completes its turn while the adversarial clears the intersection. 3. Evidence: The ego's trajectory visually arcs 90 degrees right relative to the static lane markings, whereas the adversarial maintains a constant forward vector without deviation.",
     "scenario": "The ego vehicle executes a right turn at a 3-way intersection while an adversarial vehicle proceeds straight ahead.",
-    "ego": "A car that turns right at the intersection and automatically decelerates to prevent collisions with nearby objects.",
+    "ego":  
+        {
+            "object": "Car",
+            "behavior": "The car turns right at the intersection and automatically decelerates to prevent collisions with nearby objects."
+        }
     "adversarials": [
-        "A car that travels straight forward through the intersection."
+        {
+            "object": "Car",
+            "behavior": "The car travels straight forward through the intersection."
+        }
     ],
     "spatial_relation": "Both the ego and adversarial vehicles start on separate incoming lanes approaching a 3-way intersection.",
     "requirements_and_restrictions": "Initial distances to the intersection are strictly defined for both vehicles, and the scenario terminates once the ego vehicle travels a specified distance beyond its spawn point.",
@@ -93,10 +109,19 @@ Example 1 (single ego, single adversarial):
 Example 2 (single ego, multiple adversarials):
 {{
     "scenario": "The ego vehicle encounters two pedestrians on the road, where one is standing still and the other is crossing the street.",
-    "ego": "A car that travels straight forward along its lane.",
+    "ego":{
+            "object": "Car",
+            "behavior": "The car travels straight forward along its lane."
+        }
     "adversarials": [
-        "A pedestrian that remains completely stationary on the road.",
-        "A pedestrian that is actively crossing the road in front of the ego vehicle."
+        {
+            "object": "Pedestrian",
+            "behavior": "The pedestrian remains completely stationary on the road."
+        },
+        {
+            "object": "Pedestrian",
+            "behavior": "The pedestrian is actively crossing the road in front of the ego vehicle."
+        }
     ],
     "spatial_relation": "The ego vehicle is positioned on a standard road lane, approaching the two pedestrians who are located within its path.",
     "requirements_and_restrictions": "The ego vehicle must spawn a set distance away from the pedestrians, and the scenario terminates once the ego vehicle has traveled safely past both of them.",

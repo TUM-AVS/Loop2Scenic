@@ -55,7 +55,7 @@ Verify the spatial relationships by checking the following:
 - The Ego Car Speed: Check if the ego car is moving too fast or too slow, both on straight road segments and during turns.
 
 4. Evaluate the Adversarials behavior.
-All other actors (vehicles, pedestrians) in the bird's-eye view video are adversarials. 
+All other actors (vehicles, pedestrians) in the bird's-eye view video are adversarials. Each adversarial should be evaluated separately, and the result should be in a list.
 Verify the Adversarial Behavior by checking the following:
 
 - The Adversarial Behavior: Focus on their specific actions. Similar to the ego car, prioritize the relative maneuver (e.g., turning, braking) over the absolute map orientation. Assign one or more of the following behaviors if applicable:
@@ -66,7 +66,6 @@ Verify the Adversarial Behavior by checking the following:
 - Follows a predefined trajectory.
 - Turns at an intersection.
 - Performs a lateral transition to a new lane section.
-
 - The Adversarial Speed: Check if the adversarial actors are moving too fast or too slow, both on straight road segments and during turns.
 
 5. Evaluate the Requirements and Restrictions.
@@ -84,20 +83,22 @@ You must respond ONLY with a valid JSON object. Do not include markdown formatti
 Use the following structure:
 {
     "feedback": {
-        "Video_Timeline": "<Describe exactly what happens at the start, middle, and exact final frame of the video. Acknowledge if the video is extremely short.>",
-        "Event_Verification": "<Did the final required action, such as a collision or completed turn, ACTUALLY occur ON SCREEN? Yes or no.>",
-        "Scenario": "<Write your step-by-step reasoning...>",
-        "Ego": "<Detail the exact driving actions...>",
-        "Adversarials": "<Detail the exact actions...>",
-        "Spatial Relation": "<Explain the observed spatial layout...>",
-        "Requirement and restrictions": "<Explain whether the termination rules were met...>"
+        "video_timeline": "<Describe exactly what happens at the start, middle, and exact final frame of the video. Acknowledge if the video is extremely short.>",
+        "event_verification": "<Did the final required action, such as a collision or completed turn, ACTUALLY occur ON SCREEN? Yes or no.>",
+        "scenario": "<Write your step-by-step reasoning...>",
+        "ego": "<Detail the exact driving actions...>",
+        "adversarials": "<Detail the exact actions...>",
+        "spatial_relation": "<Explain the observed spatial layout...>",
+        "requirements_and_restrictions": "<Explain whether the termination rules were met...>",
+        "road_side_structures": <>,
+        "temporary_modifications":<>
     },
     "evaluation": {
         "Scenario": true/false,
         "Ego": true/false,
         "Adversarials": true/false,
         "Spatial Relation": true/false,
-        "Requirement and restrictions": true/false
+        "Requirement and restrictions": true/false,
     },
     "score": <number>
 }
