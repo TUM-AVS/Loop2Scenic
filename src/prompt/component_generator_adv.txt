@@ -253,29 +253,6 @@ Adversarial = new <Type> <Specifier>+,
 - Motorcycle
 - Truck
 - Pedestrian
-- Trash
-- Cone
-- Debris
-- VendingMachine
-- Chair
-- BusStop
-- Advertisement
-- Garbage
-- Container
-- Table
-- Barrier
-- PlantPot
-- Mailbox
-- Gnome
-- CreasedBox
-- Case
-- Box
-- Bench
-- Barrel
-- ATM
-- Kiosk
-- IronPlate
-- TrafficWarning
 
 ***Available <Property> for vehicle***: 
 regionContainedIn (roadOrShoulder), position (Point on road), parentOrientation (Orientation), roadDeviation (float), viewAngle (float), width (float), length (float), color (Color)  
