@@ -42,7 +42,7 @@ def test_scenic_grammar():
     print("Scene generation OK")
 
 if __name__ == "__main__":
-    # test_video_recording()
+    test_video_recording()
     # test_get_error_message_from_logs()
     # test_get_scenario_document_with_scenario_id()
-    test_scenic_grammar()
+    # test_scenic_grammar()

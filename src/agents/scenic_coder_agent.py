@@ -104,14 +104,18 @@ param weather = '{header_settings.weather}'
             return response.replace("```scenic", "").replace("```python", "").replace("```", "").strip()
 
     def get_prompt_for_component(self, aspect: str) -> str:
-        if aspect == "Adversarials":
+        if aspect == "adversarials":
             return load_prompt("component_generator_adv")
-        elif aspect == "Ego":
+        elif aspect == "ego":
             return load_prompt("component_generator_ego")
-        elif aspect == "Requirement and restrictions":
+        elif aspect == "requirements_and_restrictions":
             return load_prompt("component_generator_requirement")
-        elif aspect == "Spatial Relation":
+        elif aspect == "spatial_relation":
             return load_prompt("component_generator_spatial")
+        elif aspect == "road_side_structures":
+            return load_prompt("component_generator_road_side_structure")
+        elif aspect == "temporary_modifications":
+            return load_prompt("component_generator_temporary_modification")
         else:
             logger.error(f"Invalid aspect: {aspect}")
             return load_prompt("ego_generation")
@@ -128,6 +132,34 @@ param weather = '{header_settings.weather}'
             prepared += "// No relevant snippets found.\n\n"
         return prepared
 
+    def generate_component(self, aspect: str, description: str, retrieved_components: Dict[str, Any]) -> str:
+        """
+        Generate a component based on the description and the retrieved components.
+        """
+        snippets = self.get_snippets(text=description, comp_type=aspect)
+        context = self.build_context(retrieved_components)
+        
+        comp_prompt = self.get_prompt_for_component(aspect).format(
+            reference_components=self.prepare_snippets(snippets),
+            ready_components=context,
+            user_criteria=description
+        )
+        new_code = self.generate_and_clean(comp_prompt)
+        return new_code
+
+    def extract_component(self, aspect: str, description: str, original_scenic_code: str, retrieved_components: Dict[str, Any]) -> str:
+        """
+        Extract a component based on the original scenic code and the retrieved components.
+        """
+        context = self.build_context(retrieved_components)
+        extract_prompt = load_prompt("component_generator_extract").format(
+            aspect=aspect, 
+            description=description, 
+            context=context, 
+            original_scenic_code=original_scenic_code)
+        extracted = self.generate_and_clean(extract_prompt)
+        return extracted
+
     def adapt_code(self, original_scenic_code: str, evaluation_result: Dict[str, Any], aim_dsl: Dict[str, Any], header_settings: Any) -> str:
         """
         Adapt the original scenic code to the aim DSL using a 'Generation + Assemble' architecture.
@@ -136,6 +168,16 @@ param weather = '{header_settings.weather}'
         """
         logger.info("🚀 Starting Generation + Assemble Scenic pipeline...")
 
+        """ The order of the components: 
+        header
+        spatial_relation
+        ego
+        adversarials
+        requirements_and_restrictions
+        road_side_structures
+        temporary_modifications
+        """
+        
         # Dictionary to act as our "State" tracking the isolated components
         retrieved_components = {}
 
@@ -144,83 +186,67 @@ param weather = '{header_settings.weather}'
         # =========================================================
         logger.info("📄 Generating/Extracting Header...")
         if header_settings:
-            retrieved_components["Header"] = self.generate_header(header_settings)
+            retrieved_components["header"] = self.generate_header(header_settings)
         else:
             header_prompt = f"Extract the header block exactly as it is from this code. Output ONLY the extracted code:\n{original_scenic_code}"
-            retrieved_components["Header"] = self.generate_and_clean(header_prompt)
+            retrieved_components["header"] = self.generate_and_clean(header_prompt)
 
         # =========================================================
         # STEP 2: COMPONENT GENERATION
         # =========================================================
-        generation_order = ["Spatial Relation", "Ego", "Adversarials", "Requirement and restrictions"]
+        generation_order = [
+            "spatial_relation", 
+            "ego", 
+            "adversarials", 
+            "road_side_structures", 
+            "temporary_modifications",
+            "requirements_and_restrictions"
+        ]
         
+        list_aspects = ["adversarials", "road_side_structures", "temporary_modifications"]
+        
+        # generate the components in the first generation order
         for aspect in generation_order:
             logger.info(f"🧩 Processing Component: {aspect}")
-            needs_modification = not evaluation_result.get(aspect, True)
-            target_description = aim_dsl.get(aspect, "")
-            
-            # --- MODIFIED EXTRACTION ---
-            if not needs_modification:
-                logger.info(f"⏭️ No modification needed. Extracting '{aspect}' from original code.")
-
-                # has to add the previous generated components to the prompts
-                context = self.build_context(retrieved_components)
-                extract_prompt = load_prompt("component_generator_extract").format(
-                    aspect=aspect,
-                    context=context,
-                    original_scenic_code=original_scenic_code
-                )
-
-                # For adversarials, we wrap it in a list to maintain data structure
-                extracted = self.generate_and_clean(extract_prompt)
-                retrieved_components[aspect] = [extracted] if aspect == "Adversarials" else extracted
-                continue
-
-            # --- MODIFIED GENERATION ---
-            logger.warning(f"⚠️ Generating new '{aspect}' based on DSL requirements.")
-
-            if aspect == "Adversarials" and isinstance(target_description, list):
-                generated_adversarials = []
-                
-                for idx, desc in enumerate(target_description):
-                    logger.info(f"🤖 Processing Adversarial {idx+1}/{len(target_description)}...")
-                    
-                    # 1. Get snippets for THIS specific agent's description
-                    snippets = self.get_snippets(text=desc, comp_type="Adversarial")
-                    
-                    # 2. Re-build context so it includes any adversarials generated in previous loop iterations
-                    context = self.build_context(retrieved_components)
-                    
-                    # 3. Format the newly optimized prompt
-                    # Notice the variable names match the {placeholders} in the optimized prompt exactly
-                    adv_prompt = self.get_prompt_for_component("Adversarials").format(
-                        reference_components=self.prepare_snippets(snippets),
-                        ready_components=context,
-                        user_criteria=desc
-                    )
-                    
-                    # 4. Send to LLM and clean the output
-                    new_code = self.generate_and_clean(adv_prompt)
-
-                    # 5. Save the result
-                    if new_code:
-                        generated_adversarials.append(new_code)
-                        retrieved_components["Adversarials"] = generated_adversarials
-                        logger.info(f"✅ Successfully generated Adversarial {idx+1}")
+            # deal with adversarials separately since the evaluation result is a list
+            if aspect in list_aspects:
+                description_list = aim_dsl.get(aspect, "")
+                generated_components = []
+                for idx, adversarial_result in enumerate(evaluation_result[aspect]):
+                    new_code = None
+                    if not adversarial_result:
+                        # generate a new adversarial with description
+                        description  = description_list[idx]
+                        new_code = self.generate_component(aspect, description, retrieved_components)
                     else:
-                        logger.warning(f"⚠️ LLM returned empty code for Adversarial {idx+1}")
+                        # extract the existing adversarial
+                        description = description_list[idx]
+                        new_code = self.extract_component(aspect, description, original_scenic_code, retrieved_components)
+                    if new_code:
+                        generated_components.append(new_code)
+                        retrieved_components[aspect] = generated_components
+                        logger.info(f"✅ Successfully generated {aspect} {idx+1}")
+                    else:
+                        logger.warning(f"⚠️ LLM returned empty code for {aspect} {idx+1}")
+                continue
             else:
-                snippets = self.get_snippets(text=target_description, comp_type=aspect)
-                context = self.build_context(retrieved_components)
-                
-                comp_prompt = self.get_prompt_for_component(aspect).format(
-                    reference_components=self.prepare_snippets(snippets),
-                    ready_components=context,
-                    user_criteria=target_description
-                )
-                new_code = self.generate_and_clean(comp_prompt)
-                retrieved_components[aspect] = new_code
-                logger.info(f"✅ Generated {aspect}")
+                # for those aspects that are not a list, generate a new component with the description
+                target_description = aim_dsl.get(aspect, "")
+                needs_modification = not evaluation_result.get(aspect, True)
+                new_code = None
+                if needs_modification:
+                    # generate a new component with the description
+                    new_code = self.generate_component(aspect, target_description, retrieved_components)
+                    logger.info(f"✅ Successfully generated {aspect}")
+                else:
+                    # extract the existing component
+                    new_code = self.extract_component(aspect, target_description, original_scenic_code, retrieved_components)
+                    logger.info(f"✅ Successfully extracted {aspect}")
+                if new_code:
+                    retrieved_components[aspect] = new_code
+                    logger.info(f"✅ Successfully generated {aspect}")
+                else:
+                    logger.warning(f"⚠️ LLM returned empty code for {aspect}")
 
         # =========================================================
         # STEP 3: ASSEMBLE SCENARIO
@@ -230,7 +256,13 @@ param weather = '{header_settings.weather}'
         code_parts = []
         
         # We use a strict assembly order to ensure variables are declared before they are used
-        assembly_order = ["Header", "Spatial Relation", "Ego", "Adversarials", "Requirement and restrictions"]
+        assembly_order = ["header",             
+            "spatial_relation", 
+            "ego", 
+            "adversarials", 
+            "requirements_and_restrictions",
+            "road_side_structures", 
+            "temporary_modifications"]
         
         for comp_type in assembly_order:
             if comp_type not in retrieved_components:
@@ -418,18 +450,26 @@ terminate when (distance from ego to egoSpawnPt) > TERM_DIST
         """
 
         # Spatial relation has to be consistant with the adversarial description, otherwise it will generate wrong thing.
-        evaluation_result = {'Adversarials': True,
-                            'Ego': False,
-                            'Requirement and restrictions': True,
-                            'Scenario': False,
-                            'Spatial Relation': False}
-        aim_dsl = { 'Adversarials': [ 
-                                        'A car approaches an intersection from a perpendicular road and go straight at the intersection.'
-                                        ],
-                        'Ego': 'A car stops at an intersection, then proceeds right turn at the intersection.',
-                        'Requirement and restrictions': 'The traffic light for the ego vehicle must initially be red and then turn green, allowing the ego vehicle to proceed.',
-                        'Scenario': 'The ego vehicle proceeds right turn at the intersection while an adversarial vehicle go straight at the intersection.',
-                        'Spatial Relation': 'The ego vehicle is positioned in a lane at an intersection and make a right turn, with the adversarial vehicle approaches the ego car from a perpendicular road, then go straight at the intersection.'}
+        evaluation_result = {'adversarials': [True],
+                            'ego': False,
+                            'requirements_and_restrictions': True,
+                            'scenario': False,
+                            'spatial_relation': False,
+                            'road_side_structures': [False],
+                            'temporary_modifications': [False]}
+        aim_dsl = { 'adversarials': [
+                        {"object": "car", "behavior": "approaches an intersection from a perpendicular road and go straight at the intersection."}
+                        ],
+                        'ego': {"object": "car", "behavior": "stops at an intersection, then proceeds right turn at the intersection."},
+                        'requirements_and_restrictions': "The traffic light for the ego vehicle must initially be red and then turn green, allowing the ego vehicle to proceed.",
+                        'scenario': "The ego vehicle proceeds right turn at the intersection while an adversarial vehicle go straight at the intersection.",
+                        'spatial_relation': "The ego vehicle is positioned in a lane at an intersection and make a right turn, with the adversarial vehicle approaches the ego car from a perpendicular road, then go straight at the intersection.",
+                        'road_side_structures': [
+                            {"object": "kiosk", "position": "Located on the intersection, from the left side of the ego vehicle."}
+                        ],
+                        'temporary_modifications': [
+                            {"object": "street barrier", "position": "Located in the center of the ego vehicle's lane at the intersection."}
+                        ]}
         
         if mode == "adapt":
             adapted_scenic_code = agent.adapt_code(original_scenic_code, evaluation_result, aim_dsl, header_settings)

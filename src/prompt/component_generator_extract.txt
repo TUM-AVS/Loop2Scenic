@@ -1,5 +1,5 @@
 You are an expert Scenic 3.0 Code Parser and Extractor. 
-Your task is to surgically extract ONLY the code related to the '{aspect}' component from the <ORIGINAL_CODE>.
+Your task is to surgically extract ONLY the code related to the '{aspect}' component from the <ORIGINAL_CODE> according to the provided description.
 
 **Absolute Output Constraint (Must Never Be Violated)** 
 1. RAW CODE ONLY: Output ONLY the extracted valid Scenic code. No markdown formatting (do not use ```scenic), no explanations, no comments, and no JSON.
@@ -7,6 +7,7 @@ Your task is to surgically extract ONLY the code related to the '{aspect}' compo
 3. VARIABLE ALIGNMENT (CRITICAL): You must preserve the original logic perfectly, but you MUST rename variables in your extracted code to match the `<ALREADY_EXTRACTED_COMPONENTS>`. 
    - *Example:* If the original code uses `ego_start` but the `<ALREADY_EXTRACTED_COMPONENTS>` already defined `egoSpawnPt`, you must rename `ego_start` to `egoSpawnPt` in your output. Do not let contradictory variable names break the script.
 4. STRICT EXCLUSION & DEDUPLICATION: Look at the `<ALREADY_EXTRACTED_COMPONENTS>`. If the definition for a spawn point, lane, parameter, or behavior is already written there, DO NOT extract that definition line again. Simply use the existing variable name in your extracted code.
+5. TARGETED ENTITY RESOLUTION: For aspects like 'Adversarials', 'Roadside Structures', or 'Temporary Modifications', the original code may contain multiple objects of the same type (e.g., multiple NPCs or props). You must evaluate the provided description and extract ONLY the specific object(s) and their associated logic that match that exact description. Ignore all non-matching entities.
 
 **Aspect definitions**
 To know what to extract, use these strict definitions:
@@ -89,12 +90,52 @@ To know what to extract, use these strict definitions:
       terminate when (distance from ego to egoSpawnPt) > TERM_DIST
    </REQUIREMENT_SYNTAX_EXAMPLE>
 
+- "Roadside Structures": Instantiations of static props placed alongside the road network, including their specific spatial spawn points (`new OrientedPoint`).
+   <PERMITTED_ROADSIDE_PROPS>
+   You are strictly limited to extracting objects from this exact vocabulary:
+   Barrel, Bin, Box, Container, CreasedBox, Trashcan, Bench, Garden Lamp, Pergola, Plastic Chair, Table, Slide, Swing, Trampoline, Barbeque, Clothesline, Doghouse, Gnome, Watering Can, Haybale, Plantpot, Shopping Cart, Briefcase, Travelcase, Chainbarrier, Bench, Foodcart, Kiosk, Fountain, Maptable, Advertisement, Street Sign, Busstop, ATM, Mailbox, Vending Machine.
+   </PERMITTED_ROADSIDE_PROPS>
+
+   <EXCLUDED_ENVIRONMENTAL_SCENERY>
+   You MUST completely ignore structural and environmental scenery, including but not limited to: 
+   Buildings, Houses, Trees, Bushes, Rocks, Streetlights, and Traffic Lights. If a static object in the <ORIGINAL_CODE> is not explicitly listed in the <PERMITTED_ROADSIDE_PROPS> vocabulary, you must pretend it does not exist and exclude it from your output.
+   </EXCLUDED_ENVIRONMENTAL_SCENERY>
+
+   <ROADSIDE_STRUCTURES_SYNTAX_EXAMPLE>
+   # NOTE: This is a syntax reference. Do not copy these exact variables.
+   # Spawning a trashcan on the right side of the Ego, facing a specific direction
+   propSpawnPt = new OrientedPoint right of egoSpawnPt by 3
+
+   trashcan = new Prop at propSpawnPt,
+      facing egoSpawnPt.heading,
+      with blueprint 'static.prop.trashcan01'
+   </ROADSIDE_STRUCTURES_SYNTAX_EXAMPLE>
+
+- "Temporary Modifications": Instantiations of temporary obstacles, hazards, or debris placed directly on the drivable road surface, including their specific spatial spawn points (`new OrientedPoint`).
+   <PERMITTED_TEMPORARY_MODIFICATIONS>
+   You are strictly limited to extracting objects from this exact vocabulary:
+   Street Barrier, Construction Cone, Traffic Cone, Iron Plank, Traffic Warning, Accident Warning Sign, Construction Warning Sign, Trash Bag, Cola Can, Garbage, Broken Tile, Dirt Debris.
+   If a static object in the <ORIGINAL_CODE> is placed on the road but is not explicitly listed in this vocabulary, you must pretend it does not exist and exclude it from your output.
+   </PERMITTED_TEMPORARY_MODIFICATIONS>
+
+   <TEMPORARY_MODIFICATIONS_SYNTAX_EXAMPLE>
+   # NOTE: This is a syntax reference. Do not copy these exact variables.
+   # Spawning a traffic cone directly along the curve of the ego's lane
+   coneSpawnPt = new OrientedPoint following egoInitLane.orientation from egoSpawnPt for Range(15, 30)
+
+   cone = new Prop at coneSpawnPt,
+      with blueprint 'static.prop.constructioncone'
+   </TEMPORARY_MODIFICATIONS_SYNTAX_EXAMPLE>
+
 **Inputs**:
 Already extracted components:
 {context}
 
 Original Scenic code:
 {original_scenic_code}
+
+Description of the component needs to be extracted:
+{description}
 
 **Output Format**:
 Just output the raw Scenic code. No JSON, no markdown code blocks, no descriptions, no comments. Do not add any conversational text, explanations, or validation checks after the code block.
