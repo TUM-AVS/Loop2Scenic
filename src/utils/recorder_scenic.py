@@ -219,7 +219,7 @@ def main():
 
     # view tuning
     ap.add_argument("--fov", type=float, default=110.0)          # wider coverage
-    ap.add_argument("--bev_height", type=float, default=50.0)    # meters
+    ap.add_argument("--bev_height", type=float, default=30.0)    # meters
     ap.add_argument("--smooth_alpha", type=float, default=0.12)
     ap.add_argument("--debug", action="store_true")
     ap.add_argument("--ego-alive-threshold", type=float, default=0.5)
