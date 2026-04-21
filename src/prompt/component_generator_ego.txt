@@ -18,7 +18,6 @@ Output raw Scenic code only.
 
 
 **Hard Constraints (Anything Not Listed Here Does NOT Exist)**
-
 1. You are ONLY allowed to use:
 Behaviors listed in Available predefined <behaviors>
 Actions listed in Available predefined <actions>
@@ -35,6 +34,7 @@ does NOT belong to the Ego component.
 The Spatial Relation Hierarchy
 The position specifier priority rule
 6. Spatial relations must be expressed only via specifiers inside the ego definition.
+7. When defining the ego vehicle, you MUST explicitly set its role name by including the statement: with rolename 'hero'.
 
 
 **Reasoning & Implementation Plan (Internal Guidance)**
@@ -345,6 +345,7 @@ behavior EgoBehavior(ego_speed, overtake_distance, safety_distance, lane_change_
 ego = new Car at egoSpawnPt, 
     with regionContainedIn egoLaneSec,
     with blueprint EGO_MODEL,
+    with rolename 'hero',
     with behavior EgoBehavior(
         globalParameters.OPT_EGO_SPEED,
         OPT_OVERTAKE_DISTANCE,
