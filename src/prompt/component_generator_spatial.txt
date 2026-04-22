@@ -152,19 +152,30 @@ OP = ahead of egoSpawnPt by 30
 OP = new OrientedPoint on ego_lane.centerline
 ```
 
-4. Random Boolean Comparison Rule 
-Control flow must not depend on comparisons involving random boolean values. In particular, you must not test membership or access properties of a random object inside the iteration condition or if condition.
+4. Strict Ban on Random Variable Comparisons in Filters
+You MUST NOT evaluate, access properties of, or compare previously sampled random variables (e.g., egoInitLane) inside filter() functions, lambda expressions, or standard if conditions. Because Scenic uses delayed evaluation, random variables are not resolved at the time filter() is executed.
+
+If you need to restrict a newly sampled object based on a previously sampled random object, you MUST sample broadly first, and then use a require statement to enforce the relationship.
 ```
-# Invalid example, we should avoid comparing random boolean values with other random values:
+# INVALID
 advInitLane = Uniform(*filter(lambda l: l.road == egoManeuver.endLane.road, intersection.incomingLanes))
 egoLaneSec._laneToLeft.isForward != egoLaneSec.isForward
-
-# Valid example:
+# Valid
 intersection = Uniform(*filter(lambda i: i.is4Way, network.intersections))
 egoLaneSec = Uniform(*egoLane.sections)
 leftSec = egoLaneSec._laneToLeft
 if leftSec is not None:
     neighborSec = leftSec
+
+# INVALID (Do not use random variables inside lambdas):
+# egoInitLane is a random variable, so accessing .road inside the lambda will fail
+adv1Maneuver = Uniform(*filter(lambda m: m.type is ManeuverType.STRAIGHT and m.startLane.road != egoInitLane.road, intersection.maneuvers))
+# Valid
+# Use require statements to handle relational constraints
+# 1. Filter only by static, known properties (like ManeuverType)
+adv1Maneuver = Uniform(*filter(lambda m: m.type is ManeuverType.STRAIGHT, intersection.maneuvers))
+# 2. Use 'require' to enforce the relationship with the random variable
+require adv1Maneuver.startLane.road != egoInitLane.road
 ```
 
 5. The Property "position" can only specified once with the same priority 
