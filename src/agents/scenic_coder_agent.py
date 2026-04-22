@@ -2,7 +2,7 @@ import logging
 import re
 import time
 from src.schema import HeaderSetting
-from src.utils import setup_logging, strip_code_fence_markers
+from src.utils import clean_and_parse_json, setup_logging, strip_code_fence_markers
 from tests.test_utils import test_video_recording
 
 from .base_agent import BaseAgent
@@ -260,9 +260,9 @@ param weather = '{header_settings.weather}'
             "spatial_relation", 
             "ego", 
             "adversarials", 
-            "requirements_and_restrictions",
             "road_side_structures", 
-            "temporary_modifications"]
+            "temporary_modifications",
+            "requirements_and_restrictions",]
         
         for comp_type in assembly_order:
             if comp_type not in retrieved_components:
@@ -335,7 +335,8 @@ param weather = '{header_settings.weather}'
 
         # 2. Call the LLM service
         response = self.llm_service.chat([{"role": "user", "content": formatted_prompt}])
-        return strip_code_fence_markers(response)
+        fixed_code = clean_and_parse_json(response).get("fixed_code", "")
+        return fixed_code
 
 if __name__ == "__main__":
     from src.services import MilvusVectorStore
@@ -450,7 +451,7 @@ terminate when (distance from ego to egoSpawnPt) > TERM_DIST
         """
 
         # Spatial relation has to be consistant with the adversarial description, otherwise it will generate wrong thing.
-        evaluation_result = {'adversarials': [True],
+        evaluation_result = {'adversarials': [False],
                             'ego': False,
                             'requirements_and_restrictions': True,
                             'scenario': False,
@@ -458,17 +459,17 @@ terminate when (distance from ego to egoSpawnPt) > TERM_DIST
                             'road_side_structures': [False],
                             'temporary_modifications': [False]}
         aim_dsl = { 'adversarials': [
-                        {"object": "car", "behavior": "approaches an intersection from a perpendicular road and go straight at the intersection."}
+                        {"object": "car", "behavior": "behind the ego vehicle in the beginning, then turns right at the intersection."}
                         ],
                         'ego': {"object": "car", "behavior": "stops at an intersection, then proceeds right turn at the intersection."},
                         'requirements_and_restrictions': "The traffic light for the ego vehicle must initially be red and then turn green, allowing the ego vehicle to proceed.",
                         'scenario': "The ego vehicle proceeds right turn at the intersection while an adversarial vehicle go straight at the intersection.",
-                        'spatial_relation': "The ego vehicle is positioned in a lane at an intersection and make a right turn, with the adversarial vehicle approaches the ego car from a perpendicular road, then go straight at the intersection.",
+                        'spatial_relation': "The ego vehicle is positioned in a lane at an intersection and make a right turn, with the  adversarial positioned behind the ego vehicle and turns right at the intersection.",
                         'road_side_structures': [
-                            {"object": "kiosk", "position": "Located on the intersection, from the left side of the ego vehicle."}
+                            {"object": "kiosk", "position": "Located on the right side of the ego vehicle initial position."}
                         ],
                         'temporary_modifications': [
-                            {"object": "street barrier", "position": "Located in the center of the ego vehicle's lane at the intersection."}
+                            {"object": "street barrier", "position": "Located on the left lane of the ego vehicle initial position and facing the ego vehicle."}
                         ]}
         
         if mode == "adapt":
@@ -484,9 +485,101 @@ terminate when (distance from ego to egoSpawnPt) > TERM_DIST
             f.write(adapted_scenic_code)
         test_video_recording()
 
-    test_coder(mode="adapt")
-    error_message = """Traceback (most recent call last; use -b to show Scenic internals):
-  File "/home/dellpro2/chenli/ads-mrag/ads-mrag/temp/test_scenario/code/scenic_code.scenic", line 23, in <module>
-    for lane in intersection.incomingLanes:
-RandomControlFlowError: cannot iterate through a random value"""
-    # test_coder(mode="debug", error_message=error_message)
+    def test_debug():
+        error_message = """Traceback (most recent call last; use -b to show Scenic internals):
+  File "/home/dellpro2/chenli/ads-mrag/ads-mrag/temp/test_scenario/code/scenic_code.scenic", line 18, in <lambda>
+    adv2Maneuver = Uniform(*filter(lambda m: m.type is ManeuverType.LEFT_TURN and m.startLane == egoInitLane, intersection.maneuvers))
+                                                                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^
+RandomControlFlowError: random values cannot be compared (and control flow cannot depend on them)"""
+        original_scenic_code = """
+        description = "Using map ../../maps/Town05.xodr with carla map Town05 and weather MidRainyNoon"
+param map = localPath('../../maps/Town05.xodr')
+param carla_map = 'Town05'
+model scenic.simulators.carla.model
+MODEL = 'vehicle.lincoln.mkz_2017'
+param weather = 'MidRainyNoon'
+
+intersection = Uniform(*filter(lambda i: i.is4Way, network.intersections))
+
+egoManeuver = Uniform(*filter(lambda m: m.type is ManeuverType.RIGHT_TURN, intersection.maneuvers))
+egoInitLane = egoManeuver.startLane
+egoSpawnPt = new OrientedPoint in egoInitLane.centerline
+
+adv1Maneuver = Uniform(*filter(lambda m: m.type is ManeuverType.STRAIGHT, egoManeuver.conflictingManeuvers))
+adv1InitLane = adv1Maneuver.startLane
+adv1SpawnPt = new OrientedPoint in adv1InitLane.centerline
+
+adv2Maneuver = Uniform(*filter(lambda m: m.type is ManeuverType.LEFT_TURN and m.startLane == egoInitLane, intersection.maneuvers))
+adv2InitLane = adv2Maneuver.startLane
+adv2SpawnPt = new OrientedPoint behind egoSpawnPt by Range(8, 12)
+
+egoTrajectory = [egoInitLane, egoManeuver.connectingLane, egoManeuver.endLane]
+adv1Trajectory = [adv1InitLane, adv1Maneuver.connectingLane, adv1Maneuver.endLane]
+adv2Trajectory = [adv2InitLane, adv2Maneuver.connectingLane, adv2Maneuver.endLane]
+
+param EGO_SPEED = 7
+
+behavior EgoBehavior(trajectory, target_speed):
+    do FollowLaneBehavior(target_speed=target_speed) until self in intersection
+    do FollowLaneBehavior(target_speed=0) for 2 seconds
+    do TurnBehavior(trajectory=trajectory, target_speed=target_speed)
+    do FollowLaneBehavior(target_speed=target_speed)
+
+ego = new Car at egoSpawnPt,
+    with blueprint MODEL,
+    with rolename 'hero',
+    with behavior EgoBehavior(egoTrajectory, globalParameters.EGO_SPEED)
+
+param ADV_SPEED = Range(7, 10)
+
+behavior AdversaryBehavior(trajectory):
+    do FollowTrajectoryBehavior(target_speed=globalParameters.ADV_SPEED, trajectory=trajectory)
+
+adversary1 = new Car at adv1SpawnPt,
+    with blueprint MODEL,
+    with behavior AdversaryBehavior(adv1Trajectory)
+
+behavior Adv2Behavior(trajectory, target_speed):
+    do FollowLaneBehavior(target_speed=target_speed) until self in intersection
+    do TurnBehavior(trajectory=trajectory, target_speed=target_speed)
+    do FollowLaneBehavior(target_speed=target_speed)
+
+adversary2 = new Car at adv2SpawnPt,
+    with blueprint MODEL,
+    with behavior Adv2Behavior(adv2Trajectory, globalParameters.ADV_SPEED)
+
+kioskSpawnPt = new OrientedPoint right of egoSpawnPt by 5
+kiosk = new Prop at kioskSpawnPt,
+    with blueprint 'static.prop.kiosk_01'
+
+streetBarrierSpawnPt = new OrientedPoint left of egoSpawnPt by 3.5,
+    facing toward egoSpawnPt
+streetBarrier = new Prop at streetBarrierSpawnPt,
+    with blueprint 'static.prop.streetbarrier',
+    with allowCollisions True
+
+EGO_INIT_DIST = [10, 15]
+ADV_INIT_DIST = [15, 25]
+TERM_DIST = 50
+
+monitor TrafficLights():
+    freezeTrafficLights()
+    while True:
+        if withinDistanceToTrafficLight(ego, 100):
+            setClosestTrafficLightStatus(ego, "green")
+        if withinDistanceToTrafficLight(adversary1, 100):
+            setClosestTrafficLightStatus(adversary1, "green")
+        wait
+
+require monitor TrafficLights()
+require EGO_INIT_DIST[0] <= (distance from egoSpawnPt to intersection) <= EGO_INIT_DIST[1]
+require ADV_INIT_DIST[0] <= (distance from adv1SpawnPt to intersection) <= ADV_INIT_DIST[1]
+terminate when (distance from ego to egoSpawnPt) > TERM_DIST
+        """
+        adapted_scenic_code = agent.debug_code(original_scenic_code, error_message, None)
+        with open("tests/scenic_code.txt", "w") as f:
+            f.write(adapted_scenic_code)
+        test_video_recording()
+
+    # test_coder(mode="adapt")
+    test_debug()
