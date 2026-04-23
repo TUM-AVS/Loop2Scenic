@@ -1,7 +1,11 @@
 from pathlib import Path
 import csv
+import re
+import subprocess
+import tempfile
+import shutil
 
-SOURCE_PATH = Path("/home/dellpro2/chenli/ads-mrag/ads-mrag/data/scenarios")
+SOURCE_PATH = Path("/home/dellpro2/chenli/ads-mrag/ads-mrag/data/chat2scenic")
 EVAL_PATH = Path("/home/dellpro2/chenli/ads-mrag/ads-mrag/data/eval")
 
 def collect_description(
@@ -44,6 +48,232 @@ def collect_description(
 
     return output_csv_path
 
+def reformat_scenarios(
+    folder_path: Path = SOURCE_PATH,
+) -> list[Path]:
+    """
+    Reformat flat .scenic files into scenario folders.
+
+    For each *.scenic file directly under folder_path:
+    1) Create a folder named after the scenic file stem.
+    2) Move the file into that folder.
+    3) Rename it to code.scenic.
+
+    Returns:
+        List of final file paths for moved scenic files.
+    """
+    if not folder_path.exists():
+        raise FileNotFoundError(f"Folder does not exist: {folder_path}")
+    if not folder_path.is_dir():
+        raise NotADirectoryError(f"Expected directory, got: {folder_path}")
+
+    moved_files: list[Path] = []
+    scenic_files = sorted(folder_path.glob("*.scenic"))
+
+    for scenic_file in scenic_files:
+        scenario_name = scenic_file.stem
+        scenario_folder = folder_path / scenario_name
+        scenario_folder.mkdir(parents=True, exist_ok=True)
+
+        target_file = scenario_folder / "code.scenic"
+        if target_file.exists():
+            raise FileExistsError(f"Target already exists, refusing to overwrite: {target_file}")
+
+        scenic_file.rename(target_file)
+        moved_files.append(target_file)
+
+    return moved_files
+
+def extract_description(
+    folder_path: SOURCE_PATH,
+) -> list[Path]:
+    """
+    Extract description from each subfolder's code.scenic and write description.txt.
+
+    Expected pattern inside code.scenic: description="..."
+    """
+    if not folder_path.exists():
+        raise FileNotFoundError(f"Folder does not exist: {folder_path}")
+    if not folder_path.is_dir():
+        raise NotADirectoryError(f"Expected directory, got: {folder_path}")
+
+    written_files: list[Path] = []
+    pattern = re.compile(r'description\s*=\s*"([^"]*)"')
+
+    for subfolder in sorted(folder_path.iterdir()):
+        if not subfolder.is_dir():
+            continue
+
+        scenic_file = subfolder / "code.scenic"
+        if not scenic_file.is_file():
+            continue
+
+        content = scenic_file.read_text(encoding="utf-8")
+        match = pattern.search(content)
+        if not match:
+            continue
+
+        description = match.group(1)
+        description_file = subfolder / "description.txt"
+        description_file.write_text(description, encoding="utf-8")
+        written_files.append(description_file)
+
+    return written_files
+
+def run_simulation_and_save_video(
+    folder_path: Path = SOURCE_PATH,
+) -> list[Path]:
+    """
+    Run simulation for each subfolder and save videos/logs in-place.
+
+    For each immediate subfolder under folder_path:
+    - read/run subfolder/code.scenic
+    - save videos to subfolder/video
+    - save logs to subfolder/logs
+
+    Returns:
+        List of subfolders that completed successfully.
+    """
+    if not folder_path.exists():
+        raise FileNotFoundError(f"Folder does not exist: {folder_path}")
+    if not folder_path.is_dir():
+        raise NotADirectoryError(f"Expected directory, got: {folder_path}")
+
+    repo_root = Path(__file__).resolve().parent.parent
+    batch_script = repo_root / "src" / "utils" / "run_scenic_batch.sh"
+    recorder_script = repo_root / "src" / "utils" / "recorder_scenic.py"
+    if not batch_script.is_file():
+        raise FileNotFoundError(f"Batch script not found: {batch_script}")
+    if not recorder_script.is_file():
+        raise FileNotFoundError(f"Recorder script not found: {recorder_script}")
+
+    # run_scenic_batch.sh does not expose recorder view args directly.
+    # Use a small wrapper so each simulation records BEV+FPV+TPV.
+    with tempfile.TemporaryDirectory(prefix="recorder_wrapper_") as tmp_dir:
+        wrapper_path = Path(tmp_dir) / "recorder_with_all_views.py"
+        wrapper_path.write_text(
+            "\n".join(
+                [
+                    "#!/usr/bin/env python3",
+                    "import subprocess",
+                    "import sys",
+                    f'RECORDER = r"{recorder_script}"',
+                    "cmd = [sys.executable, RECORDER, *sys.argv[1:], '--views', 'bev', 'fpv', 'tpv']",
+                    "raise SystemExit(subprocess.call(cmd))",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        wrapper_path.chmod(0o755)
+
+        success_subfolders: list[Path] = []
+
+        for subfolder in sorted(folder_path.iterdir()):
+            if not subfolder.is_dir():
+                continue
+
+            scenic_file = subfolder / "code.scenic"
+            if not scenic_file.is_file():
+                continue
+
+            video_dir = subfolder / "video"
+            log_dir = subfolder / "logs"
+            video_dir.mkdir(parents=True, exist_ok=True)
+            log_dir.mkdir(parents=True, exist_ok=True)
+
+            result = subprocess.run(
+                [
+                    str(batch_script),
+                    "--recorder",
+                    str(wrapper_path),
+                    "--outdir",
+                    str(video_dir),
+                    "--logdir",
+                    str(log_dir),
+                    str(scenic_file),
+                ],
+                capture_output=True,
+                text=True,
+                cwd=str(repo_root),
+            )
+
+            if result.returncode != 0:
+                print(f"[FAILED] {subfolder.name}: {result.stderr.strip()}")
+                continue
+
+            expected_videos = [video_dir / "BEV.mp4", video_dir / "FPV.mp4", video_dir / "TPV.mp4"]
+            if not all(path.exists() for path in expected_videos):
+                print(f"[FAILED] {subfolder.name}: missing expected videos in {video_dir}")
+                continue
+
+            success_subfolders.append(subfolder)
+
+    return success_subfolders
+
+
+def move_videos(folder_path: Path = SOURCE_PATH) -> list[Path]:
+    """
+    Copy each subfolder's video/BEV.mp4 to the subfolder root.
+
+    For each immediate subfolder under folder_path:
+    - source: subfolder/video/BEV.mp4
+    - target: subfolder/BEV.mp4
+
+    Returns:
+        List of target BEV paths that were created/updated.
+    """
+    if not folder_path.exists():
+        raise FileNotFoundError(f"Folder does not exist: {folder_path}")
+    if not folder_path.is_dir():
+        raise NotADirectoryError(f"Expected directory, got: {folder_path}")
+
+    copied_files: list[Path] = []
+    for subfolder in sorted(folder_path.iterdir()):
+        if not subfolder.is_dir():
+            continue
+
+        source_bev = subfolder / "video" / "BEV.mp4"
+        if not source_bev.is_file():
+            continue
+
+        target_bev = subfolder / "BEV.mp4"
+        shutil.copy2(source_bev, target_bev)
+        copied_files.append(target_bev)
+
+    return copied_files
+
+
+def remove_extra_folders(folder_path: Path = SOURCE_PATH) -> list[Path]:
+    """
+    Remove `video` and `logs` folders under each immediate subfolder in folder_path.
+
+    Returns:
+        List of removed folder paths.
+    """
+    if not folder_path.exists():
+        raise FileNotFoundError(f"Folder does not exist: {folder_path}")
+    if not folder_path.is_dir():
+        raise NotADirectoryError(f"Expected directory, got: {folder_path}")
+
+    removed: list[Path] = []
+    for subfolder in sorted(folder_path.iterdir()):
+        if not subfolder.is_dir():
+            continue
+
+        for folder_name in ("video", "logs"):
+            target_dir = subfolder / folder_name
+            if not target_dir.is_dir():
+                continue
+            shutil.rmtree(target_dir)
+            removed.append(target_dir)
+
+    return removed
+
+
 if __name__ == "__main__":
-    csv_path = collect_description()
-    print(f"Wrote scenario descriptions to: {csv_path}")
+    # csv_path = collect_description()
+    # reformat_scenarios()
+    # extract_description()
+    # run_simulation_and_save_video()
+    move_videos()
+    remove_extra_folders()
