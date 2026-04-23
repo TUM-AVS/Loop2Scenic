@@ -56,7 +56,11 @@ Street Barrier, Construction Cone, Traffic Cone, Iron Plank, Traffic Warning, Ac
 
 ** Reasoning and Implementation plan **
 1. Identify the Actors: 
-First, explicitly define the Ego vehicle and all adversarial entities. If the Ego vehicle is not specified by the user, you must default to identifying the Ego as either the vehicle positioned in the center of the frame, or the vehicle from whose first-person perspective the video is recorded.
+You must explicitly classify all dynamic entities in the scene as either the Ego vehicle or an Adversary vehicle based on the following strict hierarchy:
+    - Explicit Labels: If the user text explicitly numbers or letters vehicles (e.g., "Vehicle A", "Vehicle B"), assign "Vehicle A" as the Ego and all others as Adversaries.
+    - Camera Perspective: If no explicit labels exist, but the video/image is shot from a first-person dashboard or hood perspective, the camera-host vehicle is the Ego.
+    - Spatial Inference: If the perspective is a third-person drone or traffic camera view, the vehicle located nearest to the exact center of the frame is the Ego.
+    - Default Classification: Once the Ego is identified, all other active vehicles, pedestrians, or dynamic entities MUST be classified as Adversaries.
 
 2. Conduct a Chronological Analysis: 
 Break the video sequence into three strict temporal phases: Initial (start), Midpoint, and Ending. Track the exact spatial positions of the Ego and adversarials during each phase. By directly comparing how their relative positions change across these three distinct frames, deduce their dynamic behaviors (e.g., accelerating, yielding, remaining stationary).
