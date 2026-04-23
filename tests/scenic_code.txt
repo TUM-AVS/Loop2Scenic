@@ -1,3 +1,54 @@
-{
-    "analysis_process": "The error occurs because the script attempts to compare a random variable (`egoInitLane`) inside a `filter` lambda function, which is not allowed in Scenic due to delayed evaluation. I fixed this by filtering the maneuvers based on static properties first and then using a `require` statement to enforce the relationship with the random variable, and applied a similar fix to `adv1Maneuver` to avoid potential iteration errors on random collections.",
-    "fixed_code": "description = \"Using map ../../maps/Town05.xodr with carla map Town05 and weather MidRainyNoon\"\nparam map = localPath('../../maps/Town05.xodr')\nparam carla_map = 'Town05'\nmodel scenic.simulators.carla.model\nMODEL = 'vehicle.lincoln.mkz_2017'\nparam weather = 'MidRainyNoon'\n\nintersection = Uniform(*filter(lambda i: i.is4Way, network.intersections))\n\negoManeuver = Uniform(*filter(lambda m: m.type is ManeuverType.RIGHT_TURN, intersection.maneuvers))\negoInitLane = egoManeuver.startLane\negoSpawnPt = new OrientedPoint in egoInitLane.centerline\n\nadv1Maneuver = Uniform(*filter(lambda m: m.type is ManeuverType.STRAIGHT, intersection.maneu
+description = "Ego vehicle negotiates an unsignalized intersection with other vehicles, giving priority to the first to enter."
+param map = localPath('../../maps/Town05.xodr')
+param carla_map = 'Town05'
+model scenic.simulators.carla.model
+MODEL = 'vehicle.lincoln.mkz_2017'
+param weather = 'ClearNoon'
+
+intersection = Uniform(*filter(lambda i: not i.isSignalized, network.intersections))
+
+egoInitLane = Uniform(*intersection.incomingLanes)
+egoManeuver = Uniform(*egoInitLane.maneuvers)
+egoTrajectory = [egoInitLane, egoManeuver.connectingLane, egoManeuver.endLane]
+egoSpawnPt = new OrientedPoint in egoInitLane.centerline
+
+advManeuver = Uniform(*egoManeuver.conflictingManeuvers)
+advInitLane = advManeuver.startLane
+advTrajectory = [advInitLane, advManeuver.connectingLane, advManeuver.endLane]
+advSpawnPt = new OrientedPoint in advInitLane.centerline
+
+param OPT_EGO_SPEED = Range(5, 8)
+param OPT_SAFETY_DISTANCE = 12
+
+behavior EgoBehavior(trajectory):
+    try:
+        do FollowTrajectoryBehavior(target_speed=globalParameters.OPT_EGO_SPEED, trajectory=trajectory)
+    interrupt when withinDistanceToAnyCars(self, globalParameters.OPT_SAFETY_DISTANCE):
+        take SetThrottleAction(0)
+        take SetBrakeAction(1.0)
+
+ego = new Car at egoSpawnPt,
+    with rolename 'hero',
+    with blueprint MODEL,
+    with behavior EgoBehavior(egoTrajectory)
+
+param ADV_SPEED = Range(7, 10)
+
+behavior AdversaryBehavior(trajectory):
+    do FollowTrajectoryBehavior(target_speed=globalParameters.ADV_SPEED, trajectory=trajectory)
+
+adversary = new Car at advSpawnPt,
+    with blueprint MODEL,
+    with behavior AdversaryBehavior(advTrajectory)
+
+monitor TrafficLights():
+    freezeTrafficLights()
+    while True:
+        wait
+
+require monitor TrafficLights()
+require 20 <= (distance from egoSpawnPt to intersection) <= 30
+require 20 <= (distance from advSpawnPt to intersection) <= 30
+
+TERM_DIST = 50
+terminate when (distance from ego to egoSpawnPt) > TERM_DIST

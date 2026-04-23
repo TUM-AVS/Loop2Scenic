@@ -22,7 +22,6 @@ import argparse
 import subprocess
 import threading
 import queue
-from datetime import datetime
 
 import carla
 
@@ -201,225 +200,258 @@ def compose(base_tf: carla.Transform, rel_tf: carla.Transform):
     return carla.Transform(loc, rot)
 
 
-# ============================================================
-# Main
-# ============================================================
-def main():
+def build_arg_parser():
     ap = argparse.ArgumentParser()
     ap.add_argument("--host", default="localhost")
     ap.add_argument("--port", type=int, default=2000)
     ap.add_argument("--prefix", required=True)
     ap.add_argument("--outdir", default="./recordings")
     ap.add_argument("--duration", type=float, default=30.0)
-
     ap.add_argument("--fps", type=int, default=15)
     ap.add_argument("--width", type=int, default=1280)
     ap.add_argument("--height", type=int, default=720)
     ap.add_argument("--crf", type=int, default=23)
-
-    # view tuning
-    ap.add_argument("--fov", type=float, default=110.0)          # wider coverage
-    ap.add_argument("--bev_height", type=float, default=30.0)    # meters
+    ap.add_argument("--fov", type=float, default=110.0)
+    ap.add_argument("--bev_height", type=float, default=30.0)
     ap.add_argument("--smooth_alpha", type=float, default=0.12)
+    ap.add_argument(
+        "--views",
+        nargs="+",
+        default=["bev"],
+        choices=["bev", "fpv", "tpv"],
+        help="Views to record. Default: bev. Example: --views bev fpv tpv",
+    )
     ap.add_argument("--debug", action="store_true")
     ap.add_argument("--ego-alive-threshold", type=float, default=0.5)
+    return ap
 
-    args = ap.parse_args()
 
-    os.makedirs(args.outdir, exist_ok=True)
-
-    client = carla.Client(args.host, args.port)
+def connect_world(host, port, debug=False):
+    client = carla.Client(host, port)
     client.set_timeout(10.0)
     world = client.get_world()
-
-    if args.debug:
+    if debug:
         print("[DEBUG] Connected to CARLA", flush=True)
         print("[DEBUG] Map:", world.get_map().name, flush=True)
+    return world
 
-    # ensure world ready
-    #world.wait_for_tick()
-    #snapshot = world.wait_for_tick()
-    #frame = snapshot.frame
 
-    map_name = world.get_map().name.split("/")[-1]
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S_%f")[:-3]
+def create_camera_blueprint(world, width, height, fps, fov):
+    bp = world.get_blueprint_library().find("sensor.camera.rgb")
+    bp.set_attribute("image_size_x", str(width))
+    bp.set_attribute("image_size_y", str(height))
+    bp.set_attribute("sensor_tick", str(1.0 / fps))
+    bp.set_attribute("fov", str(fov))
+    return bp
 
-    # scene_dir = os.path.join(args.outdir, f"{args.prefix}__{map_name}__{timestamp}")
-    scene_dir = args.outdir
-    os.makedirs(scene_dir, exist_ok=True)
 
+def wait_for_first_ego(world, debug=False, poll_interval=0.2):
     print("[RECORDER] waiting for first ego (no stability required)...", flush=True)
-    ego_first_time = None
-
-    # Wait until ego appears
     while True:
         try:
-            ego = identify_ego(world, allow_scoring=True, debug=args.debug)
-            print(f"[RECORDER] first ego detected id={ego.id} role_name={ego.attributes.get('role_name','')}", flush=True)
-            ego_first_time = time.time()
-            break
+            ego = identify_ego(world, allow_scoring=True, debug=debug)
+            print(
+                f"[RECORDER] first ego detected id={ego.id} "
+                f"role_name={ego.attributes.get('role_name', '')}",
+                flush=True,
+            )
+            return ego, time.time()
         except Exception:
-            time.sleep(0.2)
+            time.sleep(poll_interval)
 
-    # camera blueprint
-    bp = world.get_blueprint_library().find("sensor.camera.rgb")
-    bp.set_attribute("image_size_x", str(args.width))
-    bp.set_attribute("image_size_y", str(args.height))
-    bp.set_attribute("sensor_tick", str(1.0 / args.fps))
-    bp.set_attribute("fov", str(args.fov))
 
-    # =======================================================
-    # Camera relative transforms (FIXED values for MKZ-like sedan)
-    # - FPV: driver-seat-ish (avoid interior occlusion)
-    # - TPV: slightly higher & farther
-    # =======================================================
+def spawn_camera_with_writer(world, blueprint, init_tf, out_path, width, height, fps, crf):
+    writer = AsyncFFmpegWriter(out_path, width, height, fps, crf=crf)
+    cam = world.spawn_actor(blueprint, init_tf)
+    cam.listen(lambda img: writer.write(img.raw_data))
+    return cam, writer
+
+
+def update_fpv_camera(cam, ego_tf, rel_fpv):
+    # FPV is hard-locked to ego transform (no smoothing).
+    cam.set_transform(compose(ego_tf, rel_fpv))
+
+
+def update_tpv_camera(cam, smooth_pose, ego_tf, rel_tpv):
+    desired_tpv = compose(ego_tf, rel_tpv)
+    loc_tpv, rot_tpv = smooth_pose.update(desired_tpv.location, desired_tpv.rotation)
+    cam.set_transform(carla.Transform(loc_tpv, rot_tpv))
+
+
+def update_bev_camera(cam, smooth_pose, ego_tf, bev_height):
+    desired_bev_loc = carla.Location(
+        ego_tf.location.x,
+        ego_tf.location.y,
+        ego_tf.location.z + bev_height,
+    )
+    bev_rot = carla.Rotation(pitch=-90.0, yaw=0.0, roll=0.0)
+    loc_bev, _ = smooth_pose.update(desired_bev_loc, bev_rot)
+    cam.set_transform(carla.Transform(loc_bev, bev_rot))
+
+
+def cleanup(cams, writers):
+    for cam in cams.values():
+        try:
+            cam.stop()
+        except Exception:
+            pass
+        try:
+            cam.destroy()
+        except Exception:
+            pass
+    for writer in writers.values():
+        writer.close()
+
+
+def run_recording_loop(
+    world,
+    cams,
+    smoothers,
+    selected_views,
+    rel_fpv,
+    rel_tpv,
+    bev_height,
+    debug=False,
+):
+    missing_ego_since = None
+    max_missing_ego_time = 1.0
+    max_stale_time = 1.0
+    last_frame = None
+    stale_frame_since = None
+    last_debug = 0.0
+
+    while True:
+        now = time.time()
+        try:
+            ego = identify_ego(world, allow_scoring=False, debug=False)
+            missing_ego_since = None
+        except Exception:
+            if missing_ego_since is None:
+                missing_ego_since = now
+            elif now - missing_ego_since > max_missing_ego_time:
+                print("[RECORDER] ego lost → scene finished, stopping recorder", flush=True)
+                break
+            world.wait_for_tick()
+            continue
+
+        snapshot = world.wait_for_tick()
+        frame = snapshot.frame
+        if last_frame is None or frame != last_frame:
+            last_frame = frame
+            stale_frame_since = None
+        else:
+            if stale_frame_since is None:
+                stale_frame_since = now
+            elif now - stale_frame_since > max_stale_time:
+                print("[RECORDER] world stalled → scene finished, stopping recorder", flush=True)
+                break
+
+        tf = ego.get_transform()
+        if "FPV" in selected_views:
+            update_fpv_camera(cams["FPV"], tf, rel_fpv)
+        if "TPV" in selected_views:
+            update_tpv_camera(cams["TPV"], smoothers["TPV"], tf, rel_tpv)
+        if "BEV" in selected_views:
+            update_bev_camera(cams["BEV"], smoothers["BEV"], tf, bev_height)
+
+        if debug and (now - last_debug) > 2.0:
+            last_debug = now
+            print(
+                f"[DEBUG] ego id={ego.id} "
+                f"loc=({tf.location.x:.1f},{tf.location.y:.1f}) "
+                f"yaw={tf.rotation.yaw:.1f}",
+                flush=True,
+            )
+
+
+# ============================================================
+# Main
+# ============================================================
+def main():
+    args = build_arg_parser().parse_args()
+    os.makedirs(args.outdir, exist_ok=True)
+    world = connect_world(args.host, args.port, debug=args.debug)
+    scene_dir = args.outdir
+    os.makedirs(scene_dir, exist_ok=True)
+    ego, ego_first_time = wait_for_first_ego(world, debug=args.debug)
+    bp = create_camera_blueprint(world, args.width, args.height, args.fps, args.fov)
+    bev_height = float(args.bev_height)
+    selected_views = {view.upper() for view in args.views}
+    cams = {}
+    writers = {}
+    smoothers = {}
+    if "TPV" in selected_views:
+        smoothers["TPV"] = SmoothPose(alpha=args.smooth_alpha)
+    if "BEV" in selected_views:
+        smoothers["BEV"] = SmoothPose(alpha=args.smooth_alpha)
+
     rel_fpv = carla.Transform(
         carla.Location(x=1.6, y=-0.25, z=1.35),
-        carla.Rotation(pitch=-5.0, yaw=0.0, roll=0.0)
+        carla.Rotation(pitch=-5.0, yaw=0.0, roll=0.0),
     )
     rel_tpv = carla.Transform(
         carla.Location(x=-8.0, y=0.0, z=3.2),
-        carla.Rotation(pitch=-12.0, yaw=0.0, roll=0.0)
+        carla.Rotation(pitch=-12.0, yaw=0.0, roll=0.0),
     )
 
-    # BEV: fixed world rotation, smooth only location
-    bev_h = float(args.bev_height)
-
-    # writers + cams + smoothers
-    writers = {}
-    cams = {}
-    smooth = {
-        # "FPV": SmoothPose(alpha=args.smooth_alpha),
-        # "TPV": SmoothPose(alpha=args.smooth_alpha),
-        "BEV": SmoothPose(alpha=args.smooth_alpha),
-    }
-
-    def outpath(view):
-        # return os.path.join(scene_dir, f"{args.prefix}__{map_name}__{view}__{timestamp}.mp4")
-        return os.path.join(scene_dir, "BEV.mp4")
-
-    def spawn_cam(view, init_tf):
-        writers[view] = AsyncFFmpegWriter(outpath(view), args.width, args.height, args.fps, crf=args.crf)
-        cam = world.spawn_actor(bp, init_tf)
-        cam.listen(lambda img, v=view: writers[v].write(img.raw_data))
-        cams[view] = cam
-
-    # initial placement
     ego_tf = ego.get_transform()
-    # spawn_cam("FPV", compose(ego_tf, rel_fpv))
-    # spawn_cam("TPV", compose(ego_tf, rel_tpv))
-    spawn_cam("BEV", carla.Transform(
-        carla.Location(ego_tf.location.x, ego_tf.location.y, ego_tf.location.z + bev_h),
-        carla.Rotation(pitch=-90.0, yaw=0.0, roll=0.0)
-    ))
+    init_fpv_tf = compose(ego_tf, rel_fpv)
+    init_tpv_tf = compose(ego_tf, rel_tpv)
+    init_bev_tf = carla.Transform(
+        carla.Location(ego_tf.location.x, ego_tf.location.y, ego_tf.location.z + bev_height),
+        carla.Rotation(pitch=-90.0, yaw=0.0, roll=0.0),
+    )
+    fpv_out_path = os.path.join(scene_dir, "FPV.mp4")
+    tpv_out_path = os.path.join(scene_dir, "TPV.mp4")
+    bev_out_path = os.path.join(scene_dir, "BEV.mp4")
+    if "FPV" in selected_views:
+        cams["FPV"], writers["FPV"] = spawn_camera_with_writer(
+            world=world,
+            blueprint=bp,
+            init_tf=init_fpv_tf,
+            out_path=fpv_out_path,
+            width=args.width,
+            height=args.height,
+            fps=args.fps,
+            crf=args.crf,
+        )
+    if "TPV" in selected_views:
+        cams["TPV"], writers["TPV"] = spawn_camera_with_writer(
+            world=world,
+            blueprint=bp,
+            init_tf=init_tpv_tf,
+            out_path=tpv_out_path,
+            width=args.width,
+            height=args.height,
+            fps=args.fps,
+            crf=args.crf,
+        )
+    if "BEV" in selected_views:
+        cams["BEV"], writers["BEV"] = spawn_camera_with_writer(
+            world=world,
+            blueprint=bp,
+            init_tf=init_bev_tf,
+            out_path=bev_out_path,
+            width=args.width,
+            height=args.height,
+            fps=args.fps,
+            crf=args.crf,
+        )
+
+    print(f"[RECORDER] selected views: {sorted(selected_views)}", flush=True)
 
     print("[RECORDER] recording started", flush=True)
-
-    missing_ego_since = None
-    MAX_MISSING_EGO_TIME = 1.0   # 秒，工程里 0.5–2s 都合理
-
-    last_frame = None
-    stale_frame_since = None
-    MAX_STALE_TIME = 1.0         # 世界停滞阈值
-
-    start = time.time()
-    last_debug = 0.0
-
     try:
-        while True:
-            now = time.time()
-
-            # =================================================
-            # A) ego 是否存在（在 tick 前判断）
-            # =================================================
-            try:
-                ego = identify_ego(world, allow_scoring=False, debug=False)
-                missing_ego_since = None
-            except Exception:
-                if missing_ego_since is None:
-                    missing_ego_since = now
-                elif now - missing_ego_since > MAX_MISSING_EGO_TIME:
-                    print("[RECORDER] ego lost → scene finished, stopping recorder", flush=True)
-                    break
-                # ego 暂时没了，不推进画面
-                world.wait_for_tick()
-                continue
-
-            tf = ego.get_transform()
-
-            # =================================================
-            # B) FPV: HARD LOCK（必须在 tick 之前）
-            # =================================================
-            # desired_fpv = compose(tf, rel_fpv)
-            # cams["FPV"].set_transform(desired_fpv)
-            # cams["FPV"].set_transform(compose(tf, rel_fpv))
-
-            # =================================================
-            # C) 推进世界（唯一一次 tick）
-            # =================================================
-            snapshot = world.wait_for_tick()
-            frame = snapshot.frame
-
-            # =================================================
-            # D) 世界是否停滞（tick 之后判断）
-            # =================================================
-            if last_frame is None or frame != last_frame:
-                last_frame = frame
-                stale_frame_since = None
-            else:
-                if stale_frame_since is None:
-                    stale_frame_since = now
-                elif now - stale_frame_since > MAX_STALE_TIME:
-                    print("[RECORDER] world stalled → scene finished, stopping recorder", flush=True)
-                    break
-
-            # =================================================
-            # E) TPV: smoothing（tick 之后）
-            # =================================================
-            # desired_tpv = compose(tf, rel_tpv)
-            # loc_tpv, rot_tpv = smooth["TPV"].update(
-            #     desired_tpv.location,
-            #     desired_tpv.rotation
-            # )
-            # cams["TPV"].set_transform(carla.Transform(loc_tpv, rot_tpv))
-
-            # =================================================
-            # F) BEV: smoothing location only（tick 之后）
-            # =================================================
-            desired_bev_loc = carla.Location(
-                tf.location.x,
-                tf.location.y,
-                tf.location.z + bev_h
-            )
-            loc_bev, _ = smooth["BEV"].update(
-                desired_bev_loc,
-                carla.Rotation(pitch=-90.0, yaw=0.0, roll=0.0)
-            )
-            cams["BEV"].set_transform(
-                carla.Transform(
-                    loc_bev,
-                    carla.Rotation(pitch=-90.0, yaw=0.0, roll=0.0)
-                )
-            )
-
-            # =================================================
-            # G) debug
-            # =================================================
-            if args.debug and (now - last_debug) > 2.0:
-                last_debug = now
-                print(
-                    f"[DEBUG] ego id={ego.id} "
-                    f"loc=({tf.location.x:.1f},{tf.location.y:.1f}) "
-                    f"yaw={tf.rotation.yaw:.1f}",
-                    flush=True
-                )
-
-            # =================================================
-            # H) 可选 duration（不想要可删）
-            # =================================================
-            # if now - start >= args.duration:
-            #     print("[RECORDER] duration reached, stopping recorder", flush=True)
-            #     break
+        run_recording_loop(
+            world=world,
+            cams=cams,
+            smoothers=smoothers,
+            selected_views=selected_views,
+            rel_fpv=rel_fpv,
+            rel_tpv=rel_tpv,
+            bev_height=bev_height,
+            debug=args.debug,
+        )
 
         if ego_first_time is not None:
             ego_alive_seconds = time.time() - ego_first_time
@@ -427,62 +459,8 @@ def main():
             ego_alive_seconds = 0.0
         print(f"[RECORDER] ego_alive_seconds: {ego_alive_seconds:.3f}", flush=True)
         print(f"[RECORDER] ego_alive_threshold: {args.ego_alive_threshold:.3f}", flush=True)
-
-    # try:
-    #     while True:
-    #         if time.time() - start >= args.duration:
-    #             break
-
-
-    #         # ego may respawn; always lock by role_name first
-    #         try:
-    #             ego = identify_ego(world, allow_scoring=False, debug=False)
-    #         except Exception:
-    #             # if temporarily missing, just skip this tick
-    #             continue
-
-    #         tf = ego.get_transform()
-            
-    #         # === FPV: NO SMOOTHING, HARD LOCK ===
-    #         desired_fpv = compose(tf, rel_fpv)
-    #         cams["FPV"].set_transform(desired_fpv)
-            
-    #         # tick-driven loop (smoother than sleep)
-    #         world.wait_for_tick()
-            
-    #         # === TPV: keep smoothing ===
-    #         desired_tpv = compose(tf, rel_tpv)
-    #         loc_tpv, rot_tpv = smooth["TPV"].update(desired_tpv.location, desired_tpv.rotation)
-    #         cams["TPV"].set_transform(carla.Transform(loc_tpv, rot_tpv))
-
-
-    #         # FPV / TPV follow ego frame (smoothed)
-    #         #for view, rel in (("FPV", rel_fpv), ("TPV", rel_tpv)):
-    #         #    desired = compose(tf, rel)
-    #         #    loc, rot = smooth[view].update(desired.location, desired.rotation)
-    #         #    cams[view].set_transform(carla.Transform(loc, rot))
-
-    #         # BEV: smooth location only, keep fixed rotation (no yaw wobble)
-    #         desired_bev_loc = carla.Location(tf.location.x, tf.location.y, tf.location.z + bev_h)
-    #         loc_bev, _ = smooth["BEV"].update(desired_bev_loc, carla.Rotation(pitch=-90.0, yaw=0.0, roll=0.0))
-    #         cams["BEV"].set_transform(carla.Transform(loc_bev, carla.Rotation(pitch=-90.0, yaw=0.0, roll=0.0)))
-
-    #         if args.debug and (time.time() - last_debug) > 2.0:
-    #             last_debug = time.time()
-    #             print(f"[DEBUG] ego id={ego.id} loc=({tf.location.x:.1f},{tf.location.y:.1f}) yaw={tf.rotation.yaw:.1f}", flush=True)
-
     finally:
-        for cam in cams.values():
-            try:
-                cam.stop()
-            except Exception:
-                pass
-            try:
-                cam.destroy()
-            except Exception:
-                pass
-        for w in writers.values():
-            w.close()
+        cleanup(cams, writers)
 
     print(f"[RECORDER] saved to: {scene_dir}", flush=True)
 
