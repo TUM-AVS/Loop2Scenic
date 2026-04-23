@@ -217,7 +217,7 @@ class MultimodalDocumentInterpreter:
         self,
         content_dict: Dict[str, str],
         vlm_service: BaseVLMModel,  # VLMService when available
-        prompt_template_name: Optional[str] = "describe_in_layer_model",
+        prompt_template_name: Optional[str] = "embed_scenarios",
         **kwargs
     ) -> str:
         """
@@ -262,10 +262,6 @@ class MultimodalDocumentInterpreter:
         contents.append(types.Part.from_text(text=f"** Inputs **"))
         if description:
             contents.append(types.Part.from_text(text=f"Scenario Description Text: {description}"))
-        if image:
-            contents.append(types.Part.from_text(text=f"Scenario Image: "))
-            image_file = vlm_service.load_media(image)
-            contents.append(types.Part.from_uri(file_uri=image_file.uri, mime_type=image_file.mime_type))
         if video:
             contents.append(types.Part.from_text(text=f"Scenario Video: "))
             video_file = vlm_service.load_media(video)
