@@ -7,7 +7,7 @@ from google.genai import types
 from src.schema.dsl import DSL
 from src.services import BaseLLMModel, BaseVLMModel
 from src.services.vlm import GeminiVLModel
-from src.utils import clean_and_parse_json, to_safe_string
+from src.utils import clean_and_parse_json, flatten_dsl_to_text, to_safe_string
 from .base_agent import BaseAgent
 from src.prompt import load_prompt
 from src.schema import MultimodalQuery, ScenarioDocument, ScenicScenario, HeaderSetting
@@ -176,37 +176,8 @@ class InterpreterAgent(BaseAgent):
     def _flatten_dsl(self, dsl: DSL) -> str:
         if not dsl:
             return None
-        try:    
-            text_parts = []
-            text_parts.append(f"Scenario: {dsl['scenario']}")
-            text_parts.append(f"The ego vehicle is {dsl['ego']}")
-            
-            adversarials = dsl['adversarials']
-            if adversarials:
-                text_parts.append(f"Adversarial objects: {' '.join(map(str, adversarials))}")
-            else:
-                text_parts.append("There are no adversarials.")
-                
-            text_parts.append(f"Spatial Relation: {dsl['spatial_relation']}")
-            
-            reqs = dsl['requirements_and_restrictions']
-            if reqs:
-                text_parts.append(f"Requirements and restrictions: {reqs}")
-
-            # road_side_structures = dsl['road_side_structures']
-            # if road_side_structures:
-            #     text_parts.append(f"Road side structures: {', '.join(map(str, road_side_structures))}")
-            # else:
-            #     text_parts.append("There are no road side structures.")
-
-            # temporary_modifications = dsl['temporary_modifications']
-            # if temporary_modifications:
-            #     text_parts.append(f"Temporary modifications: {', '.join(map(str, temporary_modifications))}")
-            # else:
-            #     text_parts.append("There are no temporary modifications.")
-                
-            flattened_text = " ".join(text_parts)
-                
+        try:
+            flattened_text = flatten_dsl_to_text(dsl)
             logger.info(f"Successfully flattened DSL into text: {flattened_text}")
             return flattened_text
         except Exception as e:

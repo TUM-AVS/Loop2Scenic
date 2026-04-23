@@ -360,3 +360,58 @@ def clean_and_parse_json(raw_text: str | Dict[str, Any] | List[Any]) -> Dict[str
     """
 
     return parse_raw_text_to_json_dict(raw_text)
+
+
+def flatten_dsl_to_text(dsl: Dict[str, Any] | None) -> str | None:
+    """
+    Flatten structured DSL/scenario JSON into embedding-friendly plain text.
+    Supports both lowercase and title-case field names from VLM outputs.
+    """
+    if not dsl:
+        return None
+
+    def _format_actor(value: Any) -> str:
+        if isinstance(value, dict):
+            actor_object = value.get("object", "")
+            actor_behavior = value.get("behavior", "")
+            return f"{actor_object}: {actor_behavior}".strip(": ").strip()
+        return str(value) if value is not None else ""
+
+    try:
+        text_parts = []
+        text_parts.append(f"Scenario: {dsl.get('scenario', dsl.get('Scenario', ''))}")
+
+        ego = dsl.get("ego", dsl.get("Ego", ""))
+        ego_text = _format_actor(ego)
+        text_parts.append(f"The ego vehicle is {ego_text}")
+
+        adversarials = dsl.get("adversarials", dsl.get("Adversarials", []))
+        if adversarials:
+            adv_texts = []
+            for adv in adversarials:
+                adv_text = _format_actor(adv)
+                if adv_text:
+                    adv_texts.append(adv_text)
+            if adv_texts:
+                text_parts.append(f"Adversarial objects: {' | '.join(adv_texts)}")
+            else:
+                text_parts.append("There are no adversarials.")
+        else:
+            text_parts.append("There are no adversarials.")
+
+        text_parts.append(
+            f"Spatial Relation: {dsl.get('spatial_relation', dsl.get('Spatial Relation', ''))}"
+        )
+
+        reqs = dsl.get(
+            "requirements_and_restrictions",
+            dsl.get("Requirement and restrictions", "")
+        )
+        if reqs:
+            text_parts.append(f"Requirements and restrictions: {reqs}")
+
+        return " ".join(text_parts)
+    except Exception as e:
+        logger.error(f"Failed to flatten DSL to text: {e}")
+        return None
+

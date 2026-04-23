@@ -4,7 +4,7 @@ Synthesize all these inputs to understand the scenario's layout and dynamic time
 
 ** Output Format **
 Output ONLY a valid JSON object with the following structure. Do NOT wrap the output in markdown code blocks (e.g., no ```json) and do NOT include any conversational text.
-{
+{{
     "scenario": "<A single short sentence describing the overall scenario event.>",
     "ego": "{
         "object": "<Name of the Ego object>",
@@ -31,7 +31,7 @@ Output ONLY a valid JSON object with the following structure. Do NOT wrap the ou
         }
     ],
     "reasoning_chain": "<Write your step-by-step analysis here, covering the 3 phases and identifying the ego vehicle.>"
-}
+}}
 
 ** Strict Rules to Follow **
 - Cross-Reference Modalities: Use the image or video to visually confirm the static entities, road types, and initial spatial layouts.
@@ -66,7 +66,7 @@ You must explicitly state the visual evidence that justifies your conclusions re
 
 ** Examples **
 Example 1 (single ego, single adversarial):
-{
+{{
     "reasoning_chain": "1. Actors: The ego vehicle is identified from the first-person perspective; the adversarial is the vehicle in the opposing lane. 2. Chronological Analysis: Initially, both approach the 3-way intersection. At the midpoint, the ego initiates a right turn while the adversarial continues straight into the intersection. In the ending phase, the ego completes its turn while the adversarial clears the intersection. 3. Evidence: The ego's trajectory visually arcs 90 degrees right relative to the static lane markings, whereas the adversarial maintains a constant forward vector without deviation.",
     "scenario": "The ego vehicle executes a right turn at a 3-way intersection while an adversarial vehicle proceeds straight ahead.",
     "ego":  
@@ -94,7 +94,7 @@ Example 1 (single ego, single adversarial):
         "position": "Placed exactly in the center of the ego vehicle's current lane."
     }
     ]
-}
+}}
 
 Example 2 (single ego, multiple adversarials):
 {{

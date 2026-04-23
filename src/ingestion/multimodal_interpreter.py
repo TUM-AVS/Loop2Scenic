@@ -7,6 +7,8 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
+from google.genai import types
+
 from src.services import BaseVLMModel
 from ..prompt import load_prompt
 
@@ -255,21 +257,24 @@ class MultimodalDocumentInterpreter:
             raise ValueError("At least one of 'description', 'scenic_code', 'image', or 'video' must be provided")
         
         # Load prompt template
-        prompt_template = load_prompt(prompt_template_name)
-        prompt = prompt_template.format(
-            scenic_code=scenic_code or "",
-            description_text=description or ""
-        )
+        system_instruction = load_prompt(prompt_template_name)
+        contents = []
+        contents.append(types.Part.from_text(text=f"** Inputs **"))
+        if description:
+            contents.append(types.Part.from_text(text=f"Scenario Description Text: {description}"))
+        if image:
+            contents.append(types.Part.from_text(text=f"Scenario Image: "))
+            image_file = vlm_service.load_media(image)
+            contents.append(types.Part.from_uri(file_uri=image_file.uri, mime_type=image_file.mime_type))
+        if video:
+            contents.append(types.Part.from_text(text=f"Scenario Video: "))
+            video_file = vlm_service.load_media(video)
+            contents.append(types.Part.from_uri(file_uri=video_file.uri, mime_type=video_file.mime_type))
         
         logger.info(f"Processing multimodal content with VLM: {vlm_service.model_name}")
         
         # Call VLM service
-        response = vlm_service.chat(
-            text=prompt,
-            image=image,
-            video=video,
-            **kwargs
-        )
+        response = vlm_service.chat_with_content(contents=contents, system_instruction=system_instruction)
         
         logger.info(f"VLM processing completed successfully, result: {response}")
         return response

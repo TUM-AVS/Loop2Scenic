@@ -105,42 +105,34 @@ class MilvusVectorStore:
         if self.client.has_collection(collection_name=self.collection_name):
             logger.info(f"Loaded existing collection: {self.collection_name}")
         else:
-            logger.error(f"Collection {self.collection_name} does not exist")
-            raise ValueError(f"Collection {self.collection_name} does not exist")
-            ## Create collection with schema
-            # schema = self.client.create_schema(
-            #     auto_id=False,
-            #     enable_dynamic_field=True,
-            # )
+            # Create collection with schema
+            schema = self.client.create_schema(
+                auto_id=False,
+                enable_dynamic_field=True,
+            )
             
-            # # Add fields
-            # schema.add_field(field_name="id", datatype=DataType.VARCHAR, max_length=65535, is_primary=True)
-            # schema.add_field(field_name="embedding", datatype=DataType.FLOAT_VECTOR, dim=self.embedding_dim)
-            # schema.add_field(field_name="metadata", datatype=DataType.JSON)
+            # Add fields
+            schema.add_field(field_name="id", datatype=DataType.VARCHAR, max_length=65535, is_primary=True)
+            schema.add_field(field_name="embedding", datatype=DataType.FLOAT_VECTOR, dim=self.embedding_dim)
+            schema.add_field(field_name="metadata", datatype=DataType.JSON)
             
-            # # Create index
-            # index_params = self.client.prepare_index_params()
-            # index_params.add_index(
-            #     field_name="embedding", 
-            #     index_type=self.index_params.get("index_type", "IVF_FLAT"),
-            #     metric_type=self.index_params.get("metric_type", "COSINE"),
-            #     params=self.index_params.get("params", {"nlist": 1024})
-            # )
+            # Create index
+            index_params = self.client.prepare_index_params()
+            index_params.add_index(
+                field_name="embedding", 
+                index_type=self.index_params.get("index_type", "IVF_FLAT"),
+                metric_type=self.index_params.get("metric_type", "COSINE"),
+                params=self.index_params.get("params", {"nlist": 1024})
+            )
             
-            # # Create collection
-            # self.client.create_collection(
-            #     collection_name=self.collection_name,
-            #     schema=schema,
-            #     index_params=index_params
-            # )
+            # Create collection
+            self.client.create_collection(
+                collection_name=self.collection_name,
+                schema=schema,
+                index_params=index_params
+            )
             
-            # logger.info(f"Created new collection: {self.collection_name}")
-
-        if self.client.has_collection(collection_name=self.snippets_collection_name):
-            logger.info(f"Loaded existing collection: {self.snippets_collection_name}")
-        else:
-            logger.error(f"Collection {self.snippets_collection_name} does not exist")
-            raise ValueError(f"Collection {self.snippets_collection_name} does not exist")
+            logger.info(f"Created new collection: {self.collection_name}")
 
     def add_documents(
         self,
@@ -503,9 +495,6 @@ class MilvusVectorStore:
             self.client.drop_collection(collection_name=collection_name)
             logger.info(f"Dropped collection: {collection_name}")
         
-        # Recreate the collection
-        self._init_collection(collection_name=collection_name)
-        
         logger.info("Collection reset successfully")
 
     def get_documents(self, limit: int = 5, collection_name: str|None = None) -> List[Dict[str, Any]]:
@@ -523,3 +512,45 @@ class MilvusVectorStore:
         )
         
         return results
+
+    def get_all_item_ids(
+        self,
+        collection_name: str | None = None,
+        page_size: int = 1000
+    ) -> List[str]:
+        """
+        Retrieve all item IDs from a collection using pagination.
+
+        Args:
+            collection_name: Name of the collection to query. Uses default if None.
+            page_size: Number of rows to fetch per query.
+
+        Returns:
+            List of all IDs in the target collection.
+        """
+        if collection_name is None:
+            collection_name = self.collection_name  # default collection
+
+        logger.info(f"Retrieving all item IDs from {collection_name} (page_size={page_size})...")
+
+        all_ids: List[str] = []
+        offset = 0
+
+        while True:
+            # The primary key for this collection is VARCHAR, so we use a string-safe filter.
+            page = self.client.query(
+                collection_name=collection_name,
+                filter='id != ""',
+                output_fields=["id"],
+                limit=page_size,
+                offset=offset
+            )
+
+            if not page:
+                break
+
+            all_ids.extend(row["id"] for row in page if "id" in row)
+            offset += page_size
+
+        logger.info(f"Retrieved {len(all_ids)} IDs from {collection_name}")
+        return all_ids

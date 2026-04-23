@@ -13,7 +13,7 @@ from .schema import MultimodalQuery
 from .config import Config, get_config
 from .ingestion import MultimodalDocumentInterpreter
 from .services import MilvusVectorStore, get_reranker, get_vlm_service, get_embedder, Retriever
-from .utils import clean_and_parse_json, setup_logging
+from .utils import clean_and_parse_json, flatten_dsl_to_text, setup_logging
 
 logger = logging.getLogger(__name__)
 
@@ -157,7 +157,7 @@ class RAGPipeline:
             similarity_threshold=self.config.retrieval.similarity_threshold,
         )
 
-    def _initialize_vector_store(self, embedding_dim: int) -> MilvusVectorStore:
+    def _initialize_vector_store(self, embedding_dim: int):
         """Initialize vector database (Milvus) using the embedder dimension."""
         logger.info(
             f"Initializing Vector Store (Milvus "
@@ -185,7 +185,7 @@ class RAGPipeline:
             search_params=search_params,
         )
         logger.info("Vector Store initialized.")
-        return vector_db
+        self.vectorstore = vector_db
 
     def interpret_scenarios(self, directory_path: Union[str, Path]):
         """
@@ -196,55 +196,47 @@ class RAGPipeline:
         """
         scenarios_dicts = self.multimodal_interpreter.extract_from_directory(directory_path)
         for scenario_dict in scenarios_dicts:
-            # 1. Get the raw string output from the VLM
-            scenario_description_str = self.multimodal_interpreter.get_layer_model_description_by_vlm(
-                scenario_dict, self.vlm_service
-            )
-            logger.info(f"The raw VLM output is: {scenario_description_str}")
-
-            # 2. Parse the string into a Python dictionary
             try:
-                scenario_data = clean_and_parse_json(scenario_description_str)
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse JSON from VLM output: {e}. Skipping this scenario.")
-                logger.debug(f"Raw malformed output: {scenario_description_str}")
-                continue  # Skip to the next scenario if the VLM failed to output valid JSON
+                # 1. Get the raw string output from the VLM
+                scenario_description_str = self.multimodal_interpreter.get_layer_model_description_by_vlm(
+                    scenario_dict, self.vlm_service
+                )
+                logger.info(f"The raw VLM output is: {scenario_description_str}")
 
-            # 3. Flatten the JSON into plain text for optimal embedding
-            text_parts = []
-            text_parts.append(f"Scenario: {scenario_data.get('Scenario', '')}")
-            text_parts.append(f"The ego vehicle is {scenario_data.get('Ego', '')}")
-            
-            adversarials = scenario_data.get('Adversarials', [])
-            if adversarials:
-                text_parts.append(f"Adversarial objects: {' '.join(adversarials)}")
-            else:
-                text_parts.append("There are no adversarials.")
-                
-            text_parts.append(f"Spatial Relation: {scenario_data.get('Spatial Relation', '')}")
-            
-            reqs = scenario_data.get('Requirement and restrictions', '')
-            if reqs:
-                text_parts.append(f"Requirements and restrictions: {reqs}")
-                
-            flattened_text = " ".join(text_parts)
+                # 2. Parse the string into a Python dictionary
+                try:
+                    scenario_data = clean_and_parse_json(scenario_description_str)
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse JSON from VLM output: {e}. Skipping this scenario.")
+                    logger.debug(f"Raw malformed output: {scenario_description_str}")
+                    continue  # Skip to the next scenario if the VLM failed to output valid JSON
 
-            # 4. Ensure the folder exists
-            folder_path = scenario_dict.get("folder_path")
-            if not os.path.exists(folder_path):
-                os.makedirs(folder_path)
+                # 3. Flatten the JSON into plain text for optimal embedding
+                flattened_text = flatten_dsl_to_text(scenario_data)
+                if not flattened_text:
+                    logger.error("Failed to flatten parsed VLM output. Skipping this scenario.")
+                    continue
 
-            # 5. Save the structured JSON file (for LLM context/metadata)
-            json_path = Path(folder_path) / "new_description.json"
-            with open(json_path, "w", encoding="utf-8") as f:
-                json.dump(scenario_data, f, indent=4)
+                # 4. Ensure the folder exists
+                folder_path = scenario_dict.get("folder_path")
+                if not os.path.exists(folder_path):
+                    os.makedirs(folder_path)
 
-            # 6. Save the flattened plain text file (for Vector Embedding)
-            text_path = Path(folder_path) / "new_description.txt"
-            with open(text_path, "w", encoding="utf-8") as f:
-                f.write(flattened_text)
-                
-            logger.info(f"Successfully saved JSON and Text descriptions to {folder_path}")
+                # 5. Save the structured JSON file (for LLM context/metadata)
+                json_path = Path(folder_path) / "new_description.json"
+                with open(json_path, "w", encoding="utf-8") as f:
+                    json.dump(scenario_data, f, indent=4)
+
+                # 6. Save the flattened plain text file (for Vector Embedding)
+                text_path = Path(folder_path) / "new_description.txt"
+                with open(text_path, "w", encoding="utf-8") as f:
+                    f.write(flattened_text)
+                    
+                logger.info(f"Successfully saved JSON and Text descriptions to {folder_path}")
+            except Exception as e:
+                logger.error(f"Failed to interpret scenario: {e}")
+                logger.error(f"Scenario dictionary: {scenario_dict}")
+                continue
 
     def interpret_multimodal_query(self, multimodal_query: MultimodalQuery):
         """
@@ -269,23 +261,10 @@ class RAGPipeline:
             return None
 
         # 3. Flatten the JSON into plain text for optimal embedding
-        text_parts = []
-        text_parts.append(f"Scenario: {scenario_data.get('Scenario', '')}")
-        text_parts.append(f"The ego vehicle is {scenario_data.get('Ego', '')}")
-        
-        adversarials = scenario_data.get('Adversarials', [])
-        if adversarials:
-            text_parts.append(f"Adversarial objects: {' '.join(adversarials)}")
-        else:
-            text_parts.append("There are no adversarials.")
-            
-        text_parts.append(f"Spatial Relation: {scenario_data.get('Spatial Relation', '')}")
-        
-        reqs = scenario_data.get('Requirement and restrictions', '')
-        if reqs:
-            text_parts.append(f"Requirements and restrictions: {reqs}")
-            
-        flattened_text = " ".join(text_parts)
+        flattened_text = flatten_dsl_to_text(scenario_data)
+        if not flattened_text:
+            logger.error("Failed to flatten parsed VLM output.")
+            return None
             
         logger.info(f"Successfully interpreted multimodal query: {flattened_text}")
         return flattened_text
@@ -326,20 +305,24 @@ class RAGPipeline:
         Args:
             scenarios_dicts: List of scenario dictionaries
         """
+        return [self.embed_one_scenario(scenario_dict) for scenario_dict in scenarios_dicts]
 
-        # get the fields
-        content_fields = ["description", "image", "video"]
-        scenarios_dicts_with_content = []
-        for scenario_dict in scenarios_dicts:
-            scenario_dict_with_content = {}
-            for field in content_fields:
-                scenario_dict_with_content[field] = scenario_dict.get(field, "")
-            scenarios_dicts_with_content.append(scenario_dict_with_content)
-        embeddings = self.embedder.encode(scenarios_dicts_with_content)
-        for scenario_dict, embedding in zip(scenarios_dicts, embeddings):
-            scenario_dict["embedding"] = embedding
-            scenario_dict["metadata"] = scenario_dict.get("description_json", {})
-        return scenarios_dicts
+    def embed_one_scenario(self, scenario_dict: Dict[str, any]):
+        """
+        Embed one scenario.
+
+        Args:
+            scenario_dict: A single scenario dictionary
+        """
+        scenario_dict_with_content = {
+            "text": scenario_dict.get("description", ""),
+            "image": scenario_dict.get("image", ""),
+            "video": scenario_dict.get("video", ""),
+        }
+        embedding = self.embedder.encode([scenario_dict_with_content])[0]
+        scenario_dict["embedding"] = embedding
+        scenario_dict["metadata"] = scenario_dict.get("description_json", {})
+        return scenario_dict
 
     def add_documents_to_vector_store(self, scenarios_dicts: List[Dict[str, any]]):
         """
@@ -435,8 +418,8 @@ class RAGPipeline:
             logger.info(f"📄 Documents : {row_count}")
             logger.info("-" * 40)
 
-    def reset_current_collection(self):
+    def reset_current_collection(self, collection_name: str|None = None):
         """Reset the vector store (delete all documents)."""
         logger.warning("Resetting vector store")
-        self.vectorstore.reset_collection()
+        self.vectorstore.reset_collection(collection_name=collection_name)
         logger.info("Vector store reset complete")
