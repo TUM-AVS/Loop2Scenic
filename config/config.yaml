@@ -1,5 +1,5 @@
 vector_db:
-  collection_name: scenarios
+  collection_name: scenarios_new
   snippets_collection_name: scenario_components
   distance_metric: cosine # Options: cosine, l2, ip
 

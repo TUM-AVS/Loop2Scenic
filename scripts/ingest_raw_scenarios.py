@@ -7,6 +7,7 @@ Usage:
 
 import csv
 import sys
+import logging
 from pathlib import Path
 
 # Add parent directory to path
@@ -16,10 +17,11 @@ from src.pipeline import RAGPipeline
 from src.utils import setup_logging
 
 SOURCE_PATH = Path("/home/dellpro2/chenli/ads-mrag/ads-mrag/data/scenarios")
+logger = logging.getLogger(__name__)
 
 
 def scan_test_subfolders_for_required_files(
-    base_dir: Path | str = Path("/home/dellpro2/chenli/ads-mrag/ads-mrag/data/scenarios"),
+    base_dir: Path | str = SOURCE_PATH,
 ) -> dict[str, list[str]]:
     """
     Check each immediate subfolder in base_dir for required files.
@@ -55,6 +57,23 @@ def step_1_interpret_and_extract(pipeline: RAGPipeline) -> list[dict]:
     print(f"Ingesting scenarios from: {SOURCE_PATH}")
     print("Step 1: Interpreting scenarios with VLM...")
     pipeline.interpret_scenarios(directory_path=SOURCE_PATH)
+
+    missing_new_description_json = [
+        subfolder.name
+        for subfolder in sorted(SOURCE_PATH.iterdir())
+        if subfolder.is_dir() and not (subfolder / "new_description.json").is_file()
+    ]
+    if missing_new_description_json:
+        logger.warning(
+            "Missing new_description.json in %d subfolders: %s",
+            len(missing_new_description_json),
+            ", ".join(missing_new_description_json),
+        )
+        print(f"Missing new_description.json in {len(missing_new_description_json)} subfolders: {', '.join(missing_new_description_json)}")
+    else:
+        logger.info("All subfolders contain new_description.json")
+        print("All subfolders contain new_description.json")
+
     scenarios_dicts = pipeline.multimodal_interpreter.extract_from_directory(
         SOURCE_PATH, use_new_description=True
     )
@@ -244,7 +263,7 @@ def vector_db_operations():
     stats = pipeline.get_stats()
     print(f"The stats: {stats}")
 
-    item_ids = pipeline.vectorstore.get_all_item_ids(collection_name="scenarios", page_size=200)
+    item_ids = pipeline.vectorstore.get_all_item_ids(collection_name="scenarios_new", page_size=200)
     print(f"The item ids: {item_ids}")
 
     comparison = compare_subfolders_and_item_ids(SOURCE_PATH, item_ids)
@@ -255,6 +274,6 @@ def vector_db_operations():
 
 
 if __name__ == "__main__":
-    vector_db_operations()
-    # ingest_raw_scenarios()
+    # vector_db_operations()
+    ingest_raw_scenarios()
     # scan_test_subfolders_for_required_files()

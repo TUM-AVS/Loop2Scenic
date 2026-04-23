@@ -267,13 +267,62 @@ def remove_extra_folders(folder_path: Path = SOURCE_PATH) -> list[Path]:
             shutil.rmtree(target_dir)
             removed.append(target_dir)
 
+        # remove the video.mp4 file
+        for file_name in ("video.mp4", "new_description.json", "new_description.txt"):
+            file_path = subfolder / file_name
+            if file_path.is_file():
+                file_path.unlink()
+                removed.append(file_path)
+
     return removed
 
+def check_if_all_files_exist(folder_path: Path = SOURCE_PATH) -> bool:
+    """
+    Check required files in each immediate subfolder.
+
+    Required files per subfolder:
+    - BEV.mp4
+    - code.scenic
+    - description.txt
+    - new_description.json
+    - new_description.txt
+
+    Prints subfolder name and missing file names for incomplete subfolders.
+    """
+    if not folder_path.exists():
+        raise FileNotFoundError(f"Folder does not exist: {folder_path}")
+    if not folder_path.is_dir():
+        raise NotADirectoryError(f"Expected directory, got: {folder_path}")
+
+    required_files = (
+        "BEV.mp4",
+        "code.scenic",
+        "description.txt",
+        "new_description.json",
+        "new_description.txt",
+    )
+
+    all_complete = True
+    for subfolder in sorted(folder_path.iterdir()):
+        if not subfolder.is_dir():
+            continue
+
+        missing = [
+            filename
+            for filename in required_files
+            if not (subfolder / filename).is_file()
+        ]
+        if missing:
+            all_complete = False
+            print(f"{subfolder.name}: missing {', '.join(missing)}")
+
+    return all_complete
 
 if __name__ == "__main__":
     # csv_path = collect_description()
     # reformat_scenarios()
     # extract_description()
     # run_simulation_and_save_video()
-    move_videos()
-    remove_extra_folders()
+    # move_videos()
+    # remove_extra_folders()
+    check_if_all_files_exist()
