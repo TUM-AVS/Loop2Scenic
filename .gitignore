@@ -24,6 +24,9 @@ wheels/
 temp/
 temp_scenic_code/
 
+# Eval
+eval/results
+
 # Virtual Environment
 venv/
 env/
