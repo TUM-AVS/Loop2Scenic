@@ -266,10 +266,13 @@ def run_simulation_in_carla_and_save_video(scenic_code: str, scenario_id: str = 
 def get_error_message_from_logs(scenario_id: str) -> Optional[str]:
     """
     Return the text block between:
-      "=== RECORDING START ==="
+      "Traceback"
     and
       "=== CARLA SETTINGS (post-scenic) ==="
     from the first matching log file under temp/{scenario_id}/logs.
+
+    Includes the line containing "Traceback" and excludes the line containing
+    "=== CARLA SETTINGS (post-scenic) ===".
     """
     log_dir = f"temp/{scenario_id}/logs"
     if not os.path.isdir(log_dir):
@@ -286,7 +289,7 @@ def get_error_message_from_logs(scenario_id: str) -> Optional[str]:
         start_idx = None
         end_idx = None
         for i, line in enumerate(lines):
-            if start_idx is None and "=== RECORDING START ===" in line:
+            if start_idx is None and "Traceback" in line:
                 start_idx = i
                 continue
             if start_idx is not None and "=== CARLA SETTINGS (post-scenic) ===" in line:
@@ -294,8 +297,8 @@ def get_error_message_from_logs(scenario_id: str) -> Optional[str]:
                 break
         if start_idx is None:
             continue
-        # If end marker missing, return everything after start marker.
-        block = lines[start_idx + 1:end_idx] if end_idx is not None else lines[start_idx + 1:]
+        # If end marker missing, return everything from Traceback to file end.
+        block = lines[start_idx:end_idx] if end_idx is not None else lines[start_idx:]
         text = "".join(block).strip()
         return text if text else None
     return None
