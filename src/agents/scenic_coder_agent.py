@@ -306,37 +306,42 @@ param weather = '{header_settings.weather}'
         
         # return final_code
 
-    def debug_code(self, scenic_code: str, error_message: str, header_settings: HeaderSetting | None) -> str:
-        # 0. Generate the header instruction
-        if not header_settings:
-            header_instruction = f"""
-            DO NOT modify the original header block. 
-            Identify the header block (which typically contains the description, map, model, and weather parameters, similar to the example below) and keep it exactly as it is in the original code.
-            {header_format_example}
-            """
-        else:
-            new_header = self.generate_header(header_settings)
-            header_instruction = f"""
-            REPLACE the original header block (which typically contains the description, map, model, and weather parameters) with the exact new header provided below.
-            {header_format_example}
+    def debug_code(self, scenic_code: str, error_message: str) -> str:
+        # 1. Get exact what is the error component
+        error_type_classification = self.generate_and_clean(load_prompt("debug_error_type_classification").format(
+            scenic_code=scenic_code,
+            error_message=error_message
+        ))
+        error_type_classification = clean_and_parse_json(error_type_classification)
+        logger.info(f"Error type classification: {error_type_classification}")
+        error_component = error_type_classification.get("error_component", "")
+        logger.info(f"Error component: {error_component}")
 
-            <new_header_to_use>
-            {new_header}
-            </new_header_to_use>
-            """
-
-        # 1. Format the prompt
-        prompt = load_prompt("debug_scenic_code").format(
-            scenic_code_to_debug=scenic_code, 
-            error_message=error_message, 
-            header_instruction=header_instruction
+        allowed_debug_components = ["spatial_relation", 
+                                    "ego", 
+                                    "adversarials", 
+                                    "road_side_structures", 
+                                    "temporary_modifications",
+                                    "requirements_and_restrictions",]
+        if error_component not in allowed_debug_components:
+            logger.error(f"Invalid error component: {error_component}")
+            return scenic_code # if the error component is not in the allowed list, return the original scenic code
+        
+        # 2. fix the bug using specific prompt
+        full_code = None
+        prompt = load_prompt(f"debug_{error_component}").format(
+            scenic_code=scenic_code,
+            error_message=error_message
         )
-        formatted_prompt = prompt.strip()
+        result_json = self.generate_and_clean(prompt)
+        result_json = clean_and_parse_json(result_json)
+        logger.info(f"Result JSON: {result_json}")
+        full_code = result_json.get("full_code", "")
 
-        # 2. Call the LLM service
-        response = self.llm_service.chat([{"role": "user", "content": formatted_prompt}])
-        fixed_code = clean_and_parse_json(response).get("fixed_code", "")
-        return fixed_code
+        if full_code:
+            return full_code
+        else:
+            raise ValueError(f"Failed to fix the bug for {error_component}")
 
 if __name__ == "__main__":
     from src.services import MilvusVectorStore
