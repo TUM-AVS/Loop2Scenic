@@ -124,4 +124,4 @@ Example 2 (single ego, multiple adversarials):
     "reasoning_chain":""
 }}
 
-Extract and convert the following scenario into the exact JSON format requested. Output ONLY the JSON object.
+Extract and convert the following scenario into the exact JSON format requested. Output ONLY the raw JSON object. You are strictly forbidden from truncating the text or using placeholders like .... Do not stop generating until every key is populated and the final closing brace of the JSON is output.

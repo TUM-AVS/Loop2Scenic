@@ -274,6 +274,6 @@ def vector_db_operations():
 
 
 if __name__ == "__main__":
-    # vector_db_operations()
-    ingest_raw_scenarios()
+    vector_db_operations()
+    # ingest_raw_scenarios()
     # scan_test_subfolders_for_required_files()

@@ -21,7 +21,7 @@ from src.services import (
 )
 from src.utils.logger import setup_logging
 
-FOLDER_PATH = "/home/dellpro2/chenli/ads-mrag/ads-mrag/data/eval"
+FOLDER_PATH = "/home/dellpro2/chenli/ads-mrag/ads-mrag/data/scenarios"
 
 
 class QueryMode(str, Enum):
@@ -276,38 +276,50 @@ class EvalRetrieval:
             "flattened_dsl",
             "base_scenario_id",
             "best_scenario_ids",
+            "error_message",
         ]
-
-        rows: list[dict[str, str]] = []
-        for record in query_records:
-            ground_truth = record["ground_truth"]
-            query = record["query"]
-
-            embedded_state = self.embed_query({"user_query": query})
-            retrieved_state = self.retrieve_base_scenario(embedded_state) if embedded_state else {}
-
-            scenario_dsl = embedded_state.get("scenario_dsl") if embedded_state else None
-            flattened_dsl = embedded_state.get("flattened_dsl") if embedded_state else None
-            base_scenario_id = retrieved_state.get("base_scenario_id") if retrieved_state else None
-            best_scenario_ids = retrieved_state.get("best_scenario_ids") if retrieved_state else None
-
-            rows.append(
-                {
-                    "ground_truth": str(ground_truth),
-                    "user_query": query.model_dump_json(),
-                    "scenario_dsl": json.dumps(scenario_dsl, ensure_ascii=False) if scenario_dsl is not None else "",
-                    "flattened_dsl": str(flattened_dsl) if flattened_dsl is not None else "",
-                    "base_scenario_id": str(base_scenario_id) if base_scenario_id is not None else "",
-                    "best_scenario_ids": json.dumps(best_scenario_ids, ensure_ascii=False)
-                    if best_scenario_ids is not None
-                    else "",
-                }
-            )
 
         with output_csv_path.open("w", newline="", encoding="utf-8") as csvfile:
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
-            writer.writerows(rows)
+            for record in query_records:
+                self.logger.info("Evaluating query for ground_truth=%s", record["ground_truth"])
+                ground_truth = record["ground_truth"]
+                query = record["query"]
+                error_message = ""
+                scenario_dsl = None
+                flattened_dsl = None
+                base_scenario_id = None
+                best_scenario_ids = None
+
+                try:
+                    embedded_state = self.embed_query({"user_query": query})
+                    retrieved_state = self.retrieve_base_scenario(embedded_state) if embedded_state else {}
+
+                    scenario_dsl = embedded_state.get("scenario_dsl") if embedded_state else None
+                    flattened_dsl = embedded_state.get("flattened_dsl") if embedded_state else None
+                    base_scenario_id = retrieved_state.get("base_scenario_id") if retrieved_state else None
+                    best_scenario_ids = retrieved_state.get("best_scenario_ids") if retrieved_state else None
+                except Exception as exc:
+                    error_message = str(exc)
+                    self.logger.exception(
+                        "Failed to evaluate query for ground_truth=%s",
+                        ground_truth,
+                    )
+
+                writer.writerow(
+                    {
+                        "ground_truth": str(ground_truth),
+                        "user_query": query.model_dump_json(),
+                        "scenario_dsl": json.dumps(scenario_dsl, ensure_ascii=False) if scenario_dsl is not None else "",
+                        "flattened_dsl": str(flattened_dsl) if flattened_dsl is not None else "",
+                        "base_scenario_id": str(base_scenario_id) if base_scenario_id is not None else "",
+                        "best_scenario_ids": json.dumps(best_scenario_ids, ensure_ascii=False)
+                        if best_scenario_ids is not None
+                        else "",
+                        "error_message": error_message,
+                    }
+                )
 
         self.logger.info("Saved retrieval evaluation (%s) to %s", mode.value, output_csv_path)
         return output_csv_path
