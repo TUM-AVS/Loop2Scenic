@@ -52,9 +52,18 @@ class ScenicCoderAgent(BaseAgent):
                 scenic_code += "\n" + repl + "\n"
         return scenic_code
 
-    def generate_header(self, header_settings: HeaderSetting) -> str:
+    def generate_header(self, header_settings: HeaderSetting | None) -> str:
         """
         Generate the header for the scenario based on the header settings.
+        """
+        if not header_settings:
+            return f"""
+description = "No header settings provided"
+param map = localPath('../../maps/Town05.xodr')
+param carla_map = 'Town05'
+model scenic.simulators.carla.model
+MODEL = 'vehicle.lincoln.mkz_2017'
+param weather = 'ClearNoon'
         """
         header = f"""
 description = "Using map {header_settings.map_file_path} with carla map {header_settings.carla_map} and weather {header_settings.weather}"
@@ -67,6 +76,19 @@ param weather = '{header_settings.weather}'
         return header
 
     def get_snippets(self, text: str, comp_type: str) -> List[str]:
+        # comp_type mapping
+        if comp_type == "spatial_relation":
+            comp_type = "Spatial Relation"
+        elif comp_type == "ego":
+            comp_type = "Ego"
+        elif comp_type == "adversarials":
+            comp_type = "Adversarial"
+        elif comp_type == "road_side_structures":
+            comp_type = "Adversarial" # same as adversarial
+        elif comp_type == "temporary_modifications":
+            comp_type = "Adversarial" # same as adversarial
+        elif comp_type == "requirements_and_restrictions":
+            comp_type = "Requirement and restrictions"
         try:
             query_embedding = self.snippets_embedder.encode([{"text": text}])[0]
             if hasattr(query_embedding, "tolist"): query_embedding = query_embedding.tolist()
@@ -118,7 +140,7 @@ param weather = '{header_settings.weather}'
             return load_prompt("component_generator_temporary_modification")
         else:
             logger.error(f"Invalid aspect: {aspect}")
-            return load_prompt("ego_generation")
+            return load_prompt("component_generator_ego")
 
     def prepare_snippets(self, snippets: List[str]) -> str:
         """
@@ -185,11 +207,7 @@ param weather = '{header_settings.weather}'
         # STEP 1: INITIALIZE HEADER
         # =========================================================
         logger.info("📄 Generating/Extracting Header...")
-        if header_settings:
-            retrieved_components["header"] = self.generate_header(header_settings)
-        else:
-            header_prompt = f"Extract the header block exactly as it is from this code. Output ONLY the extracted code:\n{original_scenic_code}"
-            retrieved_components["header"] = self.generate_and_clean(header_prompt)
+        retrieved_components["header"] = self.generate_header(header_settings)
 
         # =========================================================
         # STEP 2: COMPONENT GENERATION

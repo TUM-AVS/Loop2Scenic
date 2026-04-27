@@ -12,7 +12,7 @@ from typing import Any, Optional
 from src.app import ChatbotWorkflow
 from src.schema import MultimodalQuery
 
-FOLDER_PATH = "/home/dellpro2/chenli/ads-mrag/ads-mrag/data/scenarios"
+FOLDER_PATH = "/home/dellpro2/chenli/ads-mrag/ads-mrag/data/test"
 
 
 class QueryMode(str, Enum):
@@ -199,10 +199,12 @@ class EvalE2EWorkflow:
                 generation_count: int | str = ""
 
                 try:
+                    self.logger.info(f"[START E2E] Running query for ground_truth={ground_truth}")
                     result = self.run_query_to_output_best_scenario(
                         query=query,
                         thread_id=f"e2e_eval_{ground_truth}_{uuid.uuid4().hex}",
                     )
+                    self.logger.info(f"[END E2E] Query for ground_truth={ground_truth} completed")
                     final_state = result.get("state", {})
                     best_scenic_code = result.get("best_scenic_code")
                     best_scenario_id = str(result.get("best_scenario_id") or "")
@@ -212,7 +214,7 @@ class EvalE2EWorkflow:
                     if not best_scenario_id:
                         best_scenario_id = f"no_best_scenario_{ground_truth}"
 
-                    query_result_dir = results_root / best_scenario_id
+                    query_result_dir = results_root / str(ground_truth)
                     query_result_dir.mkdir(parents=True, exist_ok=True)
 
                     scenic_path = query_result_dir / f"{best_scenario_id}.scenic"
@@ -251,3 +253,10 @@ class EvalE2EWorkflow:
 
         self.logger.info("Saved e2e batch results to %s", output_csv_path)
         return output_csv_path
+
+if __name__ == "__main__":
+    evaluator = EvalE2EWorkflow()
+    # output_csv1 = evaluator.run_batch(mode=QueryMode.TEXT_ONLY)
+    # print(f"Batch done. CSV: {output_csv1}")
+    output_csv2 = evaluator.run_batch(mode=QueryMode.TEXT_VIDEO)
+    print(f"Batch done. CSV: {output_csv2}")
