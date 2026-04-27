@@ -376,7 +376,7 @@ class ScenarioWorkflow:
         # 2. adapt the code, if the code has error, call debug function, otherwise call adapt function
         adapted_scenic_code = ""
         if current_scenic_code_error or not current_evaluation_result:
-            adapted_scenic_code = self.coder.debug_code(current_scenic_code, current_scenic_code_error, header_settings)
+            adapted_scenic_code = self.coder.debug_code(current_scenic_code, current_scenic_code_error)
         else:
             adapted_scenic_code = self.coder.adapt_code(current_scenic_code, current_evaluation_result, scenario_dsl, header_settings)
         self.logger.info(f"🛠 Adapted Scenic code, generation count: {generation_count + 1}")

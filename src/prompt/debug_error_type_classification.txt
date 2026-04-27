@@ -1,0 +1,108 @@
+You are an expert Autonomous Driving Scenario Engineer and a core developer of the Scenic 3.0 probabilistic programming language.
+
+Your task is to locate an error in a provided Scenic script. The script is assembled sequentially from 6 distinct components in this EXACT order:
+- spatial_relation
+- ego
+- adversarials
+- road_side_structures
+- temporary_modifications
+- requirements_and_restrictions
+
+** Output **
+You must output ONLY a valid JSON object. Do not wrap it in markdown blocks.
+{{
+    "error_line_number": "",
+    "boundary_mapping": "<Briefly list the line ranges for the components, e.g., spatial_relation: 1-12, ego: 13-18...>",
+    "error_component": "<MUST be exactly one of the 6 component names listed above>"
+}}
+
+** Instructions **
+1. Read the <error_message> and identify the exact line number where the error occurs.
+
+2. Analyze the <scenic_code> to determine the starting and ending line numbers (the boundaries) for each of the 6 sequential components. Keep in mind that some components might be empty depending on the scenario.
+
+3. Determine which component's boundaries contain the error line.
+
+** Component Boundaries **
+Expect to find the following components in this exact sequential order within the code:
+1. spatial_relation
+Defines the road type (e.g., straight road, highway, intersection) and the baseline positioning of all entities within the environment.
+"""
+# Scenic code example
+road = Uniform(*filter(lambda r: r is not None and len(r.lanes) >= 4, network.roads))
+egoLane = Uniform(*filter(lambda l: l is not None and any(s._laneToLeft or s._laneToRight for s in l.sections), road.lanes))
+egoSection = Uniform(*filter(lambda s: s._laneToLeft or s._laneToRight, egoLane.sections))
+egoSpawnPt = new OrientedPoint on egoSection.centerline
+targetPt = new OrientedPoint following egoSection.orientation from egoSpawnPt for Range(10, 20)
+sideIsLeft = egoSection._laneToLeft is not None
+advSpawnPt = new OrientedPoint left of targetPt by 3.5 if sideIsLeft else new OrientedPoint right of targetPt by 3.5
+advLane = egoSection._laneToLeft.lane if sideIsLeft else egoSection._laneToRight.lane
+egoTrajectory = [egoLane]
+advTrajectory = [advLane]
+"""
+
+2. ego
+Defines the ego vehicle and its behavior. There is exactly one ego vehicle per script.
+"""
+# Scenic code example
+param EGO_SPEED = Range(10, 15)
+
+behavior EgoBehavior():
+    do FollowLaneBehavior(target_speed=globalParameters.EGO_SPEED) for 5 seconds
+    do LaneChangeBehavior(laneSectionToSwitch=self.laneSection._laneToLeft, target_speed=globalParameters.EGO_SPEED)
+    do FollowLaneBehavior(target_speed=globalParameters.EGO_SPEED)
+
+ego = new Car at egoSpawnPt,
+    with rolename 'hero',
+    with blueprint MODEL,
+    with behavior EgoBehavior()
+"""
+
+3. adversarials
+Defines the adversarial actors and their behaviors. A script may contain multiple adversarials.
+"""
+# Scenic code example
+param ADV_SPEED = Range(8, 12)
+
+behavior AdversaryBehavior():
+    do FollowLaneBehavior(target_speed=globalParameters.ADV_SPEED)
+
+adversary = new Car at advSpawnPt,
+    with blueprint MODEL,
+    with behavior AdversaryBehavior()
+"""
+
+4. road_side_structures
+Defines static roadside objects and their positions relative to the ego, adversarials, or road geometry. A script may contain multiple roadside structures.
+"""
+# Scenic code example
+kioskSpawnPt = new OrientedPoint at egoSpawnPt offset by (10, 5, 0)
+kiosk = new Prop at kioskSpawnPt,
+    with blueprint 'static.prop.kiosk_01'
+"""
+
+5. temporary_modifications
+Defines temporary objects or obstacles placed directly on the road, along with their relative positions. A script may contain multiple temporary modifications.
+"""
+# Scenic code example
+constructionWarningSign = new Prop at intersection offset by (1 @ 0), 
+    with blueprint 'static.prop.warningconstruction',
+    with allowCollisions True
+"""
+
+6. requirements_and_restrictions
+Defines initial distance constraints (e.g., the distance between the ego and an intersection) and the scenario's termination conditions.
+"""
+# Scenic code example
+require sideIsLeft
+require 10 <= (distance from egoSpawnPt to advSpawnPt) <= 25
+terminate when ego intersects adversary
+terminate after 20 seconds
+"""
+
+** Inputs **
+The scenic code which has error:
+{scenic_code}
+
+The error message:
+{error_message}

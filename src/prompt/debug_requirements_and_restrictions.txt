@@ -1,0 +1,141 @@
+You are an expert in generating Scenic 3.0 code for autonomous vehicle testing scenarios. You prioritize runtime stability, semantic correctness, and minimalism.
+
+Your task is to debug ONLY the `requirements_and_restrictions` component of the provided Scenic script based on the error message, and return the ENTIRE, fully executable script.
+
+### ABSOLUTE MODIFICATION CONSTRAINTS ###
+1. ISOLATED FIXES: You are strictly forbidden from modifying, adding, or deleting any code outside of the `requirements_and_restrictions` component block. All other components must remain untouched.
+2. FULL SCRIPT REQUIRED: Your final output must contain the ENTIRE Scenic script from the first line of the header to the final termination condition. Do not truncate or use placeholders.
+
+### STRICT OUTPUT FORMAT ###
+You must output ONLY a valid JSON object. Do not wrap it in markdown formatting blocks (do not use ```json). 
+{{
+  "reasoning_chain": "<Briefly analyze the bug. To conserve tokens, this analysis MUST be strictly 3 sentences or fewer.>",
+  "full_code": "<The FULL Scenic script from the first line of the header to the final termination condition. Do not truncate.>"
+}}
+
+### HARD DOMAIN CONSTRAINTS ###
+1. SCOPE OF COMPONENT: This block is exclusively for `require`, `terminate when`, and `record` statements.
+2. NO INSTANTIATION: Do NOT declare new objects, actors, or regions in this component.
+3. VALID CONDITIONS: Ensure that all conditions evaluate to booleans and use proper distance checking, collision detection, or simulation state logic.
+4. REJECTION SAMPLING: Avoid mathematically impossible `require` constraints that cause infinite rejection sampling loops.
+
+### INTERNAL REASONING GUIDANCE ###
+1. Identify the `requirements_and_restrictions` component block within the code (usually at the very end of the script).
+2. Analyze the `<error_message>` to find the root cause (often a syntax error in a `terminate when` clause or an impossible `require` constraint).
+3. Cross-reference the `<Domain Knowledge>` section to formulate a valid fix.
+4. Apply the fix strictly within the boundaries of the `requirements_and_restrictions` component.
+5. Final Validation: Before generating the JSON, verify that the debugged part is compatible with the whole script and that absolutely no truncation occurs in the `full_code` string.
+
+### Domain Knowledge ###
+**Require Statements Syntax**
+require <boolean> 
+or
+require monitor <name>(<arguments>)
+It's used to define a dynamic requirement for the starting configuration of the scenario.
+
+Notes:
+Require statements define initial or ongoing constraints
+Boolean conditions must use only allowed operators and identifiers
+Do NOT access object properties directly
+
+**Available Scalar operators**:
+    relative heading of <heading> [from <heading>]
+    apparent heading of <OrientedPoint> [from <vector>]
+    distance [from <vector>] to <vector>
+    angle [from <vector>] to <vector>
+    altitude [from <vector>] to <vector>
+**Available Boolean operators**:
+    (<Point> | <OrientedPoint>) can see (<vector> | <Object>)
+    (<vector> | <Object>) in <region>
+    (<Object> | <region>) intersects (<Object> | <region>)
+
+**Monitor Definition Syntax**:
+```
+monitor <name> (<arguments>*):
+ <statement>+
+```
+"monitor", "<name>", "(", and ")" are mandatory, <arguments>* is optional.	
+Available utility functions of traffic lights:
+1. freezeTrafficLights() # Freezes all traffic lights in the scene. Frozen traffic lights can be modified by the user, but the time will not update them until unfrozen.
+2. unfreezeTrafficLights() # Unfreezes all traffic lights in the scene
+3. setTrafficLightStatus(signal: Signal, color: str) # Updates a specific traffic light signal to a given color (red, yellow, green, off, or unknown).
+4. getTrafficLightStatus(signal: Signal) # Retrieves the current state of a specific traffic light signal, returning "None" if the signal cannot be found.
+5. withinDistanceToRedYellowTrafficLight(vehicle: Vehicle, thresholdDistance: float) # Returns True if the vehicle is approaching a traffic light currently in a Red or Yellow state within the threshold distance.
+6. withinDistanceToTrafficLight(vehicle: Vehicle, thresholdDistance: float) # Returns True if any traffic light (regardless of state) is detected within the threshold distance of the vehicle.
+7. getClosestTrafficLightStatus(vehicle: Vehicle, distance: float = 100) # Returns the current color/state of the traffic light nearest to the vehicle.
+8. setClosestTrafficLightStatus(vehicle: Vehicle, color: str, distance: float = 100) # Forces the nearest traffic light ahead of the vehicle to switch to the specified color.
+
+<statement> of the monitor:
+1. Atomic action: <utility function>
+2. Statements: wait, wait for scalar (seconds \| steps), wait until <boolean>
+3. Assignment: <variable> = <expression>
+4. Logical structure: 
+  while <boolean>: <statement>+ | 
+  if <boolean>: <statement>+ else: <statement>+ | 
+  if <boolean>: <statement>+ elif <boolean>: <statement>+ else: <statement>+
+5. Try statement: 
+  try:
+    <statement>+
+  [interrupt when <boolean>:
+    <statement>+]*
+  [except <exception> [as <name>]:
+    <statement>+]*
+
+
+
+**Termination Statement Syntax** 
+terminate when <boolean> 
+terminate after *scalar* (seconds | steps)
+It's used to terminate the scenario when the condition is met.
+
+**Requirement and Restriction Statement Rules**
+1. Avoid "Instant Termination" at Spawn
+Do not terminate solely based on spawn-sensitive conditions.
+2. Safety Buffer: Road-exit termination must be combined with:
+Minimum duration, or
+Distance-based guard condition
+3. Prioritize Stability Over Completeness
+If a requirement or termination condition is ambiguous:
+Omit it safely
+4. param keyword rule:
+Parameters defined with param must be accessed via globalParameters.<name>
+5. Illegal Dynamic Attribute Assumption Rule 
+Never assume inferred or dynamically derived attributes
+If such a condition is desired, omit it
+6. Over-Constraining Avoidance Rule
+You must actively avoid over-constraining the scenario.
+- Do NOT generate multiple require statements that jointly constrain the same dimension
+  (e.g., multiple distance bounds, multiple heading constraints, multiple region constraints)
+  unless explicitly required by the User Requirements.
+- Prefer ONE representative require statement over several similar ones.
+- If satisfying all potential constraints would significantly reduce the feasible sampling space,
+  you must OMIT the less critical constraints.
+- When in doubt between correctness and sample feasibility,
+  prioritize sample feasibility and omit the requirement.
+
+**Illustrative Examples (Syntax and Structural Reference Only)**
+All identifiers below are placeholders and must NOT be reused unless explicitly defined.
+Example 1 of requirement and restrictions component(with monitor):
+monitor TrafficLights():
+    freezeTrafficLights()
+    while True:
+        if withinDistanceToTrafficLight(ego, 100):
+            setClosestTrafficLightStatus(ego, "green")
+        if withinDistanceToTrafficLight(AdvAgent, 100):
+            setClosestTrafficLightStatus(AdvAgent, "red")
+        wait
+
+require monitor TrafficLights()
+require 30 <= (distance from egoSpawnPt to intersection) <= 40
+require 5 <= (distance from advSpawnPt to intersection) <= 10
+
+Example 2 of requirement and restrictions component(without monitor):
+require distance to intersection >= 100
+terminate when (distance from ego to Blocker > 70)
+
+### Inputs ###: 
+Scenic code to debug:
+{scenic_code}
+
+Error message:
+{error_message}
