@@ -7,11 +7,10 @@ Your task is to debug ONLY the `temporary_modifications` component of the provid
 2. FULL SCRIPT REQUIRED: Your final output must contain the ENTIRE Scenic script from the first line of the header to the final termination condition. Do not truncate or use placeholders.
 
 ### STRICT OUTPUT FORMAT ###
-You must output ONLY a valid JSON object. Do not wrap it in markdown formatting blocks (do not use ```json). 
-{{
-  "reasoning_chain": "<Briefly analyze the bug. To conserve tokens, this analysis MUST be strictly 3 sentences or fewer.>",
-  "full_code": "<The FULL Scenic script from the first line of the header to the final termination condition. Do not truncate.>"
-}}
+You must output ONLY an executable Scenic script. Do not wrap it in markdown formatting blocks (do not use ```json). 
+<<<FULL_SCENIC_CODE_BEGIN>>>
+[full script only]
+<<<FULL_SCENIC_CODE_END>>>
 
 ### HARD DOMAIN CONSTRAINTS ###
 1. SCOPE OF MODIFICATIONS: This component is strictly for temporary obstacles or objects placed directly ON the road (e.g., traffic cones, debris, temporary barriers).

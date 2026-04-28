@@ -356,10 +356,21 @@ param weather = '{weather}'
             scenic_code=scenic_code,
             error_message=error_message
         )
-        result_json = self.generate_and_clean(prompt)
-        result_json = clean_and_parse_json(result_json)
-        logger.info(f"Result JSON: {result_json}")
-        full_code = result_json.get("full_code", "")
+        raw_result = self.generate_and_clean(prompt)
+
+        # Preferred path: extract full Scenic script from explicit delimiters.
+        delimiter_match = re.search(
+            r"<<<FULL_SCENIC_CODE_BEGIN>>>\s*([\s\S]*?)\s*<<<FULL_SCENIC_CODE_END>>>",
+            raw_result or "",
+        )
+        if delimiter_match:
+            full_code = delimiter_match.group(1).strip()
+            logger.info("Extracted full scenic code from delimiter block.")
+        else:
+            # Backward-compatible fallback for older JSON-style prompts.
+            result_json = clean_and_parse_json(raw_result)
+            logger.info(f"Result JSON: {result_json}")
+            full_code = result_json.get("full_code", "") if result_json else ""
 
         if full_code:
             return full_code
