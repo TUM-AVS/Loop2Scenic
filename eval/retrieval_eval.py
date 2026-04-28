@@ -324,7 +324,79 @@ class EvalRetrieval:
         self.logger.info("Saved retrieval evaluation (%s) to %s", mode.value, output_csv_path)
         return output_csv_path
 
+def analyze_retrieval_csv(csv_path: str | Path) -> dict[str, float]:
+    """
+    Analyze retrieval/eval CSV with columns:
+    - ground_truth
+    - base_scenario_id
+    - best_scenario_ids
+    - error_message
+
+    Returns rates in percentage:
+    1) no_error_rate
+    2) ground_truth_eq_base_scenario_id_rate_among_no_error
+    3) ground_truth_in_best_scenario_ids_rate_among_no_error
+    """
+    path = Path(csv_path)
+    if not path.exists():
+        raise FileNotFoundError(f"CSV file not found: {path}")
+
+    total_count = 0
+    no_error_count = 0
+    base_match_count = 0
+    in_best_ids_count = 0
+
+    with path.open("r", newline="", encoding="utf-8") as csvfile:
+        reader = csv.DictReader(csvfile)
+        for row in reader:
+            total_count += 1
+            ground_truth = str(row.get("ground_truth", "")).strip()
+            error_message = str(row.get("error_message", "")).strip()
+
+            if error_message:
+                continue
+
+            no_error_count += 1
+
+            base_scenario_id = str(row.get("base_scenario_id", "")).strip()
+            if ground_truth == base_scenario_id:
+                base_match_count += 1
+
+            best_scenario_ids_raw = row.get("best_scenario_ids", "")
+            best_scenario_ids: list[str] = []
+            if isinstance(best_scenario_ids_raw, str) and best_scenario_ids_raw.strip():
+                raw = best_scenario_ids_raw.strip()
+                try:
+                    parsed = json.loads(raw)
+                    if isinstance(parsed, list):
+                        best_scenario_ids = [str(x).strip() for x in parsed]
+                    else:
+                        best_scenario_ids = [str(parsed).strip()]
+                except Exception:
+                    # Fallback for non-JSON list formatting (comma-separated or plain text)
+                    best_scenario_ids = [part.strip() for part in raw.split(",") if part.strip()]
+
+            if ground_truth in best_scenario_ids:
+                in_best_ids_count += 1
+
+    no_error_rate = (no_error_count / total_count * 100.0) if total_count > 0 else 0.0
+    base_match_rate = (base_match_count / no_error_count * 100.0) if no_error_count > 0 else 0.0
+    in_best_ids_rate = (in_best_ids_count / no_error_count * 100.0) if no_error_count > 0 else 0.0
+
+    return {
+        "no_error_rate": no_error_rate,
+        "ground_truth_eq_base_scenario_id_rate_among_no_error": base_match_rate,
+        "ground_truth_in_best_scenario_ids_rate_among_no_error": in_best_ids_rate,
+    }
+
+
 if __name__ == "__main__":
-    eval_retrieval = EvalRetrieval()
-    eval_retrieval.eval_text_only(mode=QueryMode.TEXT_ONLY)
-    eval_retrieval.eval_text_only(mode=QueryMode.TEXT_VIDEO)
+    # eval_retrieval = EvalRetrieval()
+    # eval_retrieval.eval_text_only(mode=QueryMode.TEXT_ONLY)
+    # eval_retrieval.eval_text_only(mode=QueryMode.TEXT_VIDEO)
+
+    results = analyze_retrieval_csv("eval/results/eval_text_only_20260424_095244.csv")
+    print("The text only evaluation results are: ", results)
+
+    results = analyze_retrieval_csv("eval/results/eval_text_video_20260424_183838.csv")
+    print("The text video evaluation results are: ", results)
