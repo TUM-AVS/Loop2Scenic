@@ -65,13 +65,18 @@ model scenic.simulators.carla.model
 MODEL = 'vehicle.lincoln.mkz_2017'
 param weather = 'ClearNoon'
         """
+        # if some of the fields are not provided, use the default values
+        map_file_path = header_settings.map_file_path if header_settings.map_file_path else "../../maps/Town05.xodr"
+        carla_map = header_settings.carla_map if header_settings.carla_map else "Town05"
+        blueprint = header_settings.blueprint if header_settings.blueprint else "vehicle.lincoln.mkz_2017"
+        weather = header_settings.weather if header_settings.weather else "ClearNoon"
         header = f"""
-description = "Using map {header_settings.map_file_path} with carla map {header_settings.carla_map} and weather {header_settings.weather}"
-param map = localPath('{header_settings.map_file_path}')
-param carla_map = '{header_settings.carla_map}'
+description = "Using map { map_file_path } with carla map { carla_map } and weather {weather}"
+param map = localPath('{map_file_path}')
+param carla_map = '{carla_map}'
 model scenic.simulators.carla.model
-MODEL = '{header_settings.blueprint}'
-param weather = '{header_settings.weather}'
+MODEL = '{blueprint}'
+param weather = '{weather}'
         """
         return header
 
