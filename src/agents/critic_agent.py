@@ -59,8 +59,6 @@ class CriticAgent(BaseAgent):
         )
         contents.append(types.Part.from_text(text=final_reminder))
 
-        logger.info(f"🔍 Evaluate with VLM prompt is: {contents}, prompt template is: {self.prompt_template}")
-
         # 5. Send to VLM Service
         response = self.vlm_service.chat_with_content(contents=contents, system_instruction=self.prompt_template)
         json_response = self._clean_and_parse_json(response)
