@@ -97,37 +97,21 @@ Use the following structure:
 {
     "feedback": {
         "video_timeline": "<Chronologically detail the exact positions and actions of all entities at the initial, midpoint, and final frames of the video. Explicitly note if the video cuts off before an action is finished.>",
-        "event_verification": "<Answer exactly 'Yes' or 'No' followed by a brief explanation. Did the requested final action (e.g., a collision, completing a turn) visually occur on screen before the video ended?>",
-        "scenario": "<Provide your step-by-step reasoning explaining whether the overall visual event perfectly matches the requested target scenario.>",
-        "ego": "<Detail the exact dynamic actions of the Ego vehicle and verify if they match the requested behavior.>",
-        "adversarials": [
-            "<Analyze the first requested adversarial object. Explain if its observed behavior and position match the request.>",
-            "<Analyze the second requested adversarial object, ensuring this list maps 1:1 with the original request.>"
-        ],
-        "spatial_relation": "<Explain the observed road layout and verify if the relative positioning of all entities matches the spatial requirements.>",
-        "requirements_and_restrictions": "<Explain whether the initial distance rules and the specific termination conditions were visually confirmed.>",
-        "road_side_structures": [
-            "<Analyze the first requested roadside structure. Explain if its type and position match the request.>",
-            "<Analyze the second requested roadside structure. Explain if its type and position match the request.>"
-        ],
-        "temporary_modifications": [
-            "<Analyze the first requested temporary modification. Explain if its type and placement match the request.>",
-            "<Analyze the second requested temporary modification. Explain if its type and placement match the request.>"
-        ]
+        "event_verification": "<Answer exactly 'Yes' or 'No' followed by a brief explanation. Did the requested final action (e.g., a collision, completing a turn) visually occur on screen before the video ended?>"
     },
     "evaluation": {
         "scenario": <Boolean: output strictly true or false based on the feedback>,
         "ego": <Boolean: output strictly true or false based on the feedback>,
         "adversarials": [
-            <Boolean: output true or false for each adversarial, ensuring the length of this list matches the feedback list>
+            <Boolean: output true or false for each adversarial, ensuring the length of this list matches the feedback list; if no adversarials, return []>
         ],
         "spatial_relation": <Boolean: output strictly true or false based on the feedback>,
         "requirements_and_restrictions": <Boolean: output strictly true or false based on the feedback>,
         "road_side_structures": [
-            <Boolean: output true or false for each roadside structure evaluated>
+            <Boolean: output true or false for each roadside structure evaluated; if no road side structures, return []>
         ],
         "temporary_modifications": [
-            <Boolean: output true or false for each temporary modification evaluated>
+            <Boolean: output true or false for each temporary modification evaluated; if no temporary modifications, return []>
         ]
     },
     "score": <Integer: Output a final score from 0 to 100 based on the ratio of true values in the evaluation block>
