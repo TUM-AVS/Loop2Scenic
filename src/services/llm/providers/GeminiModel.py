@@ -104,7 +104,7 @@ class GeminiModel(BaseLLMModel):
             config = self.types.GenerateContentConfig(
                 temperature=self.temperature,
                 max_output_tokens=self.max_tokens,
-                thinking_config=self.types.ThinkingConfig(thinking_level="medium")
+                thinking_config=self.types.ThinkingConfig(thinking_level="low")
             )
         elif self._model_name == "gemini-3.1-pro-preview":
             config = self.types.GenerateContentConfig(
