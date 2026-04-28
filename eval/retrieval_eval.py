@@ -324,7 +324,7 @@ class EvalRetrieval:
         self.logger.info("Saved retrieval evaluation (%s) to %s", mode.value, output_csv_path)
         return output_csv_path
 
-def analyze_retrieval_csv(csv_path: str | Path) -> dict[str, float]:
+def analyze_retrieval_csv(csv_path: str | Path) -> dict[str, float | list[str]]:
     """
     Analyze retrieval/eval CSV with columns:
     - ground_truth
@@ -345,6 +345,7 @@ def analyze_retrieval_csv(csv_path: str | Path) -> dict[str, float]:
     no_error_count = 0
     base_match_count = 0
     in_best_ids_count = 0
+    failed_ground_truths: list[str] = []
 
     with path.open("r", newline="", encoding="utf-8") as csvfile:
         reader = csv.DictReader(csvfile)
@@ -354,6 +355,7 @@ def analyze_retrieval_csv(csv_path: str | Path) -> dict[str, float]:
             error_message = str(row.get("error_message", "")).strip()
 
             if error_message:
+                failed_ground_truths.append(ground_truth)
                 continue
 
             no_error_count += 1
@@ -387,6 +389,7 @@ def analyze_retrieval_csv(csv_path: str | Path) -> dict[str, float]:
         "no_error_rate": no_error_rate,
         "ground_truth_eq_base_scenario_id_rate_among_no_error": base_match_rate,
         "ground_truth_in_best_scenario_ids_rate_among_no_error": in_best_ids_rate,
+        "failed_ground_truths": failed_ground_truths,
     }
 
 
