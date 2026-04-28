@@ -17,9 +17,9 @@ class GeminiVLModel(BaseVLMModel):
 
     def __init__(
         self,
-        model: str = "gemini-1.5-pro", # 1.5-pro is highly recommended for complex multimodal tasks
+        model: str = "gemini-1.5-pro",
         temperature: float = 0,
-        max_tokens: int = 8192, # Fixed: Max output limit is 8192. 
+        max_tokens: int = 8192,
         api_key: Optional[str] = None,
         **kwargs
     ):
@@ -53,7 +53,7 @@ class GeminiVLModel(BaseVLMModel):
         else:
             self.client = self.genai.Client()
             
-        logger.info(f"Initialized Gemini VLM model: {model} using google-genai SDK")
+        logger.info(f"Initialized Gemini VLM model: {model} using google-genai SDK with temperature {temperature} and max tokens {max_tokens}")
 
     @retry(
         stop=stop_after_attempt(5),
@@ -155,7 +155,8 @@ class GeminiVLModel(BaseVLMModel):
         config = self.types.GenerateContentConfig(
             temperature=self.temperature,
             max_output_tokens=self.max_tokens,
-            system_instruction=sys_instruct
+            system_instruction=sys_instruct,
+            response_mime_type="application/json"
         )
 
         response = self.client.models.generate_content(
@@ -163,7 +164,11 @@ class GeminiVLModel(BaseVLMModel):
             contents=contents,
             config=config
         )
-        return clean_and_parse_json(response.text)
+        json = clean_and_parse_json(response.text)
+        if json:
+            return json
+        else:
+            raise ValueError(f"Failed to parse JSON from response: {response.text}")
 
     def load_media(self, file_path: str):
         """
