@@ -1,6 +1,7 @@
 import base64
 import mimetypes
 import os
+import time
 from typing import Any, Optional
 
 import dashscope
@@ -42,6 +43,13 @@ class Qwen3Plus(BaseVLMModel):
 
         workspace_id = os.getenv("WORKSPACE_ID")
         dashscope.base_http_api_url = base_url.format(WorkspaceId=workspace_id)
+        self._metrics = {
+            "calls": 0,
+            "response_time_ms": 0.0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        }
 
     @property
     def model_name(self) -> str:
@@ -113,11 +121,13 @@ class Qwen3Plus(BaseVLMModel):
             messages.insert(0, {"role": "system", "content": [{"text": system_instruction}]})
 
         # CRITICAL FIX: We call MultiModalConversation.call, NOT self.client.chat...
+        start = time.perf_counter()
         response = MultiModalConversation.call(
             model=self.model_name,
             messages=messages,
             **kwargs
         )
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
         
         # Native SDK error handling
         if response.status_code != 200:
@@ -125,12 +135,24 @@ class Qwen3Plus(BaseVLMModel):
                 f"DashScope API failed with code {response.status_code}. "
                 f"Code: {response.code}, Message: {response.message}"
             )
+        usage = getattr(response, "usage", None)
+        prompt_tokens = int(getattr(usage, "input_tokens", 0) or 0)
+        completion_tokens = int(getattr(usage, "output_tokens", 0) or 0)
+        total_tokens = int(getattr(usage, "total_tokens", prompt_tokens + completion_tokens) or 0)
+        self._metrics["calls"] += 1
+        self._metrics["response_time_ms"] += elapsed_ms
+        self._metrics["prompt_tokens"] += prompt_tokens
+        self._metrics["completion_tokens"] += completion_tokens
+        self._metrics["total_tokens"] += total_tokens
             
         # Extract the text response from the native output object
         try:
             return response.output.choices[0].message.content[0]["text"]
         except (IndexError, KeyError) as e:
             raise ValueError(f"Unexpected response format from DashScope: {response.output}") from e
+
+    def get_metrics_snapshot(self) -> dict:
+        return dict(self._metrics)
 
 if __name__ == "__main__":
     # Ensure DASHSCOPE_API_KEY is exported in your environment

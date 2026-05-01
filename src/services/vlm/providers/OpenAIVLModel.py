@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import Optional
 
 from ..base import BaseVLMModel
@@ -33,6 +34,13 @@ class OpenAIVLModel(BaseVLMModel):
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.client = OpenAI(**kwargs)
+        self._metrics = {
+            "calls": 0,
+            "response_time_ms": 0.0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        }
         
         logger.info(f"Initialized OpenAI Vision model: {model}")
 
@@ -91,6 +99,7 @@ class OpenAIVLModel(BaseVLMModel):
         messages.append({"role": "user", "content": content})
         
         # Call API
+        start = time.perf_counter()
         response = self.client.chat.completions.create(
             model=self._model_name,
             messages=messages,
@@ -98,6 +107,16 @@ class OpenAIVLModel(BaseVLMModel):
             max_tokens=max_tokens,
             **{k: v for k, v in kwargs.items() if k not in ['temperature', 'max_tokens']}
         )
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+        usage = getattr(response, "usage", None)
+        prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
+        completion_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
+        total_tokens = int(getattr(usage, "total_tokens", prompt_tokens + completion_tokens) or 0)
+        self._metrics["calls"] += 1
+        self._metrics["response_time_ms"] += elapsed_ms
+        self._metrics["prompt_tokens"] += prompt_tokens
+        self._metrics["completion_tokens"] += completion_tokens
+        self._metrics["total_tokens"] += total_tokens
         
         return response.choices[0].message.content
 
@@ -105,3 +124,6 @@ class OpenAIVLModel(BaseVLMModel):
     def model_name(self) -> str:
         """Get model name."""
         return self._model_name
+
+    def get_metrics_snapshot(self):
+        return dict(self._metrics)

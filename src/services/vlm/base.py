@@ -3,7 +3,7 @@ Base class for VLM models.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, List, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 
 class BaseVLMModel(ABC):
@@ -64,3 +64,10 @@ class BaseVLMModel(ABC):
     def model_name(self) -> str:
         """Get the model name."""
         pass
+
+    def get_metrics_snapshot(self) -> Dict[str, Any]:
+        """
+        Optional metrics API implemented by concrete providers.
+        Returns cumulative call/time/token stats when available.
+        """
+        return {}

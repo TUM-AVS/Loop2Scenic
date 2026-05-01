@@ -45,6 +45,10 @@ class ScenarioWorkflowState(TypedDict):
     # Current loop iteration (starts at 0)
     generation_count: int
 
+    # --- 8. Runtime Metrics ---
+    # Aggregated model call stats collected during workflow execution.
+    model_metrics: Dict[str, Any]
+
 MAX_COUNT = 3
 
 CLEAN_STATE: ScenarioWorkflowState = {
@@ -60,4 +64,37 @@ CLEAN_STATE: ScenarioWorkflowState = {
     "user_satisfied": None,
     "user_modification": None,
     "generation_count": 0,
+    "model_metrics": {
+        "totals_by_type": {
+            "llm": {
+                "calls": 0,
+                "response_time_ms": 0.0,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+            },
+            "vlm": {
+                "calls": 0,
+                "response_time_ms": 0.0,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+            },
+        },
+        "totals_all": {
+            "calls": 0,
+            "response_time_ms": 0.0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        },
+        "totals": {
+            "calls": 0,
+            "response_time_ms": 0.0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        },
+        "by_node": {},
+    },
 }

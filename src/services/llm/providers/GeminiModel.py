@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import List, Dict
 from tenacity import retry, stop_after_attempt, wait_exponential
 
@@ -46,6 +47,13 @@ class GeminiModel(BaseLLMModel):
         else:
             # Will automatically look for GEMINI_API_KEY environment variable
             self.client = self.genai.Client()
+        self._metrics = {
+            "calls": 0,
+            "response_time_ms": 0.0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        }
         
         logger.info(f"Initialized Gemini model: {model} using google-genai SDK")
 
@@ -131,11 +139,22 @@ class GeminiModel(BaseLLMModel):
         logger.info("\n".join(request_lines))
 
         # Call the new endpoint
+        start = time.perf_counter()
         response = self.client.models.generate_content(
             model=self._model_name,
             contents=formatted_contents,
             config=config
         )
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+        usage = getattr(response, "usage_metadata", None)
+        prompt_tokens = int(getattr(usage, "prompt_token_count", 0) or 0)
+        completion_tokens = int(getattr(usage, "candidates_token_count", 0) or 0)
+        total_tokens = int(getattr(usage, "total_token_count", prompt_tokens + completion_tokens) or 0)
+        self._metrics["calls"] += 1
+        self._metrics["response_time_ms"] += elapsed_ms
+        self._metrics["prompt_tokens"] += prompt_tokens
+        self._metrics["completion_tokens"] += completion_tokens
+        self._metrics["total_tokens"] += total_tokens
         response_text = response.text or ""
         logger.info(
             "=== GEMINI RESPONSE ===\nmodel=%s\nresponse_chars=%d\n%s\n======================",
@@ -150,3 +169,6 @@ class GeminiModel(BaseLLMModel):
     def model_name(self) -> str:
         """Get model name."""
         return self._model_name
+
+    def get_metrics_snapshot(self) -> Dict[str, float]:
+        return dict(self._metrics)
