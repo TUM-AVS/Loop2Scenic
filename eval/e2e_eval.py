@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import logging
+import time
 import uuid
 from datetime import datetime
 from enum import Enum
@@ -141,6 +142,7 @@ class EvalE2EWorkflow:
             "best_scenic_code": getattr(best_scenario, "scenic_code", None),
             "best_score": getattr(best_scenario, "score", None),
             "best_error": getattr(best_scenario, "error", None),
+            "model_metrics": final_state.get("model_metrics", {}),
             "state": final_state,
         }
 
@@ -183,6 +185,17 @@ class EvalE2EWorkflow:
             "best_scenario_id",
             "base_scenario_id",
             "generation_count",
+            "vlm_calls",
+            "vlm_prompt_tokens",
+            "vlm_completion_tokens",
+            "vlm_total_tokens",
+            "vlm_response_time_ms",
+            "llm_calls",
+            "llm_prompt_tokens",
+            "llm_completion_tokens",
+            "llm_total_tokens",
+            "llm_response_time_ms",
+            "record_total_time_ms",
             "error_message",
         ]
 
@@ -197,6 +210,18 @@ class EvalE2EWorkflow:
                 best_scenario_id = ""
                 base_scenario_id = ""
                 generation_count: int | str = ""
+                vlm_calls = 0
+                vlm_prompt_tokens = 0
+                vlm_completion_tokens = 0
+                vlm_total_tokens = 0
+                vlm_response_time_ms = 0.0
+                llm_calls = 0
+                llm_prompt_tokens = 0
+                llm_completion_tokens = 0
+                llm_total_tokens = 0
+                llm_response_time_ms = 0.0
+                record_total_time_ms = 0.0
+                record_start_time = time.perf_counter()
 
                 try:
                     self.logger.info(f"[START E2E] Running query for ground_truth={ground_truth}")
@@ -210,6 +235,20 @@ class EvalE2EWorkflow:
                     best_scenario_id = str(result.get("best_scenario_id") or "")
                     base_scenario_id = str(final_state.get("base_scenario_id") or "")
                     generation_count = final_state.get("generation_count", "")
+                    model_metrics = result.get("model_metrics", {}) or {}
+                    totals_by_type = model_metrics.get("totals_by_type", {}) or {}
+                    vlm_metrics = totals_by_type.get("vlm", {}) or {}
+                    llm_metrics = totals_by_type.get("llm", {}) or {}
+                    vlm_calls = int(vlm_metrics.get("calls", 0) or 0)
+                    vlm_prompt_tokens = int(vlm_metrics.get("prompt_tokens", 0) or 0)
+                    vlm_completion_tokens = int(vlm_metrics.get("completion_tokens", 0) or 0)
+                    vlm_total_tokens = int(vlm_metrics.get("total_tokens", 0) or 0)
+                    vlm_response_time_ms = float(vlm_metrics.get("response_time_ms", 0.0) or 0.0)
+                    llm_calls = int(llm_metrics.get("calls", 0) or 0)
+                    llm_prompt_tokens = int(llm_metrics.get("prompt_tokens", 0) or 0)
+                    llm_completion_tokens = int(llm_metrics.get("completion_tokens", 0) or 0)
+                    llm_total_tokens = int(llm_metrics.get("total_tokens", 0) or 0)
+                    llm_response_time_ms = float(llm_metrics.get("response_time_ms", 0.0) or 0.0)
 
                     if not best_scenario_id:
                         best_scenario_id = f"no_best_scenario_{ground_truth}"
@@ -239,6 +278,8 @@ class EvalE2EWorkflow:
                         "Failed to run e2e query for ground_truth=%s",
                         ground_truth,
                     )
+                finally:
+                    record_total_time_ms = (time.perf_counter() - record_start_time) * 1000.0
 
                 writer.writerow(
                     {
@@ -247,6 +288,17 @@ class EvalE2EWorkflow:
                         "best_scenario_id": best_scenario_id,
                         "base_scenario_id": base_scenario_id,
                         "generation_count": generation_count,
+                        "vlm_calls": vlm_calls,
+                        "vlm_prompt_tokens": vlm_prompt_tokens,
+                        "vlm_completion_tokens": vlm_completion_tokens,
+                        "vlm_total_tokens": vlm_total_tokens,
+                        "vlm_response_time_ms": f"{vlm_response_time_ms:.2f}",
+                        "llm_calls": llm_calls,
+                        "llm_prompt_tokens": llm_prompt_tokens,
+                        "llm_completion_tokens": llm_completion_tokens,
+                        "llm_total_tokens": llm_total_tokens,
+                        "llm_response_time_ms": f"{llm_response_time_ms:.2f}",
+                        "record_total_time_ms": f"{record_total_time_ms:.2f}",
                         "error_message": error_message,
                     }
                 )
