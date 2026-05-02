@@ -52,6 +52,13 @@ class GeminiVLModel(BaseVLMModel):
             self.client = self.genai.Client(api_key=api_key)
         else:
             self.client = self.genai.Client()
+        self._metrics = {
+            "calls": 0,
+            "response_time_ms": 0.0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        }
             
         logger.info(f"Initialized Gemini VLM model: {model} using google-genai SDK with temperature {temperature} and max tokens {max_tokens}")
 
@@ -121,11 +128,22 @@ class GeminiVLModel(BaseVLMModel):
 
         # Generate the response
         try:
+            start = time.perf_counter()
             response = self.client.models.generate_content(
                 model=self._model_name,
                 contents=contents,
                 config=config
             )
+            elapsed_ms = (time.perf_counter() - start) * 1000.0
+            usage = getattr(response, "usage_metadata", None)
+            prompt_tokens = int(getattr(usage, "prompt_token_count", 0) or 0)
+            completion_tokens = int(getattr(usage, "candidates_token_count", 0) or 0)
+            total_tokens = int(getattr(usage, "total_token_count", prompt_tokens + completion_tokens) or 0)
+            self._metrics["calls"] += 1
+            self._metrics["response_time_ms"] += elapsed_ms
+            self._metrics["prompt_tokens"] += prompt_tokens
+            self._metrics["completion_tokens"] += completion_tokens
+            self._metrics["total_tokens"] += total_tokens
             result = clean_and_parse_json(response.text)
         except Exception as e:
             logger.error(f"Error during generation: {e}")
@@ -159,11 +177,22 @@ class GeminiVLModel(BaseVLMModel):
             response_mime_type="application/json"
         )
 
+        start = time.perf_counter()
         response = self.client.models.generate_content(
             model=self._model_name,
             contents=contents,
             config=config
         )
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+        usage = getattr(response, "usage_metadata", None)
+        prompt_tokens = int(getattr(usage, "prompt_token_count", 0) or 0)
+        completion_tokens = int(getattr(usage, "candidates_token_count", 0) or 0)
+        total_tokens = int(getattr(usage, "total_token_count", prompt_tokens + completion_tokens) or 0)
+        self._metrics["calls"] += 1
+        self._metrics["response_time_ms"] += elapsed_ms
+        self._metrics["prompt_tokens"] += prompt_tokens
+        self._metrics["completion_tokens"] += completion_tokens
+        self._metrics["total_tokens"] += total_tokens
         json = clean_and_parse_json(response.text)
         if json:
             return json
@@ -211,3 +240,6 @@ class GeminiVLModel(BaseVLMModel):
     def model_name(self) -> str:
         """Get model name."""
         return self._model_name
+
+    def get_metrics_snapshot(self) -> dict:
+        return dict(self._metrics)

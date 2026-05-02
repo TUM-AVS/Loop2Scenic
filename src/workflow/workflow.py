@@ -1,5 +1,6 @@
 import logging
-from typing import Dict, Literal
+from copy import deepcopy
+from typing import Any, Dict, Literal
 from langgraph.graph import END, START, StateGraph
 from langgraph.checkpoint.memory import MemorySaver
 
@@ -82,6 +83,78 @@ class ScenarioWorkflow:
             checkpointer=memory, 
             interrupt_before=["human_review"] # wait for human review before going to next node
         )
+
+    def _zero_metrics(self) -> Dict[str, float]:
+        return {
+            "calls": 0,
+            "response_time_ms": 0.0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        }
+
+    def _snapshot_service_metrics(self, service: Any) -> Dict[str, float]:
+        if service is None or not hasattr(service, "get_metrics_snapshot"):
+            return self._zero_metrics()
+        snapshot = service.get_metrics_snapshot() or {}
+        return {
+            "calls": int(snapshot.get("calls", 0) or 0),
+            "response_time_ms": float(snapshot.get("response_time_ms", 0.0) or 0.0),
+            "prompt_tokens": int(snapshot.get("prompt_tokens", 0) or 0),
+            "completion_tokens": int(snapshot.get("completion_tokens", 0) or 0),
+            "total_tokens": int(snapshot.get("total_tokens", 0) or 0),
+        }
+
+    def _delta_metrics(self, before: Dict[str, float], after: Dict[str, float]) -> Dict[str, float]:
+        return {
+            "calls": max(0, int(after["calls"] - before["calls"])),
+            "response_time_ms": max(0.0, float(after["response_time_ms"] - before["response_time_ms"])),
+            "prompt_tokens": max(0, int(after["prompt_tokens"] - before["prompt_tokens"])),
+            "completion_tokens": max(0, int(after["completion_tokens"] - before["completion_tokens"])),
+            "total_tokens": max(0, int(after["total_tokens"] - before["total_tokens"])),
+        }
+
+    def _record_model_metrics(
+        self,
+        state: ScenarioWorkflowState,
+        node_name: str,
+        service_name: str,
+        service_type: Literal["llm", "vlm"],
+        delta: Dict[str, float],
+    ) -> Dict[str, Any]:
+        model_metrics = deepcopy(state.get("model_metrics") or {})
+        totals_by_type = model_metrics.get("totals_by_type") or {
+            "llm": self._zero_metrics(),
+            "vlm": self._zero_metrics(),
+        }
+        totals_all = model_metrics.get("totals_all") or self._zero_metrics()
+        by_node = model_metrics.get("by_node") or {}
+        node_metrics = by_node.get(node_name) or {
+            "llm": self._zero_metrics(),
+            "vlm": self._zero_metrics(),
+            "services": {},
+        }
+        services = node_metrics.get("services") or {}
+        service_metrics = services.get(service_name) or self._zero_metrics()
+        type_totals = totals_by_type.get(service_type) or self._zero_metrics()
+        node_type_totals = node_metrics.get(service_type) or self._zero_metrics()
+
+        for key in self._zero_metrics().keys():
+            service_metrics[key] = service_metrics.get(key, 0) + delta[key]
+            type_totals[key] = type_totals.get(key, 0) + delta[key]
+            node_type_totals[key] = node_type_totals.get(key, 0) + delta[key]
+            totals_all[key] = totals_all.get(key, 0) + delta[key]
+
+        services[service_name] = service_metrics
+        node_metrics["services"] = services
+        node_metrics[service_type] = node_type_totals
+        by_node[node_name] = node_metrics
+        totals_by_type[service_type] = type_totals
+        model_metrics["totals_by_type"] = totals_by_type
+        model_metrics["totals_all"] = totals_all
+        model_metrics["totals"] = totals_all
+        model_metrics["by_node"] = by_node
+        return model_metrics
         
     # ==========================================
     # ROUTING FUNCTIONS
@@ -130,6 +203,7 @@ class ScenarioWorkflow:
         if not query:
             self.logger.error("No user query provided")
             return {}
+        interpreter_vlm_before = self._snapshot_service_metrics(getattr(self.interpreter, "vlm_service", None))
         dsl, flattened_text = self.interpreter.generate_dsl_from_user_query(query) # flatten text to reduce the noise caused by the formatting of the DSL
         query_to_embed = MultimodalQuery(text=flattened_text, image_path=query.image_path, video_path=query.video_path)
         query_embeddings = self.embedder.encode([query_to_embed.model_dump()])
@@ -153,16 +227,25 @@ class ScenarioWorkflow:
 
         # detect header settings
         header_settings = self.interpreter.generate_header_settings(query)
+        interpreter_vlm_after = self._snapshot_service_metrics(getattr(self.interpreter, "vlm_service", None))
+        interpreter_vlm_delta = self._delta_metrics(interpreter_vlm_before, interpreter_vlm_after)
         if not header_settings:
             self.logger.info("🔍 Failed to generate header settings, use None to indicate not changing the header")
             header_settings = None # use None to indicate not changing the header
 
         self.logger.info("🧹 CLEANUP: Wiping previous scenario data for fresh run...")
-        state = CLEAN_STATE
+        state = deepcopy(CLEAN_STATE)
         state["user_query"] = query
         state["scenario_dsl"] = dsl
         state["query_embedding"] = query_embedding
         state["header_settings"] = header_settings
+        state["model_metrics"] = self._record_model_metrics(
+            state,
+            node_name="embed_query",
+            service_name="interpreter_vlm",
+            service_type="vlm",
+            delta=interpreter_vlm_delta,
+        )
         return state
 
     def retrieve_base_scenario(self, state: ScenarioWorkflowState) -> Dict:
@@ -282,7 +365,10 @@ class ScenarioWorkflow:
             return state
         
         # 3. evaluate with vlm
+        critic_vlm_before = self._snapshot_service_metrics(getattr(self.critic, "vlm_service", None))
         score, feedback, evaluation_result = self.critic.evaluate_with_vlm(original_query, scenario_document)
+        critic_vlm_after = self._snapshot_service_metrics(getattr(self.critic, "vlm_service", None))
+        critic_vlm_delta = self._delta_metrics(critic_vlm_before, critic_vlm_after)
         self.logger.info(f"📊 VLM Score: {score}")
         if feedback is None:
             self.logger.error("Failed to evaluate with VLM")
@@ -302,12 +388,20 @@ class ScenarioWorkflow:
         return {
             "scenic_scenarios_list": scenic_scenarios_list,
             "current_scenic_scenario": current_scenic_scenario,
+            "model_metrics": self._record_model_metrics(
+                state,
+                node_name="evaluate_with_vlm",
+                service_name="critic_vlm",
+                service_type="vlm",
+                delta=critic_vlm_delta,
+            ),
         }
 
     def interpret(self, state: ScenarioWorkflowState) -> Dict:
         log_workflow_state(self.logger, "interpret", state)
 
         if state.get("user_modification"):
+            interpreter_vlm_before = self._snapshot_service_metrics(getattr(self.interpreter, "vlm_service", None))
             self.logger.info("🧠 Interpreting user modification into DSL...")
             feedback = state.get("user_modification")
             best_scenario = state.get("best_scenario", None)
@@ -325,6 +419,9 @@ class ScenarioWorkflow:
             if state.get("header_settings", None):
                 new_header_settings_prompt += to_safe_string(state.get("header_settings")) + "\n"
 
+            flattened_modified_dsl = to_safe_string(modified_dsl)
+            if new_header_settings_prompt.strip():
+                flattened_modified_dsl = f"{new_header_settings_prompt}\n{flattened_modified_dsl}"
             if feedback.text:
                 flattened_modified_dsl += f"\nUser suggestion text: {feedback.text}\n"
             new_user_query = MultimodalQuery(
@@ -335,6 +432,8 @@ class ScenarioWorkflow:
 
             # 4. generate a new header settings
             new_header_settings = self.interpreter.generate_header_settings(new_user_query)
+            interpreter_vlm_after = self._snapshot_service_metrics(getattr(self.interpreter, "vlm_service", None))
+            interpreter_vlm_delta = self._delta_metrics(interpreter_vlm_before, interpreter_vlm_after)
             if not new_header_settings:
                 self.logger.info("🔍 Failed to generate new header settings, use None to indicate not changing the header")
                 new_header_settings = None # use None to indicate not changing the header
@@ -352,7 +451,14 @@ class ScenarioWorkflow:
                 "scenario_dsl": modified_dsl,
                 "messages": [
                     {"role": "assistant", "content": f"Modified DSL: {to_safe_string(modified_dsl)}"}
-                ]
+                ],
+                "model_metrics": self._record_model_metrics(
+                    state,
+                    node_name="interpret",
+                    service_name="interpreter_vlm",
+                    service_type="vlm",
+                    delta=interpreter_vlm_delta,
+                ),
             }
         else:
             self.logger.error("No feedback to interpret, using the original user query dsl for generation")
@@ -374,12 +480,15 @@ class ScenarioWorkflow:
         header_settings = state.get("header_settings", None)
 
         # 2. adapt the code, if the code has error, call debug function, otherwise call adapt function
+        coder_llm_before = self._snapshot_service_metrics(getattr(self.coder, "llm_service", None))
         adapted_scenic_code = ""
         if current_scenic_code_error or not current_evaluation_result:
             adapted_scenic_code = self.coder.debug_code(current_scenic_code, current_scenic_code_error)
         else:
             adapted_scenic_code = self.coder.adapt_code(current_scenic_code, current_evaluation_result, scenario_dsl, header_settings)
         self.logger.info(f"🛠 Adapted Scenic code, generation count: {generation_count + 1}")
+        coder_llm_after = self._snapshot_service_metrics(getattr(self.coder, "llm_service", None))
+        coder_llm_delta = self._delta_metrics(coder_llm_before, coder_llm_after)
 
         # 3. update the scenic scenarios list with the adapted scenario
         adpated_scenario_id = f"{current_scenic_scenario.scenario_id}_adapted_{generation_count + 1}"
@@ -390,6 +499,13 @@ class ScenarioWorkflow:
             "scenic_scenarios_list": scenic_scenarios_list,
             "current_scenic_scenario": adapted_scenic_scenario,
             "generation_count": generation_count + 1,
+            "model_metrics": self._record_model_metrics(
+                state,
+                node_name="adapt_code",
+                service_name="coder_llm",
+                service_type="llm",
+                delta=coder_llm_delta,
+            ),
         }
 
     def output_best_scenario(self, state: ScenarioWorkflowState) -> Dict:

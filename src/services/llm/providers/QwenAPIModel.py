@@ -1,41 +1,36 @@
 import logging
 import time
-from typing import List, Dict
+from typing import Dict, List
+
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from ..base import BaseLLMModel
 
 logger = logging.getLogger(__name__)
 
-class OpenAIModel(BaseLLMModel):
-    """OpenAI GPT model."""
+
+class QwenAPIModel(BaseLLMModel):
+    """Qwen API model via OpenAI-compatible endpoint."""
 
     def __init__(
         self,
-        model: str = "gpt-3.5-turbo",
+        model: str = "qwen-max",
         temperature: float = 0.7,
         max_tokens: int = 512,
-        **kwargs
+        base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        **kwargs,
     ):
-        """
-        Initialize OpenAI model.
-        
-        Args:
-            model: Model name (gpt-3.5-turbo, gpt-4, etc.)
-            temperature: Sampling temperature (0-2)
-            max_tokens: Maximum tokens to generate
-            **kwargs: Additional OpenAI client parameters
-        """
         try:
             from openai import OpenAI
-        except ImportError:
-            raise ImportError("OpenAI package not installed. Install with: pip install openai")
-        
+        except ImportError as exc:
+            raise ImportError("OpenAI package not installed. Install with: pip install openai") from exc
+
+        timeout = kwargs.pop("timeout", 120)
         self._model_name = model
         self.temperature = temperature
         self.max_tokens = max_tokens
-        timeout = kwargs.pop("timeout", 120)
-        self.client = OpenAI(**kwargs)
+        self.timeout = timeout
+        self.client = OpenAI(base_url=base_url, **kwargs)
         self._metrics = {
             "calls": 0,
             "response_time_ms": 0.0,
@@ -43,41 +38,37 @@ class OpenAIModel(BaseLLMModel):
             "completion_tokens": 0,
             "total_tokens": 0,
         }
-        self.timeout = timeout
-        
-        logger.info(f"Initialized OpenAI model: {model}")
+        logger.info("Initialized Qwen API model: %s", model)
 
     @retry(
         stop=stop_after_attempt(5),
         wait=wait_exponential(multiplier=2, min=2, max=30),
         before_sleep=lambda retry_state: logger.warning(
-            "OpenAI call failed. Retrying in %s seconds...", retry_state.next_action.sleep
+            "Qwen API call failed. Retrying in %s seconds...", retry_state.next_action.sleep
         ),
     )
-    def chat(
-        self,
-        messages: List[Dict[str, str]],
-        **kwargs
-    ) -> str:
-        """Chat with OpenAI model."""
-        temperature = kwargs.get('temperature', self.temperature)
-        max_tokens = kwargs.get('max_tokens', self.max_tokens)
-        
-        logger.debug(f"Chatting with {self._model_name}")
-        
+    def chat(self, messages: List[Dict[str, str]], **kwargs) -> str:
+        temperature = kwargs.get("temperature", self.temperature)
+        max_tokens = kwargs.get("max_tokens", self.max_tokens)
+        response_format = kwargs.get("response_format")
+
         start = time.perf_counter()
-        response = self.client.chat.completions.create(
-            model=self._model_name,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            timeout=kwargs.get("timeout", self.timeout),
+        request_kwargs = {
+            "model": self._model_name,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "timeout": kwargs.get("timeout", self.timeout),
             **{
                 k: v
                 for k, v in kwargs.items()
-                if k not in ["temperature", "max_tokens", "timeout"]
-            }
-        )
+                if k not in ["temperature", "max_tokens", "timeout", "response_format"]
+            },
+        }
+        if response_format is not None:
+            request_kwargs["response_format"] = response_format
+
+        response = self.client.chat.completions.create(**request_kwargs)
         elapsed_ms = (time.perf_counter() - start) * 1000.0
         usage = getattr(response, "usage", None)
         prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
@@ -91,19 +82,13 @@ class OpenAIModel(BaseLLMModel):
 
         choices = getattr(response, "choices", None) or []
         if not choices:
-            raise ValueError("OpenAI response has no choices.")
-
+            raise ValueError("Qwen API response has no choices.")
         message = getattr(choices[0], "message", None)
         content = getattr(message, "content", None)
-        if content is None:
-            # Keep behavior predictable for callers expecting a string.
-            return ""
-
-        return content
+        return content or ""
 
     @property
     def model_name(self) -> str:
-        """Get model name."""
         return self._model_name
 
     def get_metrics_snapshot(self) -> Dict[str, float]:

@@ -4,7 +4,6 @@ import csv
 import json
 import logging
 import time
-import uuid
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -12,8 +11,10 @@ from typing import Any, Optional
 
 from src.app import ChatbotWorkflow
 from src.schema import MultimodalQuery
+from src.workflow.scenario_workflow_state import CLEAN_STATE
 
-FOLDER_PATH = "/home/dellpro2/chenli/ads-mrag/ads-mrag/data/batch_NHTSA"
+FOLDER_PATH = "/home/dellpro2/chenli/ads-mrag/ads-mrag/data/test"
+SAVE_PATH = "eval/results"
 
 
 class QueryMode(str, Enum):
@@ -23,23 +24,25 @@ class QueryMode(str, Enum):
     TEXT_IMAGE_VIDEO = "text-image-video"
 
 
-class EvalE2EWorkflow:
+class EvalE2EEmbeddingOnlyWorkflow:
     """
-    Helper class for end-to-end workflow evaluation.
+    Evaluation helper that only runs:
+      1) embed_query
+      2) retrieve_base_scenario
 
-    Responsibilities:
-    1) Build MultimodalQuery objects from scenario subfolders.
-    2) Run full ScenarioWorkflow from user query to output_best_scenario.
-    3) Skip manual human review by auto-setting user_satisfied=True.
+    It scans scenario subfolders from folder_path, builds MultimodalQuery records,
+    runs the two nodes, writes per-record outputs, and generates a batch CSV.
     """
 
     def __init__(
         self,
         folder_path: Path | str = FOLDER_PATH,
         config_path: Optional[str] = None,
+        save_path: Path | str = SAVE_PATH,
     ) -> None:
         self.folder_path = Path(folder_path)
         self.config_path = config_path
+        self.save_path = Path(save_path)
         self.logger = logging.getLogger(__name__)
         self.chatbot_workflow = ChatbotWorkflow()
         self.workflow = self.chatbot_workflow.initialize_system(config_path=config_path)
@@ -48,17 +51,6 @@ class EvalE2EWorkflow:
         self,
         mode: QueryMode = QueryMode.TEXT_IMAGE_VIDEO,
     ) -> list[dict[str, Any]]:
-        """
-        Scan immediate subfolders and build query records.
-
-        Mapping per subfolder:
-        - text: content of description.txt if present, else None
-        - image_path: absolute path to image.png (when mode includes image)
-        - video_path: absolute path to BEV.mp4 (when mode includes video)
-
-        Returns:
-        - list of {"ground_truth": str, "query": MultimodalQuery}
-        """
         if not self.folder_path.exists():
             raise FileNotFoundError(f"Folder does not exist: {self.folder_path}")
         if not self.folder_path.is_dir():
@@ -84,12 +76,7 @@ class EvalE2EWorkflow:
                 image_path=image_path,
                 video_path=video_path,
             )
-            queries.append(
-                {
-                    "ground_truth": subfolder.name,
-                    "query": query,
-                }
-            )
+            queries.append({"ground_truth": subfolder.name, "query": query})
 
         self.logger.info(
             "Built %d multimodal queries from %s (mode=%s)",
@@ -99,55 +86,7 @@ class EvalE2EWorkflow:
         )
         return queries
 
-    def run_query_to_output_best_scenario(
-        self,
-        query: MultimodalQuery,
-        thread_id: Optional[str] = None,
-    ) -> dict[str, Any]:
-        """
-        Run workflow from user query to output_best_scenario.
-
-        The graph pauses before human_review by design. This function immediately
-        auto-accepts review (user_satisfied=True) to avoid manual intervention.
-        """
-        current_thread_id = thread_id or f"e2e_eval_{uuid.uuid4().hex}"
-        config = {"configurable": {"thread_id": current_thread_id}}
-        user_message = {"role": "user", "content": query.model_dump_json()}
-
-        for _event in self.workflow.app.stream(
-            {"user_query": query, "messages": [user_message]},
-            config=config,
-        ):
-            pass
-
-        # Graph is expected to pause here (interrupt_before=["human_review"]).
-        paused_state = self.workflow.app.get_state(config)
-        if paused_state.next:
-            self.workflow.app.update_state(
-                config,
-                {
-                    "user_satisfied": True,
-                    "user_modification": None,
-                },
-            )
-            for _event in self.workflow.app.stream(None, config=config):
-                pass
-
-        final_state = self.workflow.app.get_state(config).values
-        best_scenario = final_state.get("best_scenario")
-
-        return {
-            "thread_id": current_thread_id,
-            "best_scenario_id": getattr(best_scenario, "scenario_id", None),
-            "best_scenic_code": getattr(best_scenario, "scenic_code", None),
-            "best_score": getattr(best_scenario, "score", None),
-            "best_error": getattr(best_scenario, "error", None),
-            "model_metrics": final_state.get("model_metrics", {}),
-            "state": final_state,
-        }
-
     def _to_jsonable(self, value: Any) -> Any:
-        """Convert pydantic/custom objects to JSON-serializable data."""
         if value is None:
             return None
         if hasattr(value, "model_dump"):
@@ -156,26 +95,40 @@ class EvalE2EWorkflow:
             return value
         return str(value)
 
+    def run_query_embedding_and_retrieval(
+        self,
+        query: MultimodalQuery,
+    ) -> dict[str, Any]:
+        state = dict(CLEAN_STATE)
+        state["user_query"] = query
+
+        state_after_embed = self.workflow.embed_query(state)
+        if not state_after_embed:
+            raise RuntimeError("embed_query failed to produce state updates.")
+        state.update(state_after_embed)
+
+        state_after_retrieve = self.workflow.retrieve_base_scenario(state)
+        if not state_after_retrieve:
+            raise RuntimeError("retrieve_base_scenario failed to produce state updates.")
+        state.update(state_after_retrieve)
+
+        current_scenic_scenario = state.get("current_scenic_scenario")
+        return {
+            "base_scenario_id": state.get("base_scenario_id"),
+            "retrieved_scenic_code": getattr(current_scenic_scenario, "scenic_code", None),
+            "scenario_dsl": state.get("scenario_dsl"),
+            "header_settings": state.get("header_settings"),
+            "model_metrics": state.get("model_metrics", {}),
+            "state": state,
+        }
+
     def run_batch(
         self,
         mode: QueryMode = QueryMode.TEXT_IMAGE_VIDEO,
     ) -> Path:
-        """
-        Run end-to-end evaluation for all built queries.
-
-        For each query:
-        - run workflow with per-query try/except
-        - write scenic code to:
-          eval/results/e2e_<timestamp>/<best_scenario_id>/<best_scenario_id>.scenic
-        - write final_state["scenario_dsl"] to:
-          eval/results/e2e_<timestamp>/<best_scenario_id>/<best_scenario_id>.json
-        - write final_state["header_settings"] to:
-          eval/results/e2e_<timestamp>/<best_scenario_id>/header_settings.json
-        - append batch row to CSV with user_query, base_scenario_id, generation_count
-        """
         query_records = self.build_multimodal_queries(mode=mode)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        results_root = Path(__file__).resolve().parent / "results" / f"e2e_{timestamp}"
+        results_root = self.save_path / f"e2e_embedding_only_{timestamp}"
         results_root.mkdir(parents=True, exist_ok=True)
         output_csv_path = results_root / "batch_results.csv"
 
@@ -207,9 +160,9 @@ class EvalE2EWorkflow:
                 ground_truth = record["ground_truth"]
                 query = record["query"]
                 error_message = ""
-                best_scenario_id = ""
                 base_scenario_id = ""
-                generation_count: int | str = ""
+                generation_count: int | str = 0  # no loop generation in this evaluator
+                best_scenario_id = ""  # keep column for compatibility with e2e_eval CSV
                 vlm_calls = 0
                 vlm_prompt_tokens = 0
                 vlm_completion_tokens = 0
@@ -220,25 +173,26 @@ class EvalE2EWorkflow:
                 llm_completion_tokens = 0
                 llm_total_tokens = 0
                 llm_response_time_ms = 0.0
-                record_total_time_ms = 0.0
-                record_start_time = time.perf_counter()
 
+                record_start = time.perf_counter()
                 try:
-                    self.logger.info(f"[START E2E] Running query for ground_truth={ground_truth}")
-                    result = self.run_query_to_output_best_scenario(
-                        query=query,
-                        thread_id=f"e2e_eval_{ground_truth}_{uuid.uuid4().hex}",
+                    self.logger.info(
+                        "[START E2E-EMBED-ONLY] Running query for ground_truth=%s",
+                        ground_truth,
                     )
-                    self.logger.info(f"[END E2E] Query for ground_truth={ground_truth} completed")
-                    final_state = result.get("state", {})
-                    best_scenic_code = result.get("best_scenic_code")
-                    best_scenario_id = str(result.get("best_scenario_id") or "")
-                    base_scenario_id = str(final_state.get("base_scenario_id") or "")
-                    generation_count = final_state.get("generation_count", "")
+                    result = self.run_query_embedding_and_retrieval(query=query)
+                    self.logger.info(
+                        "[END E2E-EMBED-ONLY] Query for ground_truth=%s completed",
+                        ground_truth,
+                    )
+
+                    base_scenario_id = str(result.get("base_scenario_id") or "")
+                    best_scenario_id = base_scenario_id
                     model_metrics = result.get("model_metrics", {}) or {}
                     totals_by_type = model_metrics.get("totals_by_type", {}) or {}
                     vlm_metrics = totals_by_type.get("vlm", {}) or {}
                     llm_metrics = totals_by_type.get("llm", {}) or {}
+
                     vlm_calls = int(vlm_metrics.get("calls", 0) or 0)
                     vlm_prompt_tokens = int(vlm_metrics.get("prompt_tokens", 0) or 0)
                     vlm_completion_tokens = int(vlm_metrics.get("completion_tokens", 0) or 0)
@@ -250,24 +204,18 @@ class EvalE2EWorkflow:
                     llm_total_tokens = int(llm_metrics.get("total_tokens", 0) or 0)
                     llm_response_time_ms = float(llm_metrics.get("response_time_ms", 0.0) or 0.0)
 
-                    if not best_scenario_id:
-                        best_scenario_id = f"no_best_scenario_{ground_truth}"
-
                     query_result_dir = results_root / str(ground_truth)
                     query_result_dir.mkdir(parents=True, exist_ok=True)
 
-                    scenic_path = query_result_dir / f"{best_scenario_id}.scenic"
-                    scenic_path.write_text(best_scenic_code or "", encoding="utf-8")
-
-                    dsl_path = query_result_dir / f"{best_scenario_id}.json"
-                    dsl_payload = self._to_jsonable(final_state.get("scenario_dsl"))
+                    dsl_path = query_result_dir / "scenario_dsl.json"
+                    dsl_payload = self._to_jsonable(result.get("scenario_dsl"))
                     dsl_path.write_text(
                         json.dumps(dsl_payload, ensure_ascii=False, indent=2),
                         encoding="utf-8",
                     )
 
                     header_settings_path = query_result_dir / "header_settings.json"
-                    header_payload = self._to_jsonable(final_state.get("header_settings"))
+                    header_payload = self._to_jsonable(result.get("header_settings"))
                     header_settings_path.write_text(
                         json.dumps(header_payload, ensure_ascii=False, indent=2),
                         encoding="utf-8",
@@ -275,12 +223,11 @@ class EvalE2EWorkflow:
                 except Exception as exc:
                     error_message = str(exc)
                     self.logger.exception(
-                        "Failed to run e2e query for ground_truth=%s",
+                        "Failed to run e2e embedding-only query for ground_truth=%s",
                         ground_truth,
                     )
-                finally:
-                    record_total_time_ms = (time.perf_counter() - record_start_time) * 1000.0
 
+                record_total_time_ms = (time.perf_counter() - record_start) * 1000.0
                 writer.writerow(
                     {
                         "ground_truth": str(ground_truth),
@@ -303,10 +250,11 @@ class EvalE2EWorkflow:
                     }
                 )
 
-        self.logger.info("Saved e2e batch results to %s", output_csv_path)
+        self.logger.info("Saved e2e embedding-only results to %s", output_csv_path)
         return output_csv_path
 
+
 if __name__ == "__main__":
-    evaluator = EvalE2EWorkflow()
-    output_csv2 = evaluator.run_batch(mode=QueryMode.TEXT_VIDEO)
-    print(f"Batch done. CSV: {output_csv2}")
+    evaluator = EvalE2EEmbeddingOnlyWorkflow()
+    output_csv = evaluator.run_batch(mode=QueryMode.TEXT_IMAGE_VIDEO)
+    print(f"Batch done. CSV: {output_csv}")
