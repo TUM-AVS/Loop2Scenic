@@ -12,7 +12,7 @@ from typing import Any, Optional
 from src.app import ChatbotWorkflow
 from src.schema import MultimodalQuery
 
-FOLDER_PATH = "/home/dellpro2/chenli/ads-mrag/ads-mrag/data/test"
+FOLDER_PATH = "/home/dellpro2/chenli/ads-mrag/ads-mrag/data/batch_NHTSA"
 
 
 class QueryMode(str, Enum):
@@ -256,7 +256,5 @@ class EvalE2EWorkflow:
 
 if __name__ == "__main__":
     evaluator = EvalE2EWorkflow()
-    # output_csv1 = evaluator.run_batch(mode=QueryMode.TEXT_ONLY)
-    # print(f"Batch done. CSV: {output_csv1}")
     output_csv2 = evaluator.run_batch(mode=QueryMode.TEXT_VIDEO)
     print(f"Batch done. CSV: {output_csv2}")
