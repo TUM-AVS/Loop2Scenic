@@ -48,9 +48,8 @@ Please actively look for visual evidence in any provided images or videos (e.g.,
 - urban/roundabout/junctions → Town03 (larger urban map featuring a roundabout and complex, large junctions)
 - mountain/highway/figure-8 → Town04 (small town embedded in mountains with an infinite "figure of 8" highway)
 - grid/intersection/multiple-lanes → Town05 (squared-grid town with cross junctions and a bridge, ideal for lane changes)
-- highway/freeway/interchange → Town06 (long, multi-lane highways with many entrances, exits, and a Michigan left)
 - rural/countryside/village → Town07 (rural environment with narrow roads, cornfields, barns, and barely any traffic lights)
-- downtown/urban/promenade → Town10 or Town10HD (dense downtown urban environment with glossy skyscrapers, avenues, and an ocean promenade)
+- downtown/urban/promenade → Town10HD (dense downtown urban environment with glossy skyscrapers, avenues, and an ocean promenade)
 
 ** Common CARLA Blueprints **
 - "lincoln" or "car" (default) → vehicle.lincoln.mkz_2017
