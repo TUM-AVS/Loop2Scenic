@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import logging
+import sys
 import time
 from datetime import datetime
 from enum import Enum
@@ -12,6 +13,12 @@ from typing import Any, Optional
 from src.app import ChatbotWorkflow
 from src.schema import MultimodalQuery
 from src.workflow.scenario_workflow_state import CLEAN_STATE
+
+_EVAL_DIR = str(Path(__file__).resolve().parent)
+if _EVAL_DIR not in sys.path:
+    sys.path.insert(0, _EVAL_DIR)
+
+from e2e_metrics import extract_vlm_llm_metrics_rows, normalize_model_metrics_blob
 
 FOLDER_PATH = "/home/dellpro2/chenli/ads-mrag/ads-mrag/data/test"
 SAVE_PATH = "eval/results"
@@ -118,7 +125,7 @@ class EvalE2EEmbeddingOnlyWorkflow:
             "retrieved_scenic_code": getattr(current_scenic_scenario, "scenic_code", None),
             "scenario_dsl": state.get("scenario_dsl"),
             "header_settings": state.get("header_settings"),
-            "model_metrics": state.get("model_metrics", {}),
+            "model_metrics": normalize_model_metrics_blob(state.get("model_metrics")) or {},
             "state": state,
         }
 
@@ -188,21 +195,23 @@ class EvalE2EEmbeddingOnlyWorkflow:
 
                     base_scenario_id = str(result.get("base_scenario_id") or "")
                     best_scenario_id = base_scenario_id
-                    model_metrics = result.get("model_metrics", {}) or {}
-                    totals_by_type = model_metrics.get("totals_by_type", {}) or {}
-                    vlm_metrics = totals_by_type.get("vlm", {}) or {}
-                    llm_metrics = totals_by_type.get("llm", {}) or {}
-
-                    vlm_calls = int(vlm_metrics.get("calls", 0) or 0)
-                    vlm_prompt_tokens = int(vlm_metrics.get("prompt_tokens", 0) or 0)
-                    vlm_completion_tokens = int(vlm_metrics.get("completion_tokens", 0) or 0)
-                    vlm_total_tokens = int(vlm_metrics.get("total_tokens", 0) or 0)
-                    vlm_response_time_ms = float(vlm_metrics.get("response_time_ms", 0.0) or 0.0)
-                    llm_calls = int(llm_metrics.get("calls", 0) or 0)
-                    llm_prompt_tokens = int(llm_metrics.get("prompt_tokens", 0) or 0)
-                    llm_completion_tokens = int(llm_metrics.get("completion_tokens", 0) or 0)
-                    llm_total_tokens = int(llm_metrics.get("total_tokens", 0) or 0)
-                    llm_response_time_ms = float(llm_metrics.get("response_time_ms", 0.0) or 0.0)
+                    st = result.get("state")
+                    model_metrics = (
+                        result.get("model_metrics")
+                        or (st.get("model_metrics") if isinstance(st, dict) else None)
+                        or {}
+                    )
+                    vlm_metrics, llm_metrics = extract_vlm_llm_metrics_rows(model_metrics)
+                    vlm_calls = int(vlm_metrics["calls"])
+                    vlm_prompt_tokens = int(vlm_metrics["prompt_tokens"])
+                    vlm_completion_tokens = int(vlm_metrics["completion_tokens"])
+                    vlm_total_tokens = int(vlm_metrics["total_tokens"])
+                    vlm_response_time_ms = float(vlm_metrics["response_time_ms"])
+                    llm_calls = int(llm_metrics["calls"])
+                    llm_prompt_tokens = int(llm_metrics["prompt_tokens"])
+                    llm_completion_tokens = int(llm_metrics["completion_tokens"])
+                    llm_total_tokens = int(llm_metrics["total_tokens"])
+                    llm_response_time_ms = float(llm_metrics["response_time_ms"])
 
                     query_result_dir = results_root / str(ground_truth)
                     query_result_dir.mkdir(parents=True, exist_ok=True)

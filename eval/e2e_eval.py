@@ -3,17 +3,53 @@ from __future__ import annotations
 import csv
 import json
 import logging
+import shutil
 import time
 import uuid
 from datetime import datetime
 from enum import Enum
+import sys
 from pathlib import Path
 from typing import Any, Optional
 
 from src.app import ChatbotWorkflow
 from src.schema import MultimodalQuery
 
-FOLDER_PATH = "/home/dellpro2/chenli/ads-mrag/ads-mrag/data/batch_NHTSA"
+_EVAL_DIR = str(Path(__file__).resolve().parent)
+if _EVAL_DIR not in sys.path:
+    sys.path.insert(0, _EVAL_DIR)
+
+from e2e_metrics import extract_vlm_llm_metrics_rows, normalize_model_metrics_blob
+
+FOLDER_PATH = "/home/dellpro2/chenli/ads-mrag/ads-mrag/data/eval"
+
+
+def _try_move_temp_bev_to_eval_result(
+    best_scenario_id: str,
+    query_result_dir: Path,
+    logger: logging.Logger,
+) -> None:
+    """
+    Move ``temp/<best_scenario_id>/video/BEV.mp4`` (relative to repo root) into
+    ``query_result_dir / generated_video.mp4``. No-op if source missing; log on failure.
+    """
+    sid = (best_scenario_id or "").strip()
+    if not sid:
+        return
+    repo_root = Path(__file__).resolve().parent.parent
+    src = repo_root / "temp" / sid / "video" / "BEV.mp4"
+    dest = query_result_dir / "generated_video.mp4"
+    try:
+        if not src.is_file():
+            logger.warning("Generated BEV not found, skip move: %s", src)
+            return
+        query_result_dir.mkdir(parents=True, exist_ok=True)
+        if dest.is_file():
+            dest.unlink()
+        shutil.move(str(src), str(dest))
+        logger.info("Moved generated BEV to %s", dest)
+    except OSError as exc:
+        logger.warning("Could not move BEV %s -> %s: %s", src, dest, exc)
 
 
 class QueryMode(str, Enum):
@@ -142,7 +178,7 @@ class EvalE2EWorkflow:
             "best_scenic_code": getattr(best_scenario, "scenic_code", None),
             "best_score": getattr(best_scenario, "score", None),
             "best_error": getattr(best_scenario, "error", None),
-            "model_metrics": final_state.get("model_metrics", {}),
+            "model_metrics": normalize_model_metrics_blob(final_state.get("model_metrics")) or {},
             "state": final_state,
         }
 
@@ -171,13 +207,27 @@ class EvalE2EWorkflow:
           eval/results/e2e_<timestamp>/<best_scenario_id>/<best_scenario_id>.json
         - write final_state["header_settings"] to:
           eval/results/e2e_<timestamp>/<best_scenario_id>/header_settings.json
-        - append batch row to CSV with user_query, base_scenario_id, generation_count
+        - append batch row to CSV (including model_metrics_json: full metrics object)
         """
         query_records = self.build_multimodal_queries(mode=mode)
+        n_records = len(query_records)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         results_root = Path(__file__).resolve().parent / "results" / f"e2e_{timestamp}"
         results_root.mkdir(parents=True, exist_ok=True)
         output_csv_path = results_root / "batch_results.csv"
+
+        self.logger.info(
+            "e2e run_batch: built %d record(s), mode=%s, folder_path=%s",
+            n_records,
+            mode.value,
+            self.folder_path,
+        )
+        self.logger.info("e2e run_batch: results_root=%s", results_root)
+        self.logger.info("e2e run_batch: output_csv_path=%s", output_csv_path)
+        print(
+            f"[e2e_batch] start: {n_records} record(s), mode={mode.value!r}, "
+            f"csv={output_csv_path}"
+        )
 
         fieldnames = [
             "ground_truth",
@@ -195,6 +245,7 @@ class EvalE2EWorkflow:
             "llm_completion_tokens",
             "llm_total_tokens",
             "llm_response_time_ms",
+            "model_metrics_json",
             "record_total_time_ms",
             "error_message",
         ]
@@ -202,8 +253,12 @@ class EvalE2EWorkflow:
         with output_csv_path.open("w", newline="", encoding="utf-8") as csvfile:
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
+            csvfile.flush()
+            hdr_bytes = output_csv_path.stat().st_size
+            self.logger.info("e2e run_batch: CSV opened, header written+flush, size_bytes=%s", hdr_bytes)
+            print(f"[e2e_batch] CSV header flushed, size_bytes={hdr_bytes}")
 
-            for record in query_records:
+            for idx, record in enumerate(query_records, start=1):
                 ground_truth = record["ground_truth"]
                 query = record["query"]
                 error_message = ""
@@ -220,8 +275,17 @@ class EvalE2EWorkflow:
                 llm_completion_tokens = 0
                 llm_total_tokens = 0
                 llm_response_time_ms = 0.0
+                model_metrics_json = "{}"
                 record_total_time_ms = 0.0
                 record_start_time = time.perf_counter()
+
+                self.logger.info(
+                    "e2e run_batch: (%d/%d) begin ground_truth=%s",
+                    idx,
+                    n_records,
+                    ground_truth,
+                )
+                print(f"[e2e_batch] ({idx}/{n_records}) BEGIN ground_truth={ground_truth!r}")
 
                 try:
                     self.logger.info(f"[START E2E] Running query for ground_truth={ground_truth}")
@@ -235,20 +299,29 @@ class EvalE2EWorkflow:
                     best_scenario_id = str(result.get("best_scenario_id") or "")
                     base_scenario_id = str(final_state.get("base_scenario_id") or "")
                     generation_count = final_state.get("generation_count", "")
-                    model_metrics = result.get("model_metrics", {}) or {}
-                    totals_by_type = model_metrics.get("totals_by_type", {}) or {}
-                    vlm_metrics = totals_by_type.get("vlm", {}) or {}
-                    llm_metrics = totals_by_type.get("llm", {}) or {}
-                    vlm_calls = int(vlm_metrics.get("calls", 0) or 0)
-                    vlm_prompt_tokens = int(vlm_metrics.get("prompt_tokens", 0) or 0)
-                    vlm_completion_tokens = int(vlm_metrics.get("completion_tokens", 0) or 0)
-                    vlm_total_tokens = int(vlm_metrics.get("total_tokens", 0) or 0)
-                    vlm_response_time_ms = float(vlm_metrics.get("response_time_ms", 0.0) or 0.0)
-                    llm_calls = int(llm_metrics.get("calls", 0) or 0)
-                    llm_prompt_tokens = int(llm_metrics.get("prompt_tokens", 0) or 0)
-                    llm_completion_tokens = int(llm_metrics.get("completion_tokens", 0) or 0)
-                    llm_total_tokens = int(llm_metrics.get("total_tokens", 0) or 0)
-                    llm_response_time_ms = float(llm_metrics.get("response_time_ms", 0.0) or 0.0)
+                    model_metrics = (
+                        result.get("model_metrics")
+                        or (final_state.get("model_metrics") if isinstance(final_state, dict) else None)
+                        or {}
+                    )
+                    vlm_metrics, llm_metrics = extract_vlm_llm_metrics_rows(model_metrics)
+                    vlm_calls = int(vlm_metrics["calls"])
+                    vlm_prompt_tokens = int(vlm_metrics["prompt_tokens"])
+                    vlm_completion_tokens = int(vlm_metrics["completion_tokens"])
+                    vlm_total_tokens = int(vlm_metrics["total_tokens"])
+                    vlm_response_time_ms = float(vlm_metrics["response_time_ms"])
+                    llm_calls = int(llm_metrics["calls"])
+                    llm_prompt_tokens = int(llm_metrics["prompt_tokens"])
+                    llm_completion_tokens = int(llm_metrics["completion_tokens"])
+                    llm_total_tokens = int(llm_metrics["total_tokens"])
+                    llm_response_time_ms = float(llm_metrics["response_time_ms"])
+
+                    mm_norm = normalize_model_metrics_blob(model_metrics) or {}
+                    model_metrics_json = json.dumps(
+                        self._to_jsonable(mm_norm),
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    )
 
                     if not best_scenario_id:
                         best_scenario_id = f"no_best_scenario_{ground_truth}"
@@ -272,6 +345,12 @@ class EvalE2EWorkflow:
                         json.dumps(header_payload, ensure_ascii=False, indent=2),
                         encoding="utf-8",
                     )
+
+                    _try_move_temp_bev_to_eval_result(
+                        best_scenario_id=best_scenario_id,
+                        query_result_dir=query_result_dir,
+                        logger=self.logger,
+                    )
                 except Exception as exc:
                     error_message = str(exc)
                     self.logger.exception(
@@ -280,6 +359,19 @@ class EvalE2EWorkflow:
                     )
                 finally:
                     record_total_time_ms = (time.perf_counter() - record_start_time) * 1000.0
+
+                self.logger.info(
+                    "e2e run_batch: (%d/%d) writing CSV row ground_truth=%s error_message_len=%d",
+                    idx,
+                    n_records,
+                    ground_truth,
+                    len(error_message or ""),
+                )
+                print(
+                    f"[e2e_batch] ({idx}/{n_records}) writing CSV row "
+                    f"(record_total_time_ms={record_total_time_ms:.1f}, "
+                    f"has_error={bool(error_message)})"
+                )
 
                 writer.writerow(
                     {
@@ -298,12 +390,30 @@ class EvalE2EWorkflow:
                         "llm_completion_tokens": llm_completion_tokens,
                         "llm_total_tokens": llm_total_tokens,
                         "llm_response_time_ms": f"{llm_response_time_ms:.2f}",
+                        "model_metrics_json": model_metrics_json,
                         "record_total_time_ms": f"{record_total_time_ms:.2f}",
                         "error_message": error_message,
                     }
                 )
+                csvfile.flush()
+                size_after = output_csv_path.stat().st_size
+                self.logger.info(
+                    "e2e run_batch: (%d/%d) CSV row flushed ground_truth=%s size_bytes=%s",
+                    idx,
+                    n_records,
+                    ground_truth,
+                    size_after,
+                )
+                print(f"[e2e_batch] ({idx}/{n_records}) row flushed, csv size_bytes={size_after}")
 
-        self.logger.info("Saved e2e batch results to %s", output_csv_path)
+        final_bytes = output_csv_path.stat().st_size
+        self.logger.info(
+            "Saved e2e batch results to %s (final_size_bytes=%s, records=%d)",
+            output_csv_path,
+            final_bytes,
+            n_records,
+        )
+        print(f"[e2e_batch] done: csv={output_csv_path} size_bytes={final_bytes}")
         return output_csv_path
 
 if __name__ == "__main__":

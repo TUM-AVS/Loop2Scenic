@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import logging
+import sys
 import time
 from copy import deepcopy
 from datetime import datetime
@@ -21,6 +22,12 @@ from src.utils import (
 )
 from src.workflow.scenario_workflow_state import CLEAN_STATE
 from src.workflow.workflow import ScenarioWorkflow
+
+_EVAL_DIR = str(Path(__file__).resolve().parent)
+if _EVAL_DIR not in sys.path:
+    sys.path.insert(0, _EVAL_DIR)
+
+from e2e_metrics import extract_vlm_llm_metrics_rows, normalize_model_metrics_blob
 
 FOLDER_PATH = "data/test"
 BASE_SCENARIO_MAP_CSV_PATH = "eval/result/base_scenario_map.csv"
@@ -321,7 +328,7 @@ class EvalE2ENoEmbeddingWorkflow:
             "best_scenic_code": getattr(best_scenario, "scenic_code", None),
             "best_score": getattr(best_scenario, "score", None),
             "best_error": getattr(best_scenario, "error", None),
-            "model_metrics": state.get("model_metrics", {}),
+            "model_metrics": normalize_model_metrics_blob(state.get("model_metrics")) or {},
             "state": state,
         }
 
@@ -380,21 +387,22 @@ class EvalE2ENoEmbeddingWorkflow:
                     best_scenario_id = str(result.get("best_scenario_id") or "")
                     generation_count = final_state.get("generation_count", "")
 
-                    model_metrics = result.get("model_metrics", {}) or {}
-                    totals_by_type = model_metrics.get("totals_by_type", {}) or {}
-                    vlm_metrics = totals_by_type.get("vlm", {}) or {}
-                    llm_metrics = totals_by_type.get("llm", {}) or {}
-
-                    vlm_calls = int(vlm_metrics.get("calls", 0) or 0)
-                    vlm_prompt_tokens = int(vlm_metrics.get("prompt_tokens", 0) or 0)
-                    vlm_completion_tokens = int(vlm_metrics.get("completion_tokens", 0) or 0)
-                    vlm_total_tokens = int(vlm_metrics.get("total_tokens", 0) or 0)
-                    vlm_response_time_ms = float(vlm_metrics.get("response_time_ms", 0.0) or 0.0)
-                    llm_calls = int(llm_metrics.get("calls", 0) or 0)
-                    llm_prompt_tokens = int(llm_metrics.get("prompt_tokens", 0) or 0)
-                    llm_completion_tokens = int(llm_metrics.get("completion_tokens", 0) or 0)
-                    llm_total_tokens = int(llm_metrics.get("total_tokens", 0) or 0)
-                    llm_response_time_ms = float(llm_metrics.get("response_time_ms", 0.0) or 0.0)
+                    model_metrics = (
+                        result.get("model_metrics")
+                        or (final_state.get("model_metrics") if isinstance(final_state, dict) else None)
+                        or {}
+                    )
+                    vlm_metrics, llm_metrics = extract_vlm_llm_metrics_rows(model_metrics)
+                    vlm_calls = int(vlm_metrics["calls"])
+                    vlm_prompt_tokens = int(vlm_metrics["prompt_tokens"])
+                    vlm_completion_tokens = int(vlm_metrics["completion_tokens"])
+                    vlm_total_tokens = int(vlm_metrics["total_tokens"])
+                    vlm_response_time_ms = float(vlm_metrics["response_time_ms"])
+                    llm_calls = int(llm_metrics["calls"])
+                    llm_prompt_tokens = int(llm_metrics["prompt_tokens"])
+                    llm_completion_tokens = int(llm_metrics["completion_tokens"])
+                    llm_total_tokens = int(llm_metrics["total_tokens"])
+                    llm_response_time_ms = float(llm_metrics["response_time_ms"])
 
                     if not best_scenario_id:
                         best_scenario_id = f"no_best_scenario_{ground_truth}"
