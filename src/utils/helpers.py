@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 import tiktoken
 import json
 import os
+import signal
 import subprocess
 
 from src.schema import ScenarioDocument
@@ -235,9 +236,60 @@ def get_scenario_document_with_scenario_id(scenario_id: str) -> ScenarioDocument
         logger.error(f"Error getting scenario document for ID: {scenario_id}: {e}")
         return None
 
-def run_simulation_in_carla_and_save_video(scenic_code: str, scenario_id: str = "test_scenario") -> str:
+
+def _terminate_simulation_process_group(proc: subprocess.Popen) -> None:
+    """Stop run_scenic_batch.sh and its children (Scenic, recorder, same PG)."""
+    if proc.poll() is not None:
+        return
+    if os.name == "posix":
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            proc.terminate()
+        try:
+            proc.wait(timeout=15)
+            return
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                proc.kill()
+            proc.wait(timeout=10)
+    else:
+        proc.terminate()
+        try:
+            proc.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=10)
+
+
+def _write_timeout_stub_log(scenario_id: str, timeout_sec: int) -> None:
+    """So get_error_message_from_logs() returns a clear message after wall-clock timeout."""
+    log_dir = f"temp/{scenario_id}/logs"
+    os.makedirs(log_dir, exist_ok=True)
+    path = os.path.join(log_dir, f"{scenario_id}__simulation_timeout.log")
+    body = (
+        f"CARLA/Scenic subprocess exceeded {timeout_sec}s and was force-terminated.\n"
+        "(run_scenic_batch.sh did not finish within the workflow timeout.)\n"
+    )
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("Traceback (most recent call last):\n")
+        f.write(f"TimeoutError: {body}\n")
+        f.write("\n=== CARLA SETTINGS (post-scenic) ===\n")
+
+
+def run_simulation_in_carla_and_save_video(
+    scenic_code: str,
+    scenario_id: str = "test_scenario",
+    timeout_sec: int = 1000,
+) -> Optional[str]:
     """
     Run the simulation in Carla and save the video.
+
+    If the batch script does not finish within ``timeout_sec`` (default 10 minutes),
+    the subprocess process group is killed and ``None`` is returned. A stub log is
+    written so ``get_error_message_from_logs`` can populate ``scenario.error``.
     """
     # 1. save scenic code to a file
     # clean the temp/{scenario_id} directory if exists
@@ -251,16 +303,50 @@ def run_simulation_in_carla_and_save_video(scenic_code: str, scenario_id: str = 
     with open(f"temp/{scenario_id}/code/scenic_code.scenic", "w") as f:
         f.write(scenic_code)
 
-    # 2. run simulation and save the video
-    result = subprocess.run(['src/utils/run_scenic_batch.sh', f"temp/{scenario_id}/code", '--outdir', f"temp/{scenario_id}/video", '--logdir', f"temp/{scenario_id}/logs"], capture_output=True, text=True)
-    if result.returncode != 0:
-        logger.error(f"Failed to run simulation: {result.stderr}")
+    # 2. run simulation and save the video (bounded wall time)
+    cmd = [
+        "src/utils/run_scenic_batch.sh",
+        f"temp/{scenario_id}/code",
+        "--outdir",
+        f"temp/{scenario_id}/video",
+        "--logdir",
+        f"temp/{scenario_id}/logs",
+    ]
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout_sec)
+    except subprocess.TimeoutExpired:
+        logger.error(
+            "Simulation timed out after %ss for scenario %s; killing process group",
+            timeout_sec,
+            scenario_id,
+        )
+        _terminate_simulation_process_group(proc)
+        try:
+            stdout, stderr = proc.communicate(timeout=5)
+        except Exception:
+            stdout, stderr = (stdout or ""), (stderr or "")
+        _write_timeout_stub_log(scenario_id, timeout_sec)
+        if stderr:
+            logger.error("run_scenic_batch stderr (tail): %s", stderr[-4000:])
+        return None
+
+    if proc.returncode != 0:
+        logger.error(f"Failed to run simulation: {stderr}")
         return None
     # check if video really exists
-    if not os.path.exists(os.path.join(f"temp/{scenario_id}/video", 'BEV.mp4')):
-        logger.error(f"Video not found at {os.path.join(f"temp/{scenario_id}/video", 'BEV.mp4')}")
+    if not os.path.exists(os.path.join(f"temp/{scenario_id}/video", "BEV.mp4")):
+        logger.error(
+            f"Video not found at {os.path.join(f'temp/{scenario_id}/video', 'BEV.mp4')}"
+        )
         return None
-    video_path = os.path.join(f"temp/{scenario_id}/video", 'BEV.mp4')
+    video_path = os.path.join(f"temp/{scenario_id}/video", "BEV.mp4")
     return video_path
 
 def get_error_message_from_logs(scenario_id: str) -> Optional[str]:
