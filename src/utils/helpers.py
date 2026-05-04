@@ -239,22 +239,137 @@ def get_scenario_document_with_scenario_id(scenario_id: str) -> ScenarioDocument
 
 def _terminate_simulation_process_group(proc: subprocess.Popen) -> None:
     """Stop run_scenic_batch.sh and its children (Scenic, recorder, same PG)."""
+    carla_name_pattern = r"caiwang/carla/Dist/CARLA_Shipping_294096eb1"
+
+    def _list_descendant_pids(root_pid: int) -> set[int]:
+        descendants: set[int] = set()
+        parent_to_children: dict[int, list[int]] = {}
+        proc_root = "/proc"
+        try:
+            for entry in os.listdir(proc_root):
+                if not entry.isdigit():
+                    continue
+                stat_path = os.path.join(proc_root, entry, "stat")
+                try:
+                    with open(stat_path, "r", encoding="utf-8", errors="ignore") as f:
+                        stat_line = f.read().strip()
+                except (FileNotFoundError, PermissionError, ProcessLookupError):
+                    continue
+
+                close_idx = stat_line.rfind(")")
+                if close_idx == -1:
+                    continue
+                after = stat_line[close_idx + 2 :].split()
+                # /proc/<pid>/stat after "comm)" starts with state then ppid.
+                if len(after) < 2:
+                    continue
+                try:
+                    pid = int(entry)
+                    ppid = int(after[1])
+                except ValueError:
+                    continue
+                parent_to_children.setdefault(ppid, []).append(pid)
+        except FileNotFoundError:
+            return descendants
+
+        stack = [root_pid]
+        while stack:
+            parent = stack.pop()
+            for child in parent_to_children.get(parent, []):
+                if child in descendants:
+                    continue
+                descendants.add(child)
+                stack.append(child)
+        return descendants
+
+    def _signal_many(pids: set[int], sig: signal.Signals) -> None:
+        for pid in pids:
+            try:
+                os.kill(pid, sig)
+            except (ProcessLookupError, PermissionError):
+                continue
+
+    def _alive_pids(pids: set[int]) -> set[int]:
+        alive: set[int] = set()
+        for pid in pids:
+            try:
+                os.kill(pid, 0)
+                alive.add(pid)
+            except (ProcessLookupError, PermissionError):
+                continue
+        return alive
+
+    def _is_carla_running_by_name() -> bool:
+        try:
+            result = subprocess.run(
+                ["pgrep", "-f", carla_name_pattern],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                check=False,
+            )
+            return bool(result.stdout.strip())
+        except Exception:
+            return False
+
+    def _kill_carla_by_name() -> None:
+        for sig in ("TERM", "KILL"):
+            try:
+                subprocess.run(
+                    ["pkill", f"-{sig}", "-f", carla_name_pattern],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
+            except Exception:
+                continue
+            if sig == "TERM":
+                try:
+                    proc.wait(timeout=3)
+                except Exception:
+                    pass
+
     if proc.poll() is not None:
         return
     if os.name == "posix":
+        pgid: Optional[int] = None
         try:
-            os.killpg(proc.pid, signal.SIGTERM)
+            pgid = os.getpgid(proc.pid)
+        except (ProcessLookupError, PermissionError):
+            pgid = None
+
+        try:
+            # Use resolved PGID (not always equal to proc.pid) and avoid killing our own group.
+            if pgid is not None and pgid != os.getpgrp():
+                os.killpg(pgid, signal.SIGTERM)
+            else:
+                proc.terminate()
         except (ProcessLookupError, PermissionError):
             proc.terminate()
+
+        descendants = _list_descendant_pids(proc.pid)
+        _signal_many(descendants, signal.SIGTERM)
+
         try:
             proc.wait(timeout=15)
             return
         except subprocess.TimeoutExpired:
             try:
-                os.killpg(proc.pid, signal.SIGKILL)
+                if pgid is not None and pgid != os.getpgrp():
+                    os.killpg(pgid, signal.SIGKILL)
+                else:
+                    proc.kill()
             except (ProcessLookupError, PermissionError):
                 proc.kill()
+            _signal_many(_alive_pids(descendants), signal.SIGKILL)
             proc.wait(timeout=10)
+
+        if _is_carla_running_by_name():
+            logger.warning(
+                "CARLA process still running after PG/tree termination; falling back to name kill: %s",
+                carla_name_pattern,
+            )
+            _kill_carla_by_name()
     else:
         proc.terminate()
         try:
