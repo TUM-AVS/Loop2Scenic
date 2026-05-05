@@ -123,9 +123,9 @@ class VisualScoringWebApp:
             user_query = self._parse_user_query(row.get("user_query") or "")
 
             user_query_image = str(user_query.get("image_path") or "")
-            user_query_video_path = str(Path("data") / "scenarios" / ground_truth / "video.mp4")
+            user_query_video_path = str(Path("data") / "scenarios" / ground_truth / "BEV.mp4")
             generated_video_path = str(
-                self.folder_path / best_scenario_id / "video" / "BEV.mp4"
+                self.folder_path / ground_truth / "generated_video.mp4"
             )
 
             records.append(
@@ -575,8 +575,8 @@ class VisualScoringWebApp:
 
 if __name__ == "__main__":
     app = VisualScoringWebApp(
-        csv_path=Path("eval") / "result" / "visual_scoring.csv",
+        csv_path=Path("eval") / "results" / "CP+FS+COT_batch_result.csv",
         generated_video_folder_path=Path("data") / "eval_res",
-        score_output_csv_path=Path("eval") / "result" / "visual_scoring_results.csv",
+        score_output_csv_path=Path("eval") / "results" / "CP+FS+COT_visual_scoring_results.csv",
     )
     app.run()
