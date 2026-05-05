@@ -59,23 +59,216 @@ def write_records_without_error(
 
 
 class VisualScoringWebApp:
+    TEMPORAL_DIMENSION_KEY = "Temporal modifications"
+    DYNAMIC_OBJECTS_DIMENSION_KEY = "Dynamic objects besides ego"
     SCORE_DIMENSIONS = [
-        "Road topology",
-        "Traffic infrastructure",
-        "Temporal modifications",
-        "Ego dynamic behaviors",
-        "Dynamic objects besides ego",
-        "Environment",
-        "Overall score",
+        {
+            "key": "Overall score",
+            "label": "Overall score (first impression)",
+            "layer": "Overall score",
+            "levels": [
+                ("1", "Totally fit"),
+                ("0.5", "Partly fit"),
+                ("0", "Not fit at all"),
+            ],
+            "not_mentioned": "1",
+        },
+        {
+            "key": "road_topology",
+            "label": "Road topology (e.g. intersection, straight, curve)",
+            "layer": "Layer 1 - road",
+            "levels": [("1", "fit"), ("0", "not fit"), ("-1", "not mentioned")],
+            "not_mentioned": "-1",
+        },
+        {
+            "key": "road_lane",
+            "label": "Lane lines (e.g. 4-way road)",
+            "layer": "Layer 1 - road",
+            "levels": [("1", "fit"), ("0", "not fit"), ("-1", "not mentioned")],
+            "not_mentioned": "-1",
+        },
+        {
+            "key": "road_sidewalk",
+            "label": "Sidewalks (e.g. pedestrian crosswalk)",
+            "layer": "Layer 1 - road",
+            "levels": [("1", "fit"), ("0", "not fit"), ("-1", "not mentioned")],
+            "not_mentioned": "-1",
+        },
+        {
+            "key": "traffic_light",
+            "label": "Traffic light",
+            "layer": "Layer 2 - traffic infrastructure",
+            "levels": [("1", "fit"), ("0", "not fit"), ("-1", "not mentioned")],
+            "not_mentioned": "-1",
+        },
+        {
+            "key": "traffic_sign",
+            "label": "Traffic sign",
+            "layer": "Layer 2 - traffic infrastructure",
+            "levels": [("1", "fit"), ("0", "not fit"), ("-1", "not mentioned")],
+            "not_mentioned": "-1",
+        },
+        {
+            "key": "Temporal modifications",
+            "label": "Temporal modifications (e.g. traffic cone, construction cone, traffic warning sign, debris)",
+            "layer": "Layer 3 - temporal modifications",
+            "levels": [("1", "fit"), ("0", "not fit")],
+            "not_mentioned": "-1",
+        },
+        {
+            "key": "ego_object",
+            "label": "Ego object type (e.g. truck, motorcycle, car)",
+            "layer": "Layer 4 - Dynamic objects",
+            "levels": [("1", "fit"), ("0", "not fit"), ("-1", "not mentioned")],
+            "not_mentioned": "-1",
+        },
+        {
+            "key": "Ego dynamic behaviors",
+            "label": "Ego dynamic behaviors (e.g. accelerating, yielding, remaining stationary)",
+            "layer": "Layer 4 - Dynamic objects",
+            "levels": [("1", "fit"), ("0", "not fit"), ("-1", "not mentioned")],
+            "not_mentioned": "-1",
+        },
+        {
+            "key": "Dynamic objects besides ego",
+            "label": "Dynamic objects besides ego",
+            "layer": "Layer 4 - Dynamic objects",
+            "levels": [("1", "fit"), ("0", "not fit"), ("-1", "not mentioned")],
+            "not_mentioned": "-1",
+        },
+        {
+            "key": "environment_map_type",
+            "label": "Environment - map type (urban/rural/highway)",
+            "layer": "Layer 5 - environment",
+            "levels": [("1", "fit"), ("0", "not fit"), ("-1", "not mentioned")],
+            "not_mentioned": "-1",
+        },
+        {
+            "key": "environment_illumination",
+            "label": "Environment - illumination (e.g. day, night)",
+            "layer": "Layer 5 - environment",
+            "levels": [("1", "fit"), ("0", "not fit"), ("-1", "not mentioned")],
+            "not_mentioned": "-1",
+        },
+        {
+            "key": "environment_weather",
+            "label": "Environment - weather (e.g. sunny, rainy, snowy)",
+            "layer": "Layer 5 - environment",
+            "levels": [("1", "fit"), ("0", "not fit"), ("-1", "not mentioned")],
+            "not_mentioned": "-1",
+        },
     ]
-    SCORE_LEVELS = [
-        ("5", "Totally fit"),
-        ("4", "Mostly fit"),
-        ("3", "Partially fit"),
-        ("2", "Slightly fit"),
-        ("1", "Not fit at all"),
-        ("0", "Not mentioned"),
-    ]
+
+    @staticmethod
+    def _to_float(value: object) -> Optional[float]:
+        text = str(value).strip()
+        if text == "":
+            return None
+        try:
+            return float(text)
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _format_score(value: Optional[float]) -> str:
+        if value is None:
+            return ""
+        return f"{value:.4f}"
+
+    @staticmethod
+    def _to_int(value: object, default: int = 0) -> int:
+        text = str(value).strip()
+        if text == "":
+            return default
+        try:
+            return int(text)
+        except ValueError:
+            return default
+
+    def _mean_ignore_value(self, values: List[Optional[float]], ignored: float) -> Optional[float]:
+        filtered: List[float] = [v for v in values if v is not None and v != ignored]
+        if not filtered:
+            return None
+        return sum(filtered) / len(filtered)
+
+    def _apply_layer_scores(self, row: Dict[str, str]) -> Dict[str, str]:
+        # Layer 1: average of road fields, ignoring "not mentioned" (-1).
+        l1_values = [
+            self._to_float(row.get("road_topology", "")),
+            self._to_float(row.get("road_lane", "")),
+            self._to_float(row.get("road_sidewalk", "")),
+        ]
+        l1_score = self._mean_ignore_value(l1_values, ignored=-1.0)
+
+        # Layer 2: average of traffic fields, ignoring "not mentioned" (-1).
+        l2_values = [
+            self._to_float(row.get("traffic_light", "")),
+            self._to_float(row.get("traffic_sign", "")),
+        ]
+        l2_score = self._mean_ignore_value(l2_values, ignored=-1.0)
+
+        # Layer 3: mean of temporal modification items (fit=1, not fit=0).
+        temporal_count = self._to_int(row.get("temporal_modifications_count", "0"), default=0)
+        temporal_fit_count = self._to_int(row.get("temporal_modifications_fit_count", "0"), default=0)
+        if temporal_count > 0:
+            l3_score: Optional[float] = temporal_fit_count / temporal_count
+        else:
+            l3_score = None
+
+        # Layer 4:
+        # 1) total agents = dynamic objects count + 1 ego
+        # 2) ego score: mean of ego fields, ignoring not mentioned (-1)
+        # 3) each dynamic agent score: mean of presence/action/object_type,
+        #    ignoring not mentioned (-1)
+        # 4) l4_score = (sum of ego + all dynamic agent scores) / total agents
+        dynamic_count = self._to_int(row.get("dynamic_objects_count", "0"), default=0)
+        total_agents = dynamic_count + 1
+
+        ego_values = [
+            self._to_float(row.get("Ego dynamic behaviors", "")),
+            self._to_float(row.get("ego_object", "")),
+        ]
+        ego_score = self._mean_ignore_value(ego_values, ignored=-1.0)
+        if ego_score is None:
+            ego_score = 0.0
+
+        agent_scores_sum = 0.0
+        try:
+            agent_scores_raw = json.loads(row.get("dynamic_objects_agent_scores_json", "[]") or "[]")
+            if not isinstance(agent_scores_raw, list):
+                agent_scores_raw = []
+        except json.JSONDecodeError:
+            agent_scores_raw = []
+
+        for agent in agent_scores_raw:
+            if not isinstance(agent, dict):
+                continue
+            per_agent_values = [
+                self._to_float(agent.get("presence", "")),
+                self._to_float(agent.get("action", "")),
+                self._to_float(agent.get("object_type", "")),
+            ]
+            per_agent_score = self._mean_ignore_value(per_agent_values, ignored=-1.0)
+            if per_agent_score is None:
+                per_agent_score = 0.0
+            agent_scores_sum += per_agent_score
+
+        l4_score = (ego_score + agent_scores_sum) / total_agents if total_agents > 0 else None
+
+        # Layer 5: average of environment fields, ignoring not mentioned (-1).
+        l5_values = [
+            self._to_float(row.get("environment_map_type", "")),
+            self._to_float(row.get("environment_illumination", "")),
+            self._to_float(row.get("environment_weather", "")),
+        ]
+        l5_score = self._mean_ignore_value(l5_values, ignored=-1.0)
+
+        row["l1_score"] = self._format_score(l1_score)
+        row["l2_score"] = self._format_score(l2_score)
+        row["l3_score"] = self._format_score(l3_score)
+        row["l4_score"] = self._format_score(l4_score)
+        row["l5_score"] = self._format_score(l5_score)
+        return row
 
     def __init__(
         self,
@@ -160,12 +353,38 @@ class VisualScoringWebApp:
 
     def _write_scores(self) -> None:
         self.score_output_csv_path.parent.mkdir(parents=True, exist_ok=True)
-        fieldnames = ["ground_truth", "best_scenario_id", "user_query_text", "error"] + self.SCORE_DIMENSIONS
+        dimension_keys = [dim["key"] for dim in self.SCORE_DIMENSIONS]
+        fieldnames = [
+            "ground_truth",
+            "best_scenario_id",
+            "user_query_text",
+            "error",
+            "l1_score",
+            "l2_score",
+            "l3_score",
+            "l4_score",
+            "l5_score",
+            "temporal_modifications_count",
+            "temporal_modifications_fit_count",
+            "temporal_modifications_not_fit_count",
+            "dynamic_objects_count",
+            "dynamic_objects_presence_fit_count",
+            "dynamic_objects_presence_not_fit_count",
+            "dynamic_objects_presence_not_mentioned_count",
+            "dynamic_objects_action_fit_count",
+            "dynamic_objects_action_not_fit_count",
+            "dynamic_objects_action_not_mentioned_count",
+            "dynamic_objects_object_type_fit_count",
+            "dynamic_objects_object_type_not_fit_count",
+            "dynamic_objects_object_type_not_mentioned_count",
+            "dynamic_objects_agent_scores_json",
+        ] + dimension_keys
         with self.score_output_csv_path.open("w", newline="", encoding="utf-8") as file:
-            writer = csv.DictWriter(file, fieldnames=fieldnames)
+            writer = csv.DictWriter(file, fieldnames=fieldnames, extrasaction="ignore")
             writer.writeheader()
             for key in sorted(self._scores):
-                writer.writerow(self._scores[key])
+                row = dict(self._scores[key])
+                writer.writerow(self._apply_layer_scores(row))
 
     def _remove_scored_record_from_source(self, scored_record: Dict[str, str]) -> None:
         """
@@ -323,19 +542,68 @@ class VisualScoringWebApp:
     td {
       border-left: 1px solid #e5eaf5;
       border-bottom: 1px solid #e5eaf5;
-      text-align: center;
+      text-align: left;
       font-size: 13px;
       padding: 8px 6px;
       background: #fff;
     }
     tbody tr td:last-child { border-right: 1px solid #e5eaf5; }
-    .dimension {
+    .layer {
       text-align: left;
       font-weight: 600;
       min-width: 260px;
+      background: #f6f9ff;
+      color: #334155;
+    }
+    .dimension {
+      text-align: left;
+      font-weight: 600;
+      min-width: 220px;
       background: #fafcff;
     }
     input[type="radio"] { accent-color: var(--accent); transform: scale(1.08); }
+    .choices { display: flex; flex-wrap: wrap; gap: 12px; }
+    .choice { display: inline-flex; align-items: center; gap: 6px; }
+    .temporal-box { display: flex; flex-direction: column; gap: 10px; }
+    .temporal-count { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; }
+    .temporal-count input {
+      width: 88px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      border: 1px solid #d1d9ee;
+      font-size: 14px;
+    }
+    .temporal-items { display: flex; flex-direction: column; gap: 8px; }
+    .temporal-item { display: inline-flex; align-items: center; gap: 12px; }
+    .temporal-item-label { min-width: 120px; font-weight: 600; color: #475569; }
+    .dynamic-box { display: flex; flex-direction: column; gap: 10px; }
+    .dynamic-count { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; }
+    .dynamic-count input {
+      width: 88px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      border: 1px solid #d1d9ee;
+      font-size: 14px;
+    }
+    .dynamic-items { display: flex; flex-direction: column; gap: 10px; }
+    .dynamic-item {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 8px 10px;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      background: #fcfdff;
+    }
+    .dynamic-item-label { font-weight: 700; color: #334155; }
+    .dynamic-field {
+      display: inline-flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+    }
+    .dynamic-field-name { font-weight: 600; color: #334155; min-width: 72px; }
     .actions { margin-top: 12px; }
     .save-btn {
       background: linear-gradient(120deg, #10b981 0%, #059669 100%);
@@ -434,27 +702,64 @@ class VisualScoringWebApp:
         <table>
           <thead>
             <tr>
+              <th class="layer">Layer</th>
               <th class="dimension">Dimension</th>
-              {% for _, label in levels %}
-                <th>{{ label }}</th>
-              {% endfor %}
+              <th>Choices</th>
             </tr>
           </thead>
           <tbody>
             {% for dim in dimensions %}
             <tr>
-              <td class="dimension">{{ dim }}</td>
-              {% for value, _ in levels %}
+              <td class="layer">{{ dim["layer"] }}</td>
+              <td class="dimension">{{ dim["label"] }}</td>
               <td>
-                <input
-                  type="radio"
-                  name="{{ dim }}"
-                  value="{{ value }}"
-                  {% if existing_scores.get(dim) == value or (existing_scores.get("error") == "true" and value == "0") %}checked{% endif %}
-                  required
-                />
+                {% if dim["key"] == temporal_dimension_key %}
+                <div class="temporal-box">
+                  <label class="temporal-count">
+                    <span>mentioned count:</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      name="temporal_modifications_count"
+                      id="temporal_modifications_count"
+                      value="{{ existing_scores.get('temporal_modifications_count', '0') }}"
+                    />
+                  </label>
+                  <div id="temporal-modification-items" class="temporal-items"></div>
+                </div>
+                {% elif dim["key"] == dynamic_objects_dimension_key %}
+                <div class="dynamic-box">
+                  <label class="dynamic-count">
+                    <span>agent count:</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      name="dynamic_objects_count"
+                      id="dynamic_objects_count"
+                      value="{{ existing_scores.get('dynamic_objects_count', '0') }}"
+                    />
+                  </label>
+                  <div id="dynamic-object-items" class="dynamic-items"></div>
+                </div>
+                {% else %}
+                <div class="choices">
+                  {% for value, option_label in dim["levels"] %}
+                    <label class="choice">
+                      <input
+                        type="radio"
+                        name="{{ dim['key'] }}"
+                        value="{{ value }}"
+                        {% if existing_scores.get(dim['key']) == value or (existing_scores.get("error") == "true" and value == dim["not_mentioned"]) %}checked{% endif %}
+                        required
+                      />
+                      <span>{{ option_label }}</span>
+                    </label>
+                  {% endfor %}
+                </div>
+                {% endif %}
               </td>
-              {% endfor %}
             </tr>
             {% endfor %}
           </tbody>
@@ -473,17 +778,199 @@ class VisualScoringWebApp:
         return;
       }
 
-      const dimensionNames = {{ dimensions|tojson }};
-      const notMentionedValue = "0";
+      const dimensions = {{ dimensions|tojson }};
+      const temporalDimensionKey = {{ temporal_dimension_key|tojson }};
+      const dynamicObjectsDimensionKey = {{ dynamic_objects_dimension_key|tojson }};
+      const temporalCountInput = document.getElementById("temporal_modifications_count");
+      const temporalItemsContainer = document.getElementById("temporal-modification-items");
+      const dynamicCountInput = document.getElementById("dynamic_objects_count");
+      const dynamicItemsContainer = document.getElementById("dynamic-object-items");
+      const existingScores = {{ existing_scores|tojson }};
+
+      function buildTemporalItems(count) {
+        if (!temporalItemsContainer) {
+          return;
+        }
+        temporalItemsContainer.innerHTML = "";
+        for (let i = 1; i <= count; i += 1) {
+          const row = document.createElement("div");
+          row.className = "temporal-item";
+
+          const label = document.createElement("span");
+          label.className = "temporal-item-label";
+          label.textContent = `item ${i}`;
+          row.appendChild(label);
+
+          const fitId = `temporal_mod_item_${i}_fit`;
+          const notFitId = `temporal_mod_item_${i}_not_fit`;
+          const name = `temporal_mod_item_${i}`;
+
+          const fitLabel = document.createElement("label");
+          fitLabel.className = "choice";
+          fitLabel.innerHTML = `<input type="radio" id="${fitId}" name="${name}" value="1" required /> <span>fit</span>`;
+
+          const notFitLabel = document.createElement("label");
+          notFitLabel.className = "choice";
+          notFitLabel.innerHTML = `<input type="radio" id="${notFitId}" name="${name}" value="0" required /> <span>not fit</span>`;
+
+          row.appendChild(fitLabel);
+          row.appendChild(notFitLabel);
+          temporalItemsContainer.appendChild(row);
+        }
+
+        const fitCount = parseInt(existingScores.temporal_modifications_fit_count || "0", 10);
+        const notFitCount = parseInt(existingScores.temporal_modifications_not_fit_count || "0", 10);
+        if (Number.isFinite(fitCount) && Number.isFinite(notFitCount) && (fitCount + notFitCount) === count) {
+          for (let i = 1; i <= count; i += 1) {
+            const preferred = i <= fitCount ? "1" : "0";
+            const radio = temporalItemsContainer.querySelector(`input[name="temporal_mod_item_${i}"][value="${preferred}"]`);
+            if (radio) {
+              radio.checked = true;
+            }
+          }
+        }
+      }
 
       function applyNotMentionedSelections() {
-        for (const dim of dimensionNames) {
-          const selector = `input[type="radio"][name="${dim}"][value="${notMentionedValue}"]`;
+        for (const dim of dimensions) {
+          if (dim.key === temporalDimensionKey) {
+            if (temporalCountInput) {
+              temporalCountInput.value = "0";
+              buildTemporalItems(0);
+            }
+            continue;
+          }
+          if (dim.key === dynamicObjectsDimensionKey) {
+            if (dynamicCountInput) {
+              dynamicCountInput.value = "0";
+              buildDynamicObjectItems(0);
+            }
+            continue;
+          }
+          const selector = `input[type="radio"][name="${dim.key}"][value="${dim.not_mentioned}"]`;
           const radio = document.querySelector(selector);
           if (radio) {
             radio.checked = true;
           }
         }
+      }
+
+      function sanitizeNonNegativeCount(rawValue) {
+        const parsed = Number.parseInt(rawValue, 10);
+        if (!Number.isFinite(parsed) || parsed < 0) {
+          return 0;
+        }
+        return parsed;
+      }
+
+      function makeChoiceRadio(name, value, label, required) {
+        const choiceLabel = document.createElement("label");
+        choiceLabel.className = "choice";
+        choiceLabel.innerHTML = `<input type="radio" name="${name}" value="${value}" ${required ? "required" : ""} /> <span>${label}</span>`;
+        return choiceLabel;
+      }
+
+      function buildDynamicObjectItems(count) {
+        if (!dynamicItemsContainer) {
+          return;
+        }
+        dynamicItemsContainer.innerHTML = "";
+
+        let existingAgentScores = [];
+        try {
+          existingAgentScores = JSON.parse(existingScores.dynamic_objects_agent_scores_json || "[]");
+          if (!Array.isArray(existingAgentScores)) {
+            existingAgentScores = [];
+          }
+        } catch (e) {
+          existingAgentScores = [];
+        }
+
+        for (let i = 1; i <= count; i += 1) {
+          const row = document.createElement("div");
+          row.className = "dynamic-item";
+
+          const itemLabel = document.createElement("span");
+          itemLabel.className = "dynamic-item-label";
+          itemLabel.textContent = `agent ${i}`;
+          row.appendChild(itemLabel);
+
+          const presenceField = document.createElement("div");
+          presenceField.className = "dynamic-field";
+          presenceField.innerHTML = `<span class="dynamic-field-name">presence</span>`;
+          const presenceName = `dynamic_obj_agent_${i}_presence`;
+          presenceField.appendChild(makeChoiceRadio(presenceName, "1", "fit", true));
+          presenceField.appendChild(makeChoiceRadio(presenceName, "0", "not fit", true));
+          presenceField.appendChild(makeChoiceRadio(presenceName, "-1", "not mentioned", true));
+          row.appendChild(presenceField);
+
+          const actionField = document.createElement("div");
+          actionField.className = "dynamic-field";
+          actionField.innerHTML = `<span class="dynamic-field-name">action</span>`;
+          const actionName = `dynamic_obj_agent_${i}_action`;
+          actionField.appendChild(makeChoiceRadio(actionName, "1", "fit", true));
+          actionField.appendChild(makeChoiceRadio(actionName, "0", "not fit", true));
+          actionField.appendChild(makeChoiceRadio(actionName, "-1", "not mentioned", true));
+          row.appendChild(actionField);
+
+          const objectTypeField = document.createElement("div");
+          objectTypeField.className = "dynamic-field";
+          objectTypeField.innerHTML = `<span class="dynamic-field-name">object type</span>`;
+          const objectTypeName = `dynamic_obj_agent_${i}_object_type`;
+          objectTypeField.appendChild(makeChoiceRadio(objectTypeName, "1", "fit", true));
+          objectTypeField.appendChild(makeChoiceRadio(objectTypeName, "0", "not fit", true));
+          objectTypeField.appendChild(makeChoiceRadio(objectTypeName, "-1", "not mentioned", true));
+          row.appendChild(objectTypeField);
+
+          dynamicItemsContainer.appendChild(row);
+
+          const saved = existingAgentScores[i - 1];
+          if (saved && typeof saved === "object") {
+            const savedPresence = String(saved.presence ?? "");
+            const savedAction = String(saved.action ?? "");
+            const savedObjectType = String(saved.object_type ?? "");
+            const presenceRadio = dynamicItemsContainer.querySelector(
+              `input[name="${presenceName}"][value="${savedPresence}"]`
+            );
+            const actionRadio = dynamicItemsContainer.querySelector(
+              `input[name="${actionName}"][value="${savedAction}"]`
+            );
+            const objectTypeRadio = dynamicItemsContainer.querySelector(
+              `input[name="${objectTypeName}"][value="${savedObjectType}"]`
+            );
+            if (presenceRadio) {
+              presenceRadio.checked = true;
+            }
+            if (actionRadio) {
+              actionRadio.checked = true;
+            }
+            if (objectTypeRadio) {
+              objectTypeRadio.checked = true;
+            }
+          }
+        }
+      }
+
+      if (temporalCountInput) {
+        const initialCount = sanitizeNonNegativeCount(temporalCountInput.value);
+        temporalCountInput.value = String(initialCount);
+        buildTemporalItems(initialCount);
+        temporalCountInput.addEventListener("input", function () {
+          const count = sanitizeNonNegativeCount(temporalCountInput.value);
+          temporalCountInput.value = String(count);
+          buildTemporalItems(count);
+        });
+      }
+
+      if (dynamicCountInput) {
+        const initialCount = sanitizeNonNegativeCount(dynamicCountInput.value);
+        dynamicCountInput.value = String(initialCount);
+        buildDynamicObjectItems(initialCount);
+        dynamicCountInput.addEventListener("input", function () {
+          const count = sanitizeNonNegativeCount(dynamicCountInput.value);
+          dynamicCountInput.value = String(count);
+          buildDynamicObjectItems(count);
+        });
       }
 
       errorCheckbox.addEventListener("change", function () {
@@ -517,8 +1004,9 @@ class VisualScoringWebApp:
                 index=index_value,
                 total=total,
                 dimensions=self.SCORE_DIMENSIONS,
-                levels=self.SCORE_LEVELS,
                 existing_scores=existing_scores,
+                temporal_dimension_key=self.TEMPORAL_DIMENSION_KEY,
+                dynamic_objects_dimension_key=self.DYNAMIC_OBJECTS_DIMENSION_KEY,
             )
 
         @self.app.post("/submit-score")
@@ -528,7 +1016,6 @@ class VisualScoringWebApp:
                 abort(400, "Invalid record index")
 
             record = self.records[index_value]
-            allowed_values = {value for value, _ in self.SCORE_LEVELS}
             score_row: Dict[str, str] = {
                 "ground_truth": record["ground_truth"],
                 "best_scenario_id": record["best_scenario_id"],
@@ -537,13 +1024,136 @@ class VisualScoringWebApp:
             }
             if score_row["error"] == "true":
                 for dim in self.SCORE_DIMENSIONS:
-                    score_row[dim] = "0"
+                    score_row[dim["key"]] = dim["not_mentioned"]
+                score_row["temporal_modifications_count"] = "0"
+                score_row["temporal_modifications_fit_count"] = "0"
+                score_row["temporal_modifications_not_fit_count"] = "0"
+                score_row["dynamic_objects_count"] = "0"
+                score_row["dynamic_objects_presence_fit_count"] = "0"
+                score_row["dynamic_objects_presence_not_fit_count"] = "0"
+                score_row["dynamic_objects_presence_not_mentioned_count"] = "0"
+                score_row["dynamic_objects_action_fit_count"] = "0"
+                score_row["dynamic_objects_action_not_fit_count"] = "0"
+                score_row["dynamic_objects_action_not_mentioned_count"] = "0"
+                score_row["dynamic_objects_object_type_fit_count"] = "0"
+                score_row["dynamic_objects_object_type_not_fit_count"] = "0"
+                score_row["dynamic_objects_object_type_not_mentioned_count"] = "0"
+                score_row["dynamic_objects_agent_scores_json"] = "[]"
             else:
                 for dim in self.SCORE_DIMENSIONS:
-                    value = request.form.get(dim, "")
+                    if dim["key"] == self.TEMPORAL_DIMENSION_KEY:
+                        raw_count = request.form.get("temporal_modifications_count", "0")
+                        try:
+                            mention_count = int(raw_count)
+                        except ValueError:
+                            abort(400, "Temporal modifications count must be an integer")
+                        if mention_count < 0:
+                            abort(400, "Temporal modifications count cannot be negative")
+
+                        fit_count = 0
+                        not_fit_count = 0
+                        for i in range(1, mention_count + 1):
+                            item_value = request.form.get(f"temporal_mod_item_{i}", "")
+                            if item_value not in {"1", "0"}:
+                                abort(400, f"Invalid temporal modification score for item {i}")
+                            if item_value == "1":
+                                fit_count += 1
+                            else:
+                                not_fit_count += 1
+
+                        score_row["temporal_modifications_count"] = str(mention_count)
+                        score_row["temporal_modifications_fit_count"] = str(fit_count)
+                        score_row["temporal_modifications_not_fit_count"] = str(not_fit_count)
+                        score_row[dim["key"]] = "1" if mention_count > 0 and not_fit_count == 0 else "0"
+                        continue
+                    if dim["key"] == self.DYNAMIC_OBJECTS_DIMENSION_KEY:
+                        raw_count = request.form.get("dynamic_objects_count", "0")
+                        try:
+                            agent_count = int(raw_count)
+                        except ValueError:
+                            abort(400, "Dynamic objects count must be an integer")
+                        if agent_count < 0:
+                            abort(400, "Dynamic objects count cannot be negative")
+
+                        presence_fit = 0
+                        presence_not_fit = 0
+                        presence_not_mentioned = 0
+                        action_fit = 0
+                        action_not_fit = 0
+                        action_not_mentioned = 0
+                        object_type_fit = 0
+                        object_type_not_fit = 0
+                        object_type_not_mentioned = 0
+                        agent_scores: List[Dict[str, int]] = []
+
+                        for i in range(1, agent_count + 1):
+                            presence_value = request.form.get(f"dynamic_obj_agent_{i}_presence", "")
+                            action_value = request.form.get(f"dynamic_obj_agent_{i}_action", "")
+                            object_type_value = request.form.get(f"dynamic_obj_agent_{i}_object_type", "")
+                            if presence_value not in {"1", "0", "-1"}:
+                                abort(400, f"Invalid dynamic object presence score for agent {i}")
+                            if action_value not in {"1", "0", "-1"}:
+                                abort(400, f"Invalid dynamic object action score for agent {i}")
+                            if object_type_value not in {"1", "0", "-1"}:
+                                abort(400, f"Invalid dynamic object type score for agent {i}")
+
+                            if presence_value == "1":
+                                presence_fit += 1
+                            elif presence_value == "0":
+                                presence_not_fit += 1
+                            else:
+                                presence_not_mentioned += 1
+
+                            if action_value == "1":
+                                action_fit += 1
+                            elif action_value == "0":
+                                action_not_fit += 1
+                            else:
+                                action_not_mentioned += 1
+
+                            if object_type_value == "1":
+                                object_type_fit += 1
+                            elif object_type_value == "0":
+                                object_type_not_fit += 1
+                            else:
+                                object_type_not_mentioned += 1
+
+                            agent_scores.append(
+                                {
+                                    "agent_index": i,
+                                    "presence": int(presence_value),
+                                    "action": int(action_value),
+                                    "object_type": int(object_type_value),
+                                }
+                            )
+
+                        score_row["dynamic_objects_count"] = str(agent_count)
+                        score_row["dynamic_objects_presence_fit_count"] = str(presence_fit)
+                        score_row["dynamic_objects_presence_not_fit_count"] = str(presence_not_fit)
+                        score_row["dynamic_objects_presence_not_mentioned_count"] = str(presence_not_mentioned)
+                        score_row["dynamic_objects_action_fit_count"] = str(action_fit)
+                        score_row["dynamic_objects_action_not_fit_count"] = str(action_not_fit)
+                        score_row["dynamic_objects_action_not_mentioned_count"] = str(action_not_mentioned)
+                        score_row["dynamic_objects_object_type_fit_count"] = str(object_type_fit)
+                        score_row["dynamic_objects_object_type_not_fit_count"] = str(object_type_not_fit)
+                        score_row["dynamic_objects_object_type_not_mentioned_count"] = str(object_type_not_mentioned)
+                        score_row["dynamic_objects_agent_scores_json"] = json.dumps(agent_scores)
+                        all_fit = (
+                            presence_not_fit == 0
+                            and action_not_fit == 0
+                            and presence_not_mentioned == 0
+                            and action_not_mentioned == 0
+                            and object_type_not_fit == 0
+                            and object_type_not_mentioned == 0
+                        )
+                        score_row[dim["key"]] = "-1" if agent_count == 0 else ("1" if all_fit else "0")
+                        continue
+
+                    allowed_values = {value for value, _ in dim["levels"]}
+                    value = request.form.get(dim["key"], "")
                     if value not in allowed_values:
-                        abort(400, f"Invalid score for {dim}")
-                    score_row[dim] = value
+                        abort(400, f"Invalid score for {dim['label']}")
+                    score_row[dim["key"]] = value
 
             self._scores[self._score_key(record)] = score_row
             self._write_scores()
@@ -575,8 +1185,8 @@ class VisualScoringWebApp:
 
 if __name__ == "__main__":
     app = VisualScoringWebApp(
-        csv_path=Path("eval") / "results" / "CP+FS+COT_batch_result.csv",
+        csv_path=Path("eval") / "results" / "CP+FS+COT" / "test.csv",
         generated_video_folder_path=Path("data") / "eval_res",
-        score_output_csv_path=Path("eval") / "results" / "CP+FS+COT_visual_scoring_results.csv",
+        score_output_csv_path=Path("eval") / "results" / "test_scores.csv",
     )
     app.run()
