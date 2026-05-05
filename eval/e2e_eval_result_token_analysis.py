@@ -26,6 +26,7 @@ class E2EEvalResultTokenAnalysis:
 
     def __init__(self, csv_file_path: str | Path) -> None:
         self.csv_file_path = Path(csv_file_path)
+        self._fieldnames: List[str] = []
         self._rows = self._load_rows()
 
     def _load_rows(self) -> List[Dict[str, str]]:
@@ -34,6 +35,7 @@ class E2EEvalResultTokenAnalysis:
 
         with self.csv_file_path.open("r", encoding="utf-8-sig", newline="") as file:
             reader = csv.DictReader(file)
+            self._fieldnames = list(reader.fieldnames or [])
             return [dict(row) for row in reader]
 
     @staticmethod
@@ -120,6 +122,23 @@ class E2EEvalResultTokenAnalysis:
                 count += 1
         return count
 
+    def export_without_error_message_csv(self, output_csv_path: str | Path) -> Path:
+        """Export rows without error_message to a CSV file and return output path."""
+        output_path = Path(output_csv_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        _, without_error = self.split_by_error_message()
+        fieldnames = self._fieldnames
+        if not fieldnames and without_error:
+            fieldnames = list(without_error[0].keys())
+
+        with output_path.open("w", encoding="utf-8", newline="") as file:
+            writer = csv.DictWriter(file, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(without_error)
+
+        return output_path
+
 
 def _format_average(value: Optional[float]) -> str:
     return "N/A" if value is None else f"{value:.4f}"
@@ -127,7 +146,10 @@ def _format_average(value: Optional[float]) -> str:
 
 def main() -> None:
     if len(sys.argv) < 2:
-        print("Usage: python eval/e2e_eval_result_token_analysis.py <path_to_csv>")
+        print(
+            "Usage: python eval/e2e_eval_result_token_analysis.py "
+            "<path_to_csv> [clean_no_error_output_csv]"
+        )
         return
 
     csv_path = Path(sys.argv[1])
@@ -150,6 +172,11 @@ def main() -> None:
     averages = analysis.calculate_averages_without_error_message()
     for field in analysis.AVERAGE_FIELDS:
         print(f"  - {field}: {_format_average(averages.get(field))}")
+
+    if len(sys.argv) >= 3:
+        exported_path = analysis.export_without_error_message_csv(sys.argv[2])
+        print()
+        print(f"Saved no-error records CSV to: {exported_path}")
 
 
 if __name__ == "__main__":
