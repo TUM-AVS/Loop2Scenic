@@ -265,7 +265,7 @@ class VisualScoringWebApp:
 
         row["l1_score"] = self._format_score(l1_score)
         row["l2_score"] = self._format_score(l2_score)
-        row["l3_score"] = self._format_score(l3_score)
+        row["l3_score"] = -1 if l3_score is None else self._format_score(l3_score)
         row["l4_score"] = self._format_score(l4_score)
         row["l5_score"] = self._format_score(l5_score)
         return row
@@ -1185,8 +1185,8 @@ class VisualScoringWebApp:
 
 if __name__ == "__main__":
     app = VisualScoringWebApp(
-        csv_path=Path("eval") / "results" / "CP+FS+COT" / "test.csv", # the path for the original csv file, recommend to make a copy of the original one
-        generated_video_folder_path=Path("data") / "eval_res", # the path for the folder that contains all the generated results
-        score_output_csv_path=Path("eval") / "results" / "test_scores.csv", # the path for the output scroing file
+        csv_path=Path("eval/visual_scoring_csv/C1_vanilla/input.csv"), # the path for the original csv file, recommend to make a copy of the original one
+        generated_video_folder_path=Path("data") / "C1_vanilla", # the path for the folder that contains all the generated results
+        score_output_csv_path=Path("eval/visual_scoring_csv/C1_vanilla/output_scores.csv"), # the path for the output scroing file
     )
     app.run()
