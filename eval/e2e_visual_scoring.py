@@ -660,7 +660,7 @@ class VisualScoringWebApp:
           <div>{{ record["user_query_text"] }}</div>
           <div class="path"><strong>Image path:</strong> {{ record["user_query_image"] if record["user_query_image"] else "not provided" }}</div>
           {% if record["user_query_image_exists"] == "true" %}
-            <img src="{{ url_for('media_file') }}?path={{ record['user_query_image'] }}" alt="user query image" />
+            <img src="{{ url_for('media_file', path=record['user_query_image']) }}" alt="user query image" />
           {% else %}
             <div class="placeholder">not provided</div>
           {% endif %}
@@ -668,7 +668,7 @@ class VisualScoringWebApp:
           <div class="path"><strong>Video path:</strong> {{ record["user_query_video_path"] if record["user_query_video_path"] else "not provided" }}</div>
           {% if record["user_query_video_exists"] == "true" %}
             <video controls>
-              <source src="{{ url_for('media_file') }}?path={{ record['user_query_video_path'] }}" type="video/mp4">
+              <source src="{{ url_for('media_file', path=record['user_query_video_path']) }}" type="video/mp4">
             </video>
           {% else %}
             <div class="placeholder">not provided</div>
@@ -680,7 +680,7 @@ class VisualScoringWebApp:
           <div class="path"><strong>Video path:</strong> {{ record["generated_video_path"] if record["generated_video_path"] else "not provided" }}</div>
           {% if record["generated_video_exists"] == "true" %}
             <video controls>
-              <source src="{{ url_for('media_file') }}?path={{ record['generated_video_path'] }}" type="video/mp4">
+              <source src="{{ url_for('media_file', path=record['generated_video_path']) }}" type="video/mp4">
             </video>
           {% else %}
             <div class="placeholder">not provided</div>
@@ -1185,8 +1185,8 @@ class VisualScoringWebApp:
 
 if __name__ == "__main__":
     app = VisualScoringWebApp(
-        csv_path=Path("eval/visual_scoring_csv/C1_vanilla/input.csv"), # the path for the original csv file, recommend to make a copy of the original one
-        generated_video_folder_path=Path("data") / "C1_vanilla", # the path for the folder that contains all the generated results
-        score_output_csv_path=Path("eval/visual_scoring_csv/C1_vanilla/output_scores.csv"), # the path for the output scroing file
+        csv_path=Path("eval/visual_scoring_csv/C8_CP+CoT/input.csv"), # the path for the original csv file, recommend to make a copy of the original one
+        generated_video_folder_path=Path("data/C8_CP+CoT"), # the path for the folder that contains all the generated results
+        score_output_csv_path=Path("eval/visual_scoring_csv/C8_CP+CoT/output_scores.csv"), # the path for the output scroing file
     )
     app.run()
