@@ -253,7 +253,7 @@ class VisualScoringWebApp:
                 per_agent_score = 0.0
             agent_scores_sum += per_agent_score
 
-        l4_score = None if dynamic_count == 0 else ((ego_score + agent_scores_sum) / total_agents)
+        l4_score = None if total_agents == 0 else ((ego_score + agent_scores_sum) / total_agents)
 
         # Layer 5: average of environment fields, ignoring not mentioned (-1).
         l5_values = [
