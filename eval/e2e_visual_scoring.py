@@ -253,7 +253,7 @@ class VisualScoringWebApp:
                 per_agent_score = 0.0
             agent_scores_sum += per_agent_score
 
-        l4_score = (ego_score + agent_scores_sum) / total_agents if total_agents > 0 else None
+        l4_score = None if dynamic_count == 0 else ((ego_score + agent_scores_sum) / total_agents)
 
         # Layer 5: average of environment fields, ignoring not mentioned (-1).
         l5_values = [
@@ -263,11 +263,11 @@ class VisualScoringWebApp:
         ]
         l5_score = self._mean_ignore_value(l5_values, ignored=-1.0)
 
-        row["l1_score"] = self._format_score(l1_score)
-        row["l2_score"] = self._format_score(l2_score)
+        row["l1_score"] = -1 if l1_score is None else self._format_score(l1_score)
+        row["l2_score"] = -1 if l2_score is None else self._format_score(l2_score)
         row["l3_score"] = -1 if l3_score is None else self._format_score(l3_score)
-        row["l4_score"] = self._format_score(l4_score)
-        row["l5_score"] = self._format_score(l5_score)
+        row["l4_score"] = -1 if l4_score is None else self._format_score(l4_score)
+        row["l5_score"] = -1 if l5_score is None else self._format_score(l5_score)
         return row
 
     def __init__(
