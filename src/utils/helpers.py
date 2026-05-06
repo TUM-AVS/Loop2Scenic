@@ -379,6 +379,21 @@ def _terminate_simulation_process_group(proc: subprocess.Popen) -> None:
             proc.wait(timeout=10)
 
 
+def _kill_carla_processes_by_name() -> None:
+    """Kill lingering CARLA server processes by known binary path fragment."""
+    carla_name_pattern = r"CARLA_Shipping_294096eb1"
+    for sig in ("TERM", "KILL"):
+        try:
+            subprocess.run(
+                ["pkill", f"-{sig}", "-f", carla_name_pattern],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+        except Exception:
+            continue
+
+
 def _write_timeout_stub_log(scenario_id: str, timeout_sec: int) -> None:
     """So get_error_message_from_logs() returns a clear message after wall-clock timeout."""
     log_dir = f"temp/{scenario_id}/logs"
@@ -438,11 +453,11 @@ def run_simulation_in_carla_and_save_video(
         stdout, stderr = proc.communicate(timeout=timeout_sec)
     except subprocess.TimeoutExpired:
         logger.error(
-            "Simulation timed out after %ss for scenario %s; killing process group",
+            "Simulation timed out after %ss for scenario %s; killing CARLA by name",
             timeout_sec,
             scenario_id,
         )
-        _terminate_simulation_process_group(proc)
+        _kill_carla_processes_by_name()
         try:
             stdout, stderr = proc.communicate(timeout=5)
         except Exception:

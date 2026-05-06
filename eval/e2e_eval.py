@@ -21,7 +21,7 @@ if _EVAL_DIR not in sys.path:
 
 from e2e_metrics import extract_vlm_llm_metrics_rows, normalize_model_metrics_blob
 
-FOLDER_PATH = "/home/dellpro2/chenli/ads-mrag/ads-mrag/data/eval"
+FOLDER_PATH = "/home/dellpro2/chenli/ads-mrag/ads-mrag/data/random_100"
 
 
 def _try_move_temp_bev_to_eval_result(
