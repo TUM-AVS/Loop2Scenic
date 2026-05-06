@@ -1185,8 +1185,8 @@ class VisualScoringWebApp:
 
 if __name__ == "__main__":
     app = VisualScoringWebApp(
-        csv_path=Path("eval") / "results" / "CP+FS+COT" / "test.csv",
-        generated_video_folder_path=Path("data") / "eval_res",
-        score_output_csv_path=Path("eval") / "results" / "test_scores.csv",
+        csv_path=Path("eval") / "results" / "CP+FS+COT" / "test.csv", # the path for the original csv file, recommend to make a copy of the original one
+        generated_video_folder_path=Path("data") / "eval_res", # the path for the folder that contains all the generated results
+        score_output_csv_path=Path("eval") / "results" / "test_scores.csv", # the path for the output scroing file
     )
     app.run()
