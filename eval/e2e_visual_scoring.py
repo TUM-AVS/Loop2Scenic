@@ -26,6 +26,7 @@ def load_records_without_error(csv_path: Union[str, Path]) -> List[Dict[str, str
             error_message = (row.get("error_message") or "").strip()
             if error_message == "":
                 clean_records.append(row)
+    print(f"Loaded {len(clean_records)} records without error")
 
     return clean_records
 
@@ -1185,8 +1186,8 @@ class VisualScoringWebApp:
 
 if __name__ == "__main__":
     app = VisualScoringWebApp(
-        csv_path=Path("eval/visual_scoring_csv/C8_CP+CoT/input.csv"), # the path for the original csv file, recommend to make a copy of the original one
-        generated_video_folder_path=Path("data/C8_CP+CoT"), # the path for the folder that contains all the generated results
-        score_output_csv_path=Path("eval/visual_scoring_csv/C8_CP+CoT/output_scores.csv"), # the path for the output scroing file
+        csv_path=Path("eval/visual_scoring_csv/C4_CP/input.csv"), # the path for the original csv file, recommend to make a copy of the original one
+        generated_video_folder_path=Path("data/C4_CP"), # the path for the folder that contains all the generated results
+        score_output_csv_path=Path("eval/visual_scoring_csv/C4_CP/output_scores.csv"), # the path for the output scroing file
     )
     app.run()

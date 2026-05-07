@@ -26,6 +26,7 @@ temp_scenic_code/
 
 # Eval
 eval/results
+eval/visual_scoring_csv/*
 
 # Virtual Environment
 venv/
