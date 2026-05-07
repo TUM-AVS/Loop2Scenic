@@ -416,9 +416,16 @@ class VisualScoringWebApp:
             return
 
         with self.csv_path.open("w", newline="", encoding="utf-8") as file:
-            writer = csv.DictWriter(file, fieldnames=fieldnames)
+            writer = csv.DictWriter(file, fieldnames=fieldnames, extrasaction="ignore")
             writer.writeheader()
-            writer.writerows(kept_rows)
+            sanitized_rows: List[Dict[str, str]] = []
+            for row in kept_rows:
+                clean_row: Dict[str, str] = {}
+                for name in fieldnames:
+                    value = row.get(name, "")
+                    clean_row[name] = "NA" if value is None else value
+                sanitized_rows.append(clean_row)
+            writer.writerows(sanitized_rows)
 
     def _safe_resolve(self, raw_path: str) -> Path:
         requested = Path(raw_path)
@@ -1186,8 +1193,8 @@ class VisualScoringWebApp:
 
 if __name__ == "__main__":
     app = VisualScoringWebApp(
-        csv_path=Path("eval/visual_scoring_csv/C4_CP/input.csv"), # the path for the original csv file, recommend to make a copy of the original one
-        generated_video_folder_path=Path("data/C4_CP"), # the path for the folder that contains all the generated results
-        score_output_csv_path=Path("eval/visual_scoring_csv/C4_CP/output_scores.csv"), # the path for the output scroing file
+        csv_path=Path("eval/visual_scoring_csv/C11_CP+CoT+ICL+codeICL/input.csv"), # the path for the original csv file, recommend to make a copy of the original one
+        generated_video_folder_path=Path("data/C11_CP+CoT+ICL+codeICL"), # the path for the folder that contains all the generated results
+        score_output_csv_path=Path("eval/visual_scoring_csv/C11_CP+CoT+ICL+codeICL/output_scores.csv"), # the path for the output scroing file
     )
     app.run()
