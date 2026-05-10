@@ -79,6 +79,7 @@ class DeepSeekModel(BaseLLMModel):
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
+            extra_body={"thinking": {"type": "disabled"}},
             timeout=kwargs.get("timeout", self.timeout),
             **{
                 k: v
