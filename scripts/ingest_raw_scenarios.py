@@ -263,7 +263,7 @@ def vector_db_operations():
     stats = pipeline.get_stats()
     print(f"The stats: {stats}")
 
-    item_ids = pipeline.vectorstore.get_all_item_ids(collection_name="scenarios_new", page_size=200)
+    item_ids = pipeline.vectorstore.get_all_item_ids(collection_name="scenarios_qwen2b", page_size=200)
     print(f"The item ids: {item_ids}")
 
     comparison = compare_subfolders_and_item_ids(SOURCE_PATH, item_ids)
@@ -274,6 +274,6 @@ def vector_db_operations():
 
 
 if __name__ == "__main__":
-    vector_db_operations()
-    # ingest_raw_scenarios()
+    # vector_db_operations()
+    ingest_raw_scenarios()
     # scan_test_subfolders_for_required_files()

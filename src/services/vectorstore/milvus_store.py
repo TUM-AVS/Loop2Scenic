@@ -105,6 +105,7 @@ class MilvusVectorStore:
         if self.client.has_collection(collection_name=self.collection_name):
             logger.info(f"Loaded existing collection: {self.collection_name}")
         else:
+            logger.info(f"Creating new collection: {self.collection_name}")
             # Create collection with schema
             schema = self.client.create_schema(
                 auto_id=False,
