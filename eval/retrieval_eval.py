@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import csv
 import json
+import time
 from enum import Enum
 from datetime import datetime
 from pathlib import Path
@@ -21,7 +22,7 @@ from src.services import (
 )
 from src.utils.logger import setup_logging
 
-FOLDER_PATH = "/home/dellpro2/chenli/ads-mrag/ads-mrag/data/scenarios"
+FOLDER_PATH = "/home/dellpro2/chenli/ads-mrag/ads-mrag/data/random_100"
 
 
 class QueryMode(str, Enum):
@@ -153,7 +154,7 @@ class EvalRetrieval:
             if not subfolder.is_dir():
                 continue
 
-            description_path = subfolder / "description.txt"
+            description_path = subfolder / "new_description.txt"
             text = description_path.read_text(encoding="utf-8").strip() if description_path.is_file() else None
 
             image_path = None
@@ -174,6 +175,7 @@ class EvalRetrieval:
                     "query": query,
                 }
             )
+            print(f"The query is: {query}")
 
         self.logger.info(
             "Built %d multimodal queries from %s (mode=%s)",
@@ -197,7 +199,7 @@ class EvalRetrieval:
             self.logger.error("Components not initialized: interpreter_agent/embedder")
             return {}
 
-        dsl, flattened_text = self.interpreter_agent.generate_dsl_from_user_query(query)
+        dsl, flattened_text = query.text, query.text
         query_to_embed = MultimodalQuery(
             text=flattened_text,
             image_path=query.image_path,
@@ -276,6 +278,7 @@ class EvalRetrieval:
             "flattened_dsl",
             "base_scenario_id",
             "best_scenario_ids",
+            "response_time_sec",
             "error_message",
         ]
 
@@ -291,7 +294,9 @@ class EvalRetrieval:
                 flattened_dsl = None
                 base_scenario_id = None
                 best_scenario_ids = None
+                response_time_sec = None
 
+                start_time = time.perf_counter()
                 try:
                     embedded_state = self.embed_query({"user_query": query})
                     retrieved_state = self.retrieve_base_scenario(embedded_state) if embedded_state else {}
@@ -306,6 +311,8 @@ class EvalRetrieval:
                         "Failed to evaluate query for ground_truth=%s",
                         ground_truth,
                     )
+                finally:
+                    response_time_sec = time.perf_counter() - start_time
 
                 writer.writerow(
                     {
@@ -317,6 +324,7 @@ class EvalRetrieval:
                         "best_scenario_ids": json.dumps(best_scenario_ids, ensure_ascii=False)
                         if best_scenario_ids is not None
                         else "",
+                        "response_time_sec": f"{response_time_sec:.4f}",
                         "error_message": error_message,
                     }
                 )
@@ -336,6 +344,10 @@ def analyze_retrieval_csv(csv_path: str | Path) -> dict[str, float | list[str]]:
     1) no_error_rate
     2) ground_truth_eq_base_scenario_id_rate_among_no_error
     3) ground_truth_in_best_scenario_ids_rate_among_no_error
+
+    Also returns average response time in seconds:
+    4) avg_response_time_sec
+    5) avg_response_time_sec_among_no_error
     """
     path = Path(csv_path)
     if not path.exists():
@@ -345,6 +357,8 @@ def analyze_retrieval_csv(csv_path: str | Path) -> dict[str, float | list[str]]:
     no_error_count = 0
     base_match_count = 0
     in_best_ids_count = 0
+    total_response_time_sec = 0.0
+    no_error_response_time_sec = 0.0
     failed_ground_truths: list[str] = []
 
     with path.open("r", newline="", encoding="utf-8") as csvfile:
@@ -353,12 +367,16 @@ def analyze_retrieval_csv(csv_path: str | Path) -> dict[str, float | list[str]]:
             total_count += 1
             ground_truth = str(row.get("ground_truth", "")).strip()
             error_message = str(row.get("error_message", "")).strip()
+            response_time_raw = str(row.get("response_time_sec", "")).strip()
+            response_time_sec = float(response_time_raw) if response_time_raw else 0.0
+            total_response_time_sec += response_time_sec
 
             if error_message:
                 failed_ground_truths.append(ground_truth)
                 continue
 
             no_error_count += 1
+            no_error_response_time_sec += response_time_sec
 
             base_scenario_id = str(row.get("base_scenario_id", "")).strip()
             if ground_truth == base_scenario_id:
@@ -384,22 +402,28 @@ def analyze_retrieval_csv(csv_path: str | Path) -> dict[str, float | list[str]]:
     no_error_rate = (no_error_count / total_count * 100.0) if total_count > 0 else 0.0
     base_match_rate = (base_match_count / no_error_count * 100.0) if no_error_count > 0 else 0.0
     in_best_ids_rate = (in_best_ids_count / no_error_count * 100.0) if no_error_count > 0 else 0.0
+    avg_response_time_sec = (total_response_time_sec / total_count) if total_count > 0 else 0.0
+    avg_response_time_sec_among_no_error = (
+        no_error_response_time_sec / no_error_count if no_error_count > 0 else 0.0
+    )
 
     return {
         "no_error_rate": no_error_rate,
         "ground_truth_eq_base_scenario_id_rate_among_no_error": base_match_rate,
         "ground_truth_in_best_scenario_ids_rate_among_no_error": in_best_ids_rate,
+        "avg_response_time_sec": avg_response_time_sec,
+        "avg_response_time_sec_among_no_error": avg_response_time_sec_among_no_error,
         "failed_ground_truths": failed_ground_truths,
     }
 
 
 if __name__ == "__main__":
-    # eval_retrieval = EvalRetrieval()
-    # eval_retrieval.eval_text_only(mode=QueryMode.TEXT_ONLY)
-    # eval_retrieval.eval_text_only(mode=QueryMode.TEXT_VIDEO)
+    eval_retrieval = EvalRetrieval()
+    eval_retrieval.eval_text_only(mode=QueryMode.TEXT_ONLY)
+    eval_retrieval.eval_text_only(mode=QueryMode.TEXT_VIDEO)
 
-    results = analyze_retrieval_csv("eval/results/eval_text_only_20260424_095244.csv")
-    print("The text only evaluation results are: ", results)
+    # results = analyze_retrieval_csv("eval/results/eval_text_only_20260424_095244.csv")
+    # print("The text only evaluation results are: ", results)
 
-    results = analyze_retrieval_csv("eval/results/eval_text_video_20260424_183838.csv")
-    print("The text video evaluation results are: ", results)
+    # results = analyze_retrieval_csv("eval/results/eval_text_video_20260424_183838.csv")
+    # print("The text video evaluation results are: ", results)
