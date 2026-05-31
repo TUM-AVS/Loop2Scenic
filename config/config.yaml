@@ -1,5 +1,5 @@
 vector_db:
-  collection_name: scenarios_qwen2b
+  collection_name: scenarios_gemini2
   snippets_collection_name: scenario_components
   distance_metric: cosine # Options: cosine, l2, ip
 
@@ -10,8 +10,8 @@ vector_db:
   nprobe: 10 # Number of clusters to search
 
 embedding:
-  provider: qwen # Options: huggingface, openai, gemini, qwen
-  model_name: Qwen3-VL-Embedding-2B
+  provider: gemini # Options: huggingface, openai, gemini, qwen
+  model_name: gemini-embedding-2
   model_path: ./models/Qwen3-VL-Embedding-2B
   # Examples:
   # - HuggingFace: sentence-transformers/all-MiniLM-L6-v2
