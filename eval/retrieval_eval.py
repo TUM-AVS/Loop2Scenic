@@ -175,7 +175,7 @@ class EvalRetrieval:
                     "query": query,
                 }
             )
-            print(f"The query is: {query}")
+            self.logger.info(f"The query is: {query}")
 
         self.logger.info(
             "Built %d multimodal queries from %s (mode=%s)",
