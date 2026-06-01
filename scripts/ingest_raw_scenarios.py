@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.pipeline import RAGPipeline
 from src.utils import setup_logging
 
-SOURCE_PATH = Path("/home/dellpro2/chenli/ads-mrag/ads-mrag/data/scenarios")
+SOURCE_PATH = Path("/home/avsaw1/chenli/ads-mrag/data/scenarios")
 logger = logging.getLogger(__name__)
 
 

@@ -22,7 +22,7 @@ from src.services import (
 )
 from src.utils.logger import setup_logging
 
-FOLDER_PATH = "/home/dellpro2/chenli/ads-mrag/ads-mrag/data/random_100"
+FOLDER_PATH = "/home/avsaw1/chenli/ads-mrag/data/random_100"
 
 
 class QueryMode(str, Enum):
@@ -419,11 +419,11 @@ def analyze_retrieval_csv(csv_path: str | Path) -> dict[str, float | list[str]]:
 
 if __name__ == "__main__":
     eval_retrieval = EvalRetrieval()
-    eval_retrieval.eval_text_only(mode=QueryMode.TEXT_ONLY)
-    eval_retrieval.eval_text_only(mode=QueryMode.TEXT_VIDEO)
+    # eval_retrieval.eval_text_only(mode=QueryMode.TEXT_ONLY)
+    # eval_retrieval.eval_text_only(mode=QueryMode.TEXT_VIDEO)
 
-    # results = analyze_retrieval_csv("eval/results/eval_text_only_20260424_095244.csv")
-    # print("The text only evaluation results are: ", results)
+    results = analyze_retrieval_csv("eval/results/eval_text_only_20260601_012954.csv")
+    print("The text only evaluation results are: ", results)
 
-    # results = analyze_retrieval_csv("eval/results/eval_text_video_20260424_183838.csv")
-    # print("The text video evaluation results are: ", results)
+    results = analyze_retrieval_csv("eval/results/eval_text_video_20260601_013509.csv")
+    print("The text video evaluation results are: ", results)
