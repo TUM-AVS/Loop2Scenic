@@ -1,5 +1,5 @@
 vector_db:
-  collection_name: scenarios_qwen8b
+  collection_name: scenarios_qwen2b
   snippets_collection_name: scenario_components
   distance_metric: cosine # Options: cosine, l2, ip
 
@@ -11,8 +11,8 @@ vector_db:
 
 embedding:
   provider: qwen # Options: huggingface, openai, gemini, qwen
-  model_name: Qwen3-VL-Embedding-8B
-  model_path: ./models/Qwen3-VL-Embedding-8B
+  model_name: Qwen3-VL-Embedding-2B
+  model_path: ./models/Qwen3-VL-Embedding-2B
   # Examples:
   # - HuggingFace: sentence-transformers/all-MiniLM-L6-v2
   # - OpenAI: text-embedding-ada-002, text-embedding-3-large
