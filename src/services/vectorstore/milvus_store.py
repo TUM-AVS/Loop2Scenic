@@ -103,7 +103,8 @@ class MilvusVectorStore:
         """Initialize or get existing collection."""
         # Check if scenario collection exists
         if self.client.has_collection(collection_name=self.collection_name):
-            logger.info(f"Loaded existing collection: {self.collection_name}")
+            logger.info(f"Loaded existing collection: {self.collection_name}, the dimension is {self.embedding_dim}")
+            
         else:
             logger.info(f"Creating new collection: {self.collection_name}")
             # Create collection with schema
@@ -200,7 +201,7 @@ class MilvusVectorStore:
         filter_tags: Optional[List[str]] = None,
         metadata_filter: Optional[Dict[str, Any]] = None,
         score_threshold: Optional[float] = None,
-    ) -> List[str]:
+    ) -> List[tuple[str, float]]:
         """
         Search for similar scenarios using a pre-computed query embedding.
 
@@ -212,7 +213,8 @@ class MilvusVectorStore:
             score_threshold: Minimum similarity score threshold
 
         Returns:
-            List of scenario IDs
+            List of (scenario_id, similarity_score) tuples ordered by relevance.
+            For cosine metric, Milvus returns distance (higher is more similar).
         """
         expr = self._build_filter(filter_tags, metadata_filter)
         
@@ -249,25 +251,22 @@ class MilvusVectorStore:
             search_params=local_search_params
         )
         
-        scenario_ids = []
-        scores = []
-        
+        scenario_score_pairs: List[tuple[str, float]] = []
+
         for hits in results:
             for hit in hits:
                 scenario_id = hit.get('id')
                 score = hit.get('distance')
-                
-                scenario_ids.append(scenario_id)
-                scores.append(score)
-                
+                if scenario_id is None or score is None:
+                    continue
+                scenario_score_pairs.append((str(scenario_id), float(score)))
                 logger.info(f"Retrieved Scenario ID: {scenario_id}, Score: {score}")
 
-        # If it found nothing, it just safely returns an empty list!
-        if not scenario_ids:
+        if not scenario_score_pairs:
             logger.warning("No scenarios met the similarity threshold.")
             return []
-            
-        return scenario_ids
+
+        return scenario_score_pairs
 
     def similarity_search_with_score(
         self,

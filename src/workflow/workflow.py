@@ -259,15 +259,15 @@ class ScenarioWorkflow:
             return {}
             
         # 2. retrieve the base scenario
-        best_scenarios = self.retriever.retrieve(
+        retrieval = self.retriever.retrieve(
             original_query=user_query, 
             query_embedding=query_embedding,
         )
-        if not best_scenarios or len(best_scenarios) == 0:
+        if not retrieval.scenarios:
             self.logger.error("No scenarios found for query")
             return {}
             
-        base_scenario_id = best_scenarios[0].scenario_id # only return the best 1 scenario
+        base_scenario_id = retrieval.scenarios[0].scenario_id # only return the best 1 scenario
         scenic_code = find_scenic_code_with_scenario_id(base_scenario_id)
 
         # 3. replace the header of the scenic code when header settings are provided

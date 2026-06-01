@@ -359,11 +359,11 @@ class RAGPipeline:
             The base scenario id
         """
         query_embedding = self.embedder.encode([interpreted_query_object.model_dump()])[0]
-        best_scenarios = self.retriever.retrieve(
+        retrieval = self.retriever.retrieve(
             original_query=query_object,
             query_embedding=query_embedding,
         )
-        base_scenario_id = best_scenarios[0].scenario_id # only return the best 1 scenario
+        base_scenario_id = retrieval.scenarios[0].scenario_id # only return the best 1 scenario
         
         logger.info(f"🔍 Found best scenario: {base_scenario_id}")
         return base_scenario_id
@@ -380,11 +380,11 @@ class RAGPipeline:
         """
         rng = np.random.default_rng(42)
         query_embedding = rng.standard_normal(2048, dtype=np.float32).tolist()
-        best_scenarios = self.retriever.retrieve(
+        retrieval = self.retriever.retrieve(
             original_query=query_dict,
             query_embedding=query_embedding,
         )
-        base_scenario_id = best_scenarios[0].scenario_id # only return the best 1 scenario
+        base_scenario_id = retrieval.scenarios[0].scenario_id # only return the best 1 scenario
         
         logger.info(f"🔍 Found best scenario: {base_scenario_id}")
         return base_scenario_id
