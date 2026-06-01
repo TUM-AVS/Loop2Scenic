@@ -21,7 +21,7 @@ if _EVAL_DIR not in sys.path:
 
 from e2e_metrics import extract_vlm_llm_metrics_rows, normalize_model_metrics_blob
 
-FOLDER_PATH = "/home/dellpro2/chenli/ads-mrag/ads-mrag/data/random_100"
+FOLDER_PATH = "/home/avsaw1/chenli/ads-mrag/data/test"
 
 
 def _try_move_temp_bev_to_eval_result(
@@ -56,6 +56,8 @@ class QueryMode(str, Enum):
     TEXT_ONLY = "text-only"
     TEXT_IMAGE = "text-image"
     TEXT_VIDEO = "text-video"
+    IMAGE_ONLY = "image-only"
+    VIDEO_ONLY = "video-only"
     TEXT_IMAGE_VIDEO = "text-image-video"
 
 
@@ -105,14 +107,29 @@ class EvalE2EWorkflow:
             if not subfolder.is_dir():
                 continue
 
-            description_path = subfolder / "description.txt"
-            text = description_path.read_text(encoding="utf-8").strip() if description_path.is_file() else None
+            if mode in (QueryMode.TEXT_ONLY, QueryMode.TEXT_IMAGE, QueryMode.TEXT_VIDEO, QueryMode.TEXT_IMAGE_VIDEO):
+                description_path = subfolder / "description.txt"
+                text = description_path.read_text(encoding="utf-8").strip() if description_path.is_file() else None
+            elif mode == QueryMode.IMAGE_ONLY:
+                text = (
+                    "Generate an autonomous driving test scenario that reproduces the situation "
+                    "shown in the attached image. Infer the ego vehicle behavior, other road users, "
+                    "road layout, and spatial relationships entirely from the image; treat the image "
+                    "as the complete scenario specification."
+                )
+            elif mode == QueryMode.VIDEO_ONLY:
+                text = (
+                    "Generate an autonomous driving test scenario that reproduces the situation "
+                    "shown in the attached video. Infer the ego vehicle behavior, other road users, "
+                    "road layout, and how the scene evolves over time entirely from the video; treat "
+                    "the video as the complete scenario specification."
+                )
 
             image_path = None
             video_path = None
-            if mode in (QueryMode.TEXT_IMAGE, QueryMode.TEXT_IMAGE_VIDEO):
+            if mode in (QueryMode.TEXT_IMAGE, QueryMode.IMAGE_ONLY, QueryMode.TEXT_IMAGE_VIDEO):
                 image_path = str((subfolder / "image.png").resolve())
-            if mode in (QueryMode.TEXT_VIDEO, QueryMode.TEXT_IMAGE_VIDEO):
+            if mode in (QueryMode.TEXT_VIDEO, QueryMode.VIDEO_ONLY, QueryMode.TEXT_IMAGE_VIDEO):
                 video_path = str((subfolder / "BEV.mp4").resolve())
 
             query = MultimodalQuery(
@@ -418,5 +435,5 @@ class EvalE2EWorkflow:
 
 if __name__ == "__main__":
     evaluator = EvalE2EWorkflow()
-    output_csv2 = evaluator.run_batch(mode=QueryMode.TEXT_VIDEO)
+    output_csv2 = evaluator.run_batch(mode=QueryMode.TEXT_IMAGE)
     print(f"Batch done. CSV: {output_csv2}")
