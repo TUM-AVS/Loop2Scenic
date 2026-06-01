@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.pipeline import RAGPipeline
 from src.utils import setup_logging
 
-SOURCE_PATH = Path("/home/dellpro2/chenli/ads-mrag/ads-mrag/data/scenarios")
+SOURCE_PATH = Path("/home/avsaw1/chenli/ads-mrag/data/scenarios")
 logger = logging.getLogger(__name__)
 
 
@@ -263,7 +263,7 @@ def vector_db_operations():
     stats = pipeline.get_stats()
     print(f"The stats: {stats}")
 
-    item_ids = pipeline.vectorstore.get_all_item_ids(collection_name="scenarios_new", page_size=200)
+    item_ids = pipeline.vectorstore.get_all_item_ids(collection_name="scenarios_qwen2b", page_size=200)
     print(f"The item ids: {item_ids}")
 
     comparison = compare_subfolders_and_item_ids(SOURCE_PATH, item_ids)

@@ -264,41 +264,15 @@ class Qwen3VLReranker():
         scores = torch.sigmoid(scores).squeeze(-1).cpu().detach().tolist()
         return scores
 
-    def truncate_tokens_optimized(
-        self,
-        tokens: List[str],
-        max_length: int,
-        special_tokens: List[str]
-    ) -> List[str]:
-        if len(tokens) <= max_length:
-            return tokens
-
-        special_tokens_set = set(special_tokens)
-
-        # Calculate budget: how many non-special tokens we can keep
-        num_special = sum(1 for token in tokens if token in special_tokens_set)
-        num_non_special_to_keep = max_length - num_special
-
-        # Build final list according to budget
-        final_tokens = []
-        non_special_kept_count = 0
-        for token in tokens:
-            if token in special_tokens_set:
-                final_tokens.append(token)
-            elif non_special_kept_count < num_non_special_to_keep:
-                final_tokens.append(token)
-                non_special_kept_count += 1
-
-        return final_tokens
-
     def tokenize(self, pairs: list, **kwargs):
-        max_length = self.max_length
-        text = self.processor.apply_chat_template(pairs, tokenize=False, add_generation_prompt=True)
+        text = self.processor.apply_chat_template(
+            pairs, tokenize=False, add_generation_prompt=True
+        )
         try:
             images, videos, video_kwargs = process_vision_info(
-                pairs, image_patch_size=16, 
-                return_video_kwargs=True, 
-                return_video_metadata=True
+                pairs, image_patch_size=16,
+                return_video_kwargs=True,
+                return_video_metadata=True,
             )
         except Exception as e:
             logger.error(f"Error in processing vision info: {e}")
@@ -306,36 +280,28 @@ class Qwen3VLReranker():
             videos = None
             video_kwargs = {'do_sample_frames': False}
             text = self.processor.apply_chat_template(
-                [{'role': 'user', 'content': [{'type': 'text', 'text': 'NULL'}]}], 
-                add_generation_prompt=True, tokenize=False
+                [{'role': 'user', 'content': [{'type': 'text', 'text': 'NULL'}]}],
+                add_generation_prompt=True, tokenize=False,
             )
-        
+
         if videos is not None:
             videos, video_metadatas = zip(*videos)
             videos, video_metadatas = list(videos), list(video_metadatas)
         else:
             video_metadatas = None
+
         inputs = self.processor(
             text=text,
             images=images,
             videos=videos,
             video_metadata=video_metadatas,
-            truncation=False,
-            padding=False,
+            truncation=True,
+            max_length=self.max_length,
+            padding=True,
             do_resize=False,
-            **video_kwargs
+            return_tensors='pt',
+            **video_kwargs,
         )
-        for i, ele in enumerate(inputs['input_ids']):
-            inputs['input_ids'][i] = self.truncate_tokens_optimized(
-                inputs['input_ids'][i][:-5], max_length,
-                self.processor.tokenizer.all_special_ids
-            ) + inputs['input_ids'][i][-5:]
-        temp_inputs = self.processor.tokenizer.pad(
-            {'input_ids': inputs['input_ids']}, padding=True,
-            return_tensors="pt", max_length=self.max_length
-        )
-        for key in temp_inputs:
-            inputs[key] = temp_inputs[key]
         return inputs
 
     def format_mm_content(

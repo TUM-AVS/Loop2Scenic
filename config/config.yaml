@@ -1,5 +1,5 @@
 vector_db:
-  collection_name: scenarios_new
+  collection_name: scenarios_qwen2b
   snippets_collection_name: scenario_components
   distance_metric: cosine # Options: cosine, l2, ip
 
@@ -35,8 +35,8 @@ reranking:
   device: cuda
 
 llm:
-  provider: gemini # Options: openai, gemini, qwen, deepseek, anthropic
-  model: gemini-3-flash-preview
+  provider: qwen # Options: openai, gemini, qwen, deepseek, anthropic
+  model: qwen3.6-plus
   # Examples:
   # - OpenAI: gpt-3.5-turbo, gpt-4, gpt-4-turbo-preview
   # - Anthropic/Sonnet: claude-3-5-sonnet-20241022, claude-3-7-sonnet-20250219
