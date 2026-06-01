@@ -18,3 +18,4 @@ tiktoken==0.12.0
 dashscope==1.25.16
 openai==2.15.0
 sentence-transformers==5.3.0
+gradio
