@@ -200,11 +200,11 @@ class EvalRetrieval:
             return {}
 
         dsl, flattened_text = query.text, query.text
-        query_to_embed = MultimodalQuery(
-            text=flattened_text,
-            image_path=query.image_path,
-            video_path=query.video_path,
-        )
+        query_to_embed = {
+            "text": flattened_text,
+            "image": query.image_path,
+            "video": query.video_path,
+        }
         query_embeddings = self.embedder.encode([query_to_embed.model_dump()])
         if query_embeddings is None:
             self.logger.error("Failed to embed query (got None)")
