@@ -21,7 +21,29 @@ if _EVAL_DIR not in sys.path:
 
 from e2e_metrics import extract_vlm_llm_metrics_rows, normalize_model_metrics_blob
 
-FOLDER_PATH = "/home/avsaw1/chenli/ads-mrag/data/test"
+FOLDER_PATH = "/home/dellpro2/chenli/ads-mrag/ads-mrag/data/test"
+
+
+def _extract_best_vlm_eval_score(final_state: dict[str, Any], result: dict[str, Any]) -> str:
+    """Best VLM evaluation score across generated scenarios (same logic as workflow router)."""
+    best_score = result.get("best_score")
+    if best_score is not None:
+        return f"{float(best_score):.2f}"
+
+    scenic_scenarios_list = final_state.get("scenic_scenarios_list") or []
+    max_score = -1.0
+    found = False
+    for scenario in scenic_scenarios_list:
+        if getattr(scenario, "error", None) is not None:
+            continue
+        score = getattr(scenario, "score", None)
+        if score is not None and score > max_score:
+            max_score = float(score)
+            found = True
+
+    if found:
+        return f"{max_score:.2f}"
+    return ""
 
 
 def _try_move_temp_bev_to_eval_result(
@@ -250,6 +272,7 @@ class EvalE2EWorkflow:
             "ground_truth",
             "user_query",
             "best_scenario_id",
+            "best_vlm_eval_score",
             "base_scenario_id",
             "generation_count",
             "vlm_calls",
@@ -280,6 +303,7 @@ class EvalE2EWorkflow:
                 query = record["query"]
                 error_message = ""
                 best_scenario_id = ""
+                best_vlm_eval_score = ""
                 base_scenario_id = ""
                 generation_count: int | str = ""
                 vlm_calls = 0
@@ -314,6 +338,7 @@ class EvalE2EWorkflow:
                     final_state = result.get("state", {})
                     best_scenic_code = result.get("best_scenic_code")
                     best_scenario_id = str(result.get("best_scenario_id") or "")
+                    best_vlm_eval_score = _extract_best_vlm_eval_score(final_state, result)
                     base_scenario_id = str(final_state.get("base_scenario_id") or "")
                     generation_count = final_state.get("generation_count", "")
                     model_metrics = (
@@ -395,6 +420,7 @@ class EvalE2EWorkflow:
                         "ground_truth": str(ground_truth),
                         "user_query": query.model_dump_json(),
                         "best_scenario_id": best_scenario_id,
+                        "best_vlm_eval_score": best_vlm_eval_score,
                         "base_scenario_id": base_scenario_id,
                         "generation_count": generation_count,
                         "vlm_calls": vlm_calls,

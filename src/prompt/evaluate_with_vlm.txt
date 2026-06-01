@@ -17,11 +17,12 @@ If the video is too short to fully show the required behavior (e.g., the video e
 ** SCORING RULES **
 You must calculate the score based exactly on how many of the 7 perspectives above are a match:
 - 7/7 match: 100
-- 5/7 match: 90
+- 6/7 match: 90
+- 5/7 match: 80
 - 4/7 match: 70
 - 3/7 match: 50
 - 2/7 match: 20
-- 1/7 match: 0
+- 1/7 match: 10
 - 0/7 match: 0
 
 ** Reasoning & Implementation Plan **
