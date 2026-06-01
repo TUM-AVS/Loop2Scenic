@@ -180,12 +180,72 @@ def append_projected_rows(
     return len(rows_to_append)
 
 
+def copy_scenarios_by_ground_truth(
+    input_csv_path: Path | str = Path("eval") / "visual_scoring_csv" / "C11_CP+CoT+ICL+codeICL" / "input.csv",
+    scenarios_root: Path | str = Path("data") / "scenarios",
+    destination_root: Path | str = Path("data") / "C11_fail_rerun",
+) -> Tuple[List[str], List[str]]:
+    """
+    Copy scenario subfolders from data/scenarios to data/C11_fail_rerun based on
+    ground_truth values in the input CSV.
+
+    Returns:
+        (copied_ground_truths, missing_ground_truths)
+    """
+    csv_path = Path(input_csv_path)
+    source_root = Path(scenarios_root)
+    target_root = Path(destination_root)
+
+    if not csv_path.exists():
+        raise FileNotFoundError(f"Input CSV not found: {csv_path}")
+    if not source_root.exists() or not source_root.is_dir():
+        raise FileNotFoundError(f"Scenarios root not found: {source_root}")
+
+    target_root.mkdir(parents=True, exist_ok=True)
+
+    with csv_path.open("r", newline="", encoding="utf-8-sig") as file:
+        reader = csv.DictReader(file)
+        ordered_ground_truths: List[str] = []
+        seen: set[str] = set()
+        for row in reader:
+            gt = (row.get("ground_truth") or "").strip()
+            if not gt or gt in seen:
+                continue
+            seen.add(gt)
+            ordered_ground_truths.append(gt)
+
+    copied: List[str] = []
+    missing: List[str] = []
+
+    for gt in ordered_ground_truths:
+        src_folder = source_root / gt
+        dst_folder = target_root / gt
+
+        if not src_folder.exists() or not src_folder.is_dir():
+            missing.append(gt)
+            print(f"Missing scenario folder for ground_truth={gt}: {src_folder}")
+            continue
+
+        if dst_folder.exists():
+            shutil.rmtree(dst_folder)
+
+        shutil.copytree(src_folder, dst_folder)
+        copied.append(gt)
+        print(f"Copied: {src_folder} -> {dst_folder}")
+
+    print(f"Done. Copied {len(copied)} folders; missing {len(missing)} folders.")
+    if missing:
+        print(f"Missing ground_truth values: {missing}")
+    return copied, missing
+
+
 if __name__ == "__main__":
     # move_subfolders_to_c11_temp()
     # collect_generated_videos_to_c11_temp()
     # find_duplicate_ground_truth_records("data/C11_CP+CoT+ICL+codeICL/batch_results.csv")
     append_projected_rows(
-    "eval/visual_scoring_csv/C11_CP+CoT+ICL+codeICL/NHTSA_results_with_token_usage.csv",
-    "eval/visual_scoring_csv/C11_CP+CoT+ICL+codeICL/input.csv",
-)
+        "eval/visual_scoring_csv/C11_CP+CoT+ICL+codeICL/NHTSA_results_with_token_usage.csv",
+        "eval/visual_scoring_csv/C11_CP+CoT+ICL+codeICL/input.csv",
+    )
+    # copy_scenarios_by_ground_truth()
 

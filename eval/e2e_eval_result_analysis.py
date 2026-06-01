@@ -9,13 +9,11 @@ from typing import Dict, Iterable, List, Optional, Tuple
 class E2EEvalResultAnalysis:
     """Analyze visual scoring CSV results."""
 
-    FIELD_ROAD_TOPOLOGY = "Road topology"
-    FIELD_TRAFFIC_INFRASTRUCTURE = "Traffic infrastructure"
-    FIELD_TEMPORAL_MODIFICATIONS = "Temporal modifications"
-    FIELD_EGO_DYNAMIC_BEHAVIORS = "Ego dynamic behaviors"
-    FIELD_DYNAMIC_OBJECTS_BESIDES_EGO = "Dynamic objects besides ego"
-    FIELD_ENVIRONMENT = "Environment"
-    FIELD_OVERALL_SCORE = "Overall score"
+    FIELD_L1_SCORE = "l1_score"
+    FIELD_L2_SCORE = "l2_score"
+    FIELD_L3_SCORE = "l3_score"
+    FIELD_L4_SCORE = "l4_score"
+    FIELD_L5_SCORE = "l5_score"
 
     def __init__(self, csv_file_path: str | Path) -> None:
         self.csv_file_path = Path(csv_file_path)
@@ -62,10 +60,10 @@ class E2EEvalResultAnalysis:
             if not self._parse_bool(row.get("error", "")):
                 yield row
 
-    def _average_field_error_false_ignore_zero(self, field_name: str) -> Optional[float]:
+    def _average_field_error_false_ignore_minus_one(self, field_name: str) -> Optional[float]:
         """
         Average one scoring field over rows where `error` is false.
-        Values equal to "0" (or numeric 0) are ignored.
+        Values equal to "-1" (or numeric -1) are ignored.
 
         Returns None when there is no valid value to average.
         """
@@ -80,7 +78,7 @@ class E2EEvalResultAnalysis:
             except ValueError:
                 continue
 
-            if score == 0:
+            if score == -1:
                 continue
             values.append(score)
 
@@ -88,35 +86,47 @@ class E2EEvalResultAnalysis:
             return None
         return sum(values) / len(values)
 
-    def average_road_topology(self) -> Optional[float]:
-        return self._average_field_error_false_ignore_zero(self.FIELD_ROAD_TOPOLOGY)
+    def average_l1_score(self) -> Optional[float]:
+        return self._average_field_error_false_ignore_minus_one(self.FIELD_L1_SCORE)
 
-    def average_traffic_infrastructure(self) -> Optional[float]:
-        return self._average_field_error_false_ignore_zero(self.FIELD_TRAFFIC_INFRASTRUCTURE)
+    def average_l2_score(self) -> Optional[float]:
+        return self._average_field_error_false_ignore_minus_one(self.FIELD_L2_SCORE)
 
-    def average_temporal_modifications(self) -> Optional[float]:
-        return self._average_field_error_false_ignore_zero(self.FIELD_TEMPORAL_MODIFICATIONS)
+    def average_l3_score(self) -> Optional[float]:
+        return self._average_field_error_false_ignore_minus_one(self.FIELD_L3_SCORE)
 
-    def average_ego_dynamic_behaviors(self) -> Optional[float]:
-        return self._average_field_error_false_ignore_zero(self.FIELD_EGO_DYNAMIC_BEHAVIORS)
+    def average_l4_score(self) -> Optional[float]:
+        return self._average_field_error_false_ignore_minus_one(self.FIELD_L4_SCORE)
 
-    def average_dynamic_objects_besides_ego(self) -> Optional[float]:
-        return self._average_field_error_false_ignore_zero(self.FIELD_DYNAMIC_OBJECTS_BESIDES_EGO)
-
-    def average_environment(self) -> Optional[float]:
-        return self._average_field_error_false_ignore_zero(self.FIELD_ENVIRONMENT)
-
-    def average_overall_score(self) -> Optional[float]:
-        return self._average_field_error_false_ignore_zero(self.FIELD_OVERALL_SCORE)
+    def average_l5_score(self) -> Optional[float]:
+        return self._average_field_error_false_ignore_minus_one(self.FIELD_L5_SCORE)
 
 
 def _format_average(value: Optional[float]) -> str:
-    return "N/A (no valid non-zero values)" if value is None else f"{value:.4f}"
+    return "N/A (no valid non--1 values)" if value is None else f"{value:.4f}"
+
+
+def _average_of_values(values: List[Optional[float]]) -> Optional[float]:
+    valid = [value for value in values if value is not None]
+    if not valid:
+        return None
+    return sum(valid) / len(valid)
+
+
+def _count_csv_rows(csv_path: Path) -> int:
+    if not csv_path.exists():
+        raise FileNotFoundError(f"CSV file not found: {csv_path}")
+    with csv_path.open("r", encoding="utf-8-sig", newline="") as file:
+        reader = csv.DictReader(file)
+        return sum(1 for _ in reader)
 
 
 def main() -> None:
     if len(sys.argv) < 2:
-        print("Usage: python eval/e2e_eval_result_analysis.py <path_to_csv>")
+        print(
+            "Usage: python eval/e2e_eval_result_analysis.py "
+            "<path_to_scored_csv> [path_to_reference_csv_for_success_rate]"
+        )
         return
 
     csv_path = Path(sys.argv[1])
@@ -132,26 +142,33 @@ def main() -> None:
         f"ground_truth list where error=true ({len(error_true_ground_truths)}): "
         f"{error_true_ground_truths}"
     )
-    print("Averages on rows where error=false (ignoring score=0):")
-    print(f"  - Road topology: {_format_average(analysis.average_road_topology())}")
-    print(
-        "  - Traffic infrastructure: "
-        f"{_format_average(analysis.average_traffic_infrastructure())}"
-    )
-    print(
-        "  - Temporal modifications: "
-        f"{_format_average(analysis.average_temporal_modifications())}"
-    )
-    print(
-        "  - Ego dynamic behaviors: "
-        f"{_format_average(analysis.average_ego_dynamic_behaviors())}"
-    )
-    print(
-        "  - Dynamic objects besides ego: "
-        f"{_format_average(analysis.average_dynamic_objects_besides_ego())}"
-    )
-    print(f"  - Environment: {_format_average(analysis.average_environment())}")
-    print(f"  - Overall score: {_format_average(analysis.average_overall_score())}")
+    l1_avg = analysis.average_l1_score()
+    l2_avg = analysis.average_l2_score()
+    l3_avg = analysis.average_l3_score()
+    l4_avg = analysis.average_l4_score()
+    l5_avg = analysis.average_l5_score()
+    overall_avg = _average_of_values([l1_avg, l2_avg, l3_avg, l4_avg, l5_avg])
+
+    print("Averages on rows where error=false (ignoring score=-1):")
+    print(f"  - l1_score: {_format_average(l1_avg)}")
+    print(f"  - l2_score: {_format_average(l2_avg)}")
+    print(f"  - l3_score: {_format_average(l3_avg)}")
+    print(f"  - l4_score: {_format_average(l4_avg)}")
+    print(f"  - l5_score: {_format_average(l5_avg)}")
+    print(f"  - overall_layer_score: {_format_average(overall_avg)}")
+
+    if len(sys.argv) >= 3:
+        reference_csv_path = Path(sys.argv[2])
+        reference_total = _count_csv_rows(reference_csv_path)
+        if reference_total == 0:
+            print("Success rate: N/A (reference CSV has 0 rows)")
+        else:
+            success_rate = error_false_count / reference_total
+            print(
+                "Success rate "
+                f"(error=false count / reference rows): {success_rate:.4f} "
+                f"({error_false_count}/{reference_total})"
+            )
 
 
 if __name__ == "__main__":
