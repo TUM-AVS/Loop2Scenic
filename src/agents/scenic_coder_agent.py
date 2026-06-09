@@ -39,11 +39,15 @@ class ScenicCoderAgent(BaseAgent):
         Replace the header of the scenic code with the header settings.
         Used after retrieving the base scenario from the vector store.
         """
+        map_file_path = header_settings.map_file_path if header_settings.map_file_path else "../../maps/Town05.xodr"
+        carla_map = header_settings.carla_map if header_settings.carla_map else "Town05"
+        blueprint = header_settings.blueprint if header_settings.blueprint else "vehicle.lincoln.mkz_2017"
+        weather = header_settings.weather if header_settings.weather else "ClearNoon"
         replacements = [
-            (r"(?m)^\s*param\s+map\s*=.*$",        f"param map = localPath('{header_settings.map_file_path}')"),
-            (r"(?m)^\s*param\s+carla_map\s*=.*$",  f"param carla_map = '{header_settings.carla_map}'"),
-            (r"(?m)^\s*MODEL\s*=.*$",              f"MODEL = '{header_settings.blueprint}'"),
-            (r"(?m)^\s*param\s+weather\s*=.*$",    f"param weather = '{header_settings.weather}'"),
+            (r"(?m)^\s*param\s+map\s*=.*$", f"param map = localPath('{map_file_path}')"),
+            (r"(?m)^\s*param\s+carla_map\s*=.*$", f"param carla_map = '{carla_map}'"),
+            (r"(?m)^\s*MODEL\s*=.*$", f"MODEL = '{blueprint}'"),
+            (r"(?m)^\s*param\s+weather\s*=.*$", f"param weather = '{weather}'"),
         ]
         for pattern, repl in replacements:
             if re.search(pattern, scenic_code):

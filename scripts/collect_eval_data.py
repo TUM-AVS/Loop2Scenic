@@ -3,12 +3,18 @@ import csv
 import random
 import re
 import subprocess
+import sys
 import tempfile
 import shutil
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from src.config import get_config
+from src.utils.simulation import build_run_scenic_batch_command, repo_root, resolve_path
+
 SOURCE_PATH = Path("/home/dellpro2/chenli/ads-mrag/ads-mrag/data/chat2scenic")
 EVAL_PATH = Path("/home/dellpro2/chenli/ads-mrag/ads-mrag/data/eval")
+REPO_ROOT = Path(__file__).resolve().parent.parent
 EVAL_272_PATH = REPO_ROOT / "data" / "272eval"
 INFERENCE_TEXT_ONLY_PATH = REPO_ROOT / "data" / "inference_data" / "text-only"
 INFERENCE_TEXT_IMAGE_PATH = REPO_ROOT / "data" / "inference_data" / "text-image"
@@ -147,9 +153,16 @@ def run_simulation_and_save_video(
     if not folder_path.is_dir():
         raise NotADirectoryError(f"Expected directory, got: {folder_path}")
 
-    repo_root = Path(__file__).resolve().parent.parent
-    batch_script = repo_root / "src" / "utils" / "run_scenic_batch.sh"
-    recorder_script = repo_root / "src" / "utils" / "recorder_scenic.py"
+    project_root = repo_root()
+    config = get_config()
+    batch_script = Path(
+        resolve_path(config.simulation.batch_script)
+        or project_root / "src/utils/run_scenic_batch.sh"
+    )
+    recorder_script = Path(
+        resolve_path(config.simulation.recorder_script)
+        or project_root / "src/utils/recorder_scenic.py"
+    )
     if not batch_script.is_file():
         raise FileNotFoundError(f"Batch script not found: {batch_script}")
     if not recorder_script.is_file():
@@ -189,20 +202,18 @@ def run_simulation_and_save_video(
             video_dir.mkdir(parents=True, exist_ok=True)
             log_dir.mkdir(parents=True, exist_ok=True)
 
+            cmd = build_run_scenic_batch_command(
+                config,
+                scenic_file,
+                outdir=video_dir,
+                logdir=log_dir,
+                recorder_py=wrapper_path,
+            )
             result = subprocess.run(
-                [
-                    str(batch_script),
-                    "--recorder",
-                    str(wrapper_path),
-                    "--outdir",
-                    str(video_dir),
-                    "--logdir",
-                    str(log_dir),
-                    str(scenic_file),
-                ],
+                cmd,
                 capture_output=True,
                 text=True,
-                cwd=str(repo_root),
+                cwd=str(project_root),
             )
 
             if result.returncode != 0:
@@ -619,6 +630,60 @@ def rename_png_files_to_image(
     return renamed_files
 
 
+
+def rename_png_to_image_png(folder_path: Path) -> list[Path]:
+    """
+    Rename each subfolder's PNG file to image.png.
+
+    For each immediate subfolder under folder_path:
+    - If image.png already exists, skip that subfolder.
+    - Otherwise rename a single .png file to image.png.
+      When multiple PNGs exist, prefer ``<subfolder_name>.png``; otherwise use the
+      only PNG present, or the first sorted match if ambiguous.
+
+    Returns:
+        List of paths to the created image.png files.
+    """
+    if not folder_path.exists():
+        raise FileNotFoundError(f"Folder does not exist: {folder_path}")
+    if not folder_path.is_dir():
+        raise NotADirectoryError(f"Expected directory, got: {folder_path}")
+
+    renamed_files: list[Path] = []
+
+    for subfolder in sorted(folder_path.iterdir()):
+        if not subfolder.is_dir():
+            continue
+
+        target = subfolder / "image.png"
+        if target.is_file():
+            continue
+
+        png_files = sorted(subfolder.glob("*.png"))
+        if not png_files:
+            print(f"[SKIP] {subfolder.name}: no .png file found")
+            continue
+
+        preferred = subfolder / f"{subfolder.name}.png"
+        if preferred.is_file():
+            source = preferred
+        elif len(png_files) == 1:
+            source = png_files[0]
+        else:
+            source = png_files[0]
+            print(
+                f"[WARN] {subfolder.name}: multiple PNGs found; "
+                f"renaming {source.name} -> image.png"
+            )
+
+        source_name = source.name
+        source.rename(target)
+        renamed_files.append(target)
+        print(f"[OK] {subfolder.name}: {source_name} -> image.png")
+
+    return renamed_files
+
+
 if __name__ == "__main__":
     # csv_path = collect_description()
     # reformat_scenarios()
@@ -634,6 +699,7 @@ if __name__ == "__main__":
     # create_text_only_folders_from_descriptions()
     # print(count_subfolders(Path("data\wenting100")))
     # keep_only_txt_files()
+    # rename_png_to_image_png(Path("/home/avsaw1/chenli/ads-mrag/data/inference_data/image-only"))
     # check_if_all_files_exist()
     # sample_eval_subfolders_excluding_existing()
     pass

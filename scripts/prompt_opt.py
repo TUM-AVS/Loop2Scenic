@@ -6,9 +6,11 @@ import subprocess
 from typing import Optional
 
 from src.agents.scenic_coder_agent import ScenicCoderAgent
+from src.config import get_config
 from src.schema import HeaderSetting
 from src.services import get_embedder, get_llm_service
 from src.utils import setup_logging
+from src.utils.simulation import build_run_scenic_batch_command
 
 
 def ingest_dsl(folder_path: str = "data/debug_prompt_opt"):
@@ -82,12 +84,14 @@ def code_generation(dsl_list: list, output_folder_path: str = "data/debug_prompt
             f.write(code)
 
 def run_simulation(code_path: str = "data/debug_prompt_opt_code", output_folder_path: str = "data/debug_prompt_opt_simulation_result"):
-    result = subprocess.run([
-        'src/utils/run_scenic_batch.sh', 
-        code_path, 
-        '--outdir', f"{output_folder_path}/video", 
-        '--logdir', f"{output_folder_path}/logs"
-    ], capture_output=True, text=True)
+    config = get_config()
+    cmd = build_run_scenic_batch_command(
+        config,
+        code_path,
+        outdir=f"{output_folder_path}/video",
+        logdir=f"{output_folder_path}/logs",
+    )
+    result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         raise RuntimeError(f"Failed to run simulation: {result.stderr}")
     return result.stdout

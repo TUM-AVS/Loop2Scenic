@@ -315,13 +315,20 @@ def run_recording_loop(
 ):
     missing_ego_since = None
     max_missing_ego_time = 1.0
-    max_stale_time = 1.0
-    last_frame = None
-    stale_frame_since = None
     last_debug = 0.0
 
-    while True:
+    # Create a threading Event to handle clean exiting when ego is lost
+    stop_event = threading.Event()
+
+    def on_tick_callback(snapshot):
         now = time.time()
+        nonlocal missing_ego_since
+        nonlocal last_debug
+        
+        # If we already told the loop to stop, do nothing
+        if stop_event.is_set():
+            return
+
         try:
             ego = identify_ego(world, allow_scoring=False, debug=False)
             missing_ego_since = None
@@ -330,21 +337,8 @@ def run_recording_loop(
                 missing_ego_since = now
             elif now - missing_ego_since > max_missing_ego_time:
                 print("[RECORDER] ego lost → scene finished, stopping recorder", flush=True)
-                break
-            world.wait_for_tick()
-            continue
-
-        snapshot = world.wait_for_tick()
-        frame = snapshot.frame
-        if last_frame is None or frame != last_frame:
-            last_frame = frame
-            stale_frame_since = None
-        else:
-            if stale_frame_since is None:
-                stale_frame_since = now
-            elif now - stale_frame_since > max_stale_time:
-                print("[RECORDER] world stalled → scene finished, stopping recorder", flush=True)
-                break
+                stop_event.set()
+            return
 
         tf = ego.get_transform()
         if "FPV" in selected_views:
@@ -363,6 +357,17 @@ def run_recording_loop(
                 flush=True,
             )
 
+    # Attach the callback to the world. 
+    # This ensures the camera moves ONLY when Scenic tells the server to step forward.
+    tick_id = world.on_tick(on_tick_callback)
+
+    try:
+        # Keep the main thread alive while the async callback does the work
+        while not stop_event.is_set():
+            time.sleep(0.1)
+    finally:
+        # Crucial cleanup: remove the callback before exiting
+        world.remove_on_tick(tick_id)
 
 # ============================================================
 # Main

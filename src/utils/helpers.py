@@ -6,14 +6,19 @@ import logging
 from pathlib import Path
 import re
 import shutil
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 import tiktoken
 import json
 import os
 import signal
 import subprocess
 
+from src.config import get_config
 from src.schema import ScenarioDocument
+from src.utils.simulation import build_run_scenic_batch_command
+
+if TYPE_CHECKING:
+    from src.config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -237,9 +242,17 @@ def get_scenario_document_with_scenario_id(scenario_id: str) -> ScenarioDocument
         return None
 
 
-def _terminate_simulation_process_group(proc: subprocess.Popen) -> None:
+def _carla_kill_process_pattern(config: Optional["Config"] = None) -> str:
+    config = config or get_config()
+    return config.simulation.carla.kill_process_name_pattern
+
+
+def _terminate_simulation_process_group(
+    proc: subprocess.Popen,
+    config: Optional["Config"] = None,
+) -> None:
     """Stop run_scenic_batch.sh and its children (Scenic, recorder, same PG)."""
-    carla_name_pattern = r"caiwang/carla/Dist/CARLA_Shipping_294096eb1"
+    carla_name_pattern = _carla_kill_process_pattern(config)
 
     def _list_descendant_pids(root_pid: int) -> set[int]:
         descendants: set[int] = set()
@@ -379,9 +392,9 @@ def _terminate_simulation_process_group(proc: subprocess.Popen) -> None:
             proc.wait(timeout=10)
 
 
-def _kill_carla_processes_by_name() -> None:
-    """Kill lingering CARLA server processes by known binary path fragment."""
-    carla_name_pattern = r"CARLA_Shipping_294096eb1"
+def _kill_carla_processes_by_name(config: Optional["Config"] = None) -> None:
+    """Kill lingering CARLA server processes by configured name pattern."""
+    carla_name_pattern = _carla_kill_process_pattern(config)
     for sig in ("TERM", "KILL"):
         try:
             subprocess.run(
@@ -409,24 +422,25 @@ def _write_timeout_stub_log(scenario_id: str, timeout_sec: int) -> None:
         f.write("\n=== CARLA SETTINGS (post-scenic) ===\n")
 
 
+
+
 def run_simulation_in_carla_and_save_video(
     scenic_code: str,
     scenario_id: str = "test_scenario",
-    timeout_sec: int = 1000,
+    timeout_sec: Optional[int] = 120,
+    config: Optional["Config"] = None,
 ) -> Optional[str]:
     """
     Run the simulation in Carla and save the video.
-
-    If the batch script does not finish within ``timeout_sec`` (default 10 minutes),
-    the subprocess process group is killed and ``None`` is returned. A stub log is
-    written so ``get_error_message_from_logs`` can populate ``scenario.error``.
     """
+    config = config or get_config()
+    if timeout_sec is None:
+        timeout_sec = config.simulation.timeout_sec
+
     # 1. save scenic code to a file
-    # clean the temp/{scenario_id} directory if exists
     if os.path.exists(f"temp/{scenario_id}"):
         shutil.rmtree(f"temp/{scenario_id}")
     os.makedirs(f"temp/{scenario_id}", exist_ok=True)
-    # create temp/{scenario_id}/code directory if not exists
     os.makedirs(f"temp/{scenario_id}/code", exist_ok=True)
     os.makedirs(f"temp/{scenario_id}/video", exist_ok=True)
     os.makedirs(f"temp/{scenario_id}/logs", exist_ok=True)
@@ -434,34 +448,45 @@ def run_simulation_in_carla_and_save_video(
         f.write(scenic_code)
 
     # 2. run simulation and save the video (bounded wall time)
-    cmd = [
-        "src/utils/run_scenic_batch.sh",
+    cmd = build_run_scenic_batch_command(
+        config,
         f"temp/{scenario_id}/code",
-        "--outdir",
-        f"temp/{scenario_id}/video",
-        "--logdir",
-        f"temp/{scenario_id}/logs",
-    ]
+        outdir=f"temp/{scenario_id}/video",
+        logdir=f"temp/{scenario_id}/logs",
+    )
+    
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
-        start_new_session=True,
+        start_new_session=True, # Creates a new process group
     )
+    
     try:
         stdout, stderr = proc.communicate(timeout=timeout_sec)
     except subprocess.TimeoutExpired:
         logger.error(
-            "Simulation timed out after %ss for scenario %s; killing CARLA by name",
+            "Simulation timed out after %ss for scenario %s; killing process group and CARLA",
             timeout_sec,
             scenario_id,
         )
-        _kill_carla_processes_by_name()
+        
+        # === FIX STAGE 1: Kill the entire bash process group wrapper ===
+        try:
+            # os.getpgid(proc.pid) finds the group ID because of start_new_session=True
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except ProcessLookupError:
+            pass # Already dead
+            
+        # === FIX STAGE 2: Clean up any lingering CARLA instances ===
+        _kill_carla_processes_by_name(config)
+        
         try:
             stdout, stderr = proc.communicate(timeout=5)
         except Exception:
             stdout, stderr = (stdout or ""), (stderr or "")
+            
         _write_timeout_stub_log(scenario_id, timeout_sec)
         if stderr:
             logger.error("run_scenic_batch stderr (tail): %s", stderr[-4000:])
@@ -470,12 +495,14 @@ def run_simulation_in_carla_and_save_video(
     if proc.returncode != 0:
         logger.error(f"Failed to run simulation: {stderr}")
         return None
+        
     # check if video really exists
     if not os.path.exists(os.path.join(f"temp/{scenario_id}/video", "BEV.mp4")):
         logger.error(
             f"Video not found at {os.path.join(f'temp/{scenario_id}/video', 'BEV.mp4')}"
         )
         return None
+        
     video_path = os.path.join(f"temp/{scenario_id}/video", "BEV.mp4")
     return video_path
 
@@ -634,3 +661,8 @@ def flatten_dsl_to_text(dsl: Dict[str, Any] | None) -> str | None:
         logger.error(f"Failed to flatten DSL to text: {e}")
         return None
 
+if __name__ == "__main__":
+    with open("temp/code.scenic", "r", encoding="utf-8") as f:
+        scenic_code = f.read()
+
+    run_simulation_in_carla_and_save_video(scenic_code=scenic_code, scenario_id="test_scenario")

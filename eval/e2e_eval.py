@@ -21,7 +21,29 @@ if _EVAL_DIR not in sys.path:
 
 from e2e_metrics import extract_vlm_llm_metrics_rows, normalize_model_metrics_blob
 
-FOLDER_PATH = "/home/dellpro2/chenli/ads-mrag/ads-mrag/data/random_100"
+FOLDER_PATH = "/home/dellpro2/chenli/ads-mrag/ads-mrag/data/test"
+
+
+def _extract_best_vlm_eval_score(final_state: dict[str, Any], result: dict[str, Any]) -> str:
+    """Best VLM evaluation score across generated scenarios (same logic as workflow router)."""
+    best_score = result.get("best_score")
+    if best_score is not None:
+        return f"{float(best_score):.2f}"
+
+    scenic_scenarios_list = final_state.get("scenic_scenarios_list") or []
+    max_score = -1.0
+    found = False
+    for scenario in scenic_scenarios_list:
+        if getattr(scenario, "error", None) is not None:
+            continue
+        score = getattr(scenario, "score", None)
+        if score is not None and score > max_score:
+            max_score = float(score)
+            found = True
+
+    if found:
+        return f"{max_score:.2f}"
+    return ""
 
 
 def _try_move_temp_bev_to_eval_result(
@@ -56,6 +78,8 @@ class QueryMode(str, Enum):
     TEXT_ONLY = "text-only"
     TEXT_IMAGE = "text-image"
     TEXT_VIDEO = "text-video"
+    IMAGE_ONLY = "image-only"
+    VIDEO_ONLY = "video-only"
     TEXT_IMAGE_VIDEO = "text-image-video"
 
 
@@ -105,14 +129,29 @@ class EvalE2EWorkflow:
             if not subfolder.is_dir():
                 continue
 
-            description_path = subfolder / "description.txt"
-            text = description_path.read_text(encoding="utf-8").strip() if description_path.is_file() else None
+            if mode in (QueryMode.TEXT_ONLY, QueryMode.TEXT_IMAGE, QueryMode.TEXT_VIDEO, QueryMode.TEXT_IMAGE_VIDEO):
+                description_path = subfolder / "description.txt"
+                text = description_path.read_text(encoding="utf-8").strip() if description_path.is_file() else None
+            elif mode == QueryMode.IMAGE_ONLY:
+                text = (
+                    "Generate an autonomous driving test scenario that reproduces the situation "
+                    "shown in the attached image. Infer the ego vehicle behavior, other road users, "
+                    "road layout, and spatial relationships entirely from the image; treat the image "
+                    "as the complete scenario specification."
+                )
+            elif mode == QueryMode.VIDEO_ONLY:
+                text = (
+                    "Generate an autonomous driving test scenario that reproduces the situation "
+                    "shown in the attached video. Infer the ego vehicle behavior, other road users, "
+                    "road layout, and how the scene evolves over time entirely from the video; treat "
+                    "the video as the complete scenario specification."
+                )
 
             image_path = None
             video_path = None
-            if mode in (QueryMode.TEXT_IMAGE, QueryMode.TEXT_IMAGE_VIDEO):
+            if mode in (QueryMode.TEXT_IMAGE, QueryMode.IMAGE_ONLY, QueryMode.TEXT_IMAGE_VIDEO):
                 image_path = str((subfolder / "image.png").resolve())
-            if mode in (QueryMode.TEXT_VIDEO, QueryMode.TEXT_IMAGE_VIDEO):
+            if mode in (QueryMode.TEXT_VIDEO, QueryMode.VIDEO_ONLY, QueryMode.TEXT_IMAGE_VIDEO):
                 video_path = str((subfolder / "BEV.mp4").resolve())
 
             query = MultimodalQuery(
@@ -233,6 +272,7 @@ class EvalE2EWorkflow:
             "ground_truth",
             "user_query",
             "best_scenario_id",
+            "best_vlm_eval_score",
             "base_scenario_id",
             "generation_count",
             "vlm_calls",
@@ -263,6 +303,7 @@ class EvalE2EWorkflow:
                 query = record["query"]
                 error_message = ""
                 best_scenario_id = ""
+                best_vlm_eval_score = ""
                 base_scenario_id = ""
                 generation_count: int | str = ""
                 vlm_calls = 0
@@ -297,6 +338,7 @@ class EvalE2EWorkflow:
                     final_state = result.get("state", {})
                     best_scenic_code = result.get("best_scenic_code")
                     best_scenario_id = str(result.get("best_scenario_id") or "")
+                    best_vlm_eval_score = _extract_best_vlm_eval_score(final_state, result)
                     base_scenario_id = str(final_state.get("base_scenario_id") or "")
                     generation_count = final_state.get("generation_count", "")
                     model_metrics = (
@@ -378,6 +420,7 @@ class EvalE2EWorkflow:
                         "ground_truth": str(ground_truth),
                         "user_query": query.model_dump_json(),
                         "best_scenario_id": best_scenario_id,
+                        "best_vlm_eval_score": best_vlm_eval_score,
                         "base_scenario_id": base_scenario_id,
                         "generation_count": generation_count,
                         "vlm_calls": vlm_calls,
@@ -418,5 +461,5 @@ class EvalE2EWorkflow:
 
 if __name__ == "__main__":
     evaluator = EvalE2EWorkflow()
-    output_csv2 = evaluator.run_batch(mode=QueryMode.TEXT_VIDEO)
+    output_csv2 = evaluator.run_batch(mode=QueryMode.TEXT_IMAGE)
     print(f"Batch done. CSV: {output_csv2}")

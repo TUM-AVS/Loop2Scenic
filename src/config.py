@@ -112,6 +112,71 @@ class LoggingConfig(BaseModel):
     file: str = "./logs/rag_pipeline.log"
 
 
+class CarlaSimulationConfig(BaseModel):
+    """CARLA server and connection settings for run_scenic_batch.sh."""
+
+    binary_dir: str = ""
+    cmd: str = (
+        "./CarlaUE4.sh -quality-level=High -nosound -RenderOffScreen -carla-rpc-port=2000"
+    )
+    host: str = "localhost"
+    port: int = 2000
+    rpc_port: Optional[int] = None
+    log_dir: str = "logs/carla"
+    auto_start: bool = True
+    check_connection: bool = True
+    restart_every: int = 25
+    cooldown_sec: int = 5
+    force_restart: bool = False
+    start_timeout_sec: int = 60
+    stop_grace_sec: int = 10
+    stop_term_grace_sec: int = 5
+    kill_process_name_pattern: str = "CARLA_Shipping"
+
+
+class ScenicSimulationConfig(BaseModel):
+    """Scenic simulator settings for run_scenic_batch.sh."""
+
+    workdir: str = "Scenic"
+    map_root: str = "Scenic/assets/maps/CARLA"
+    version: int = 3
+    conda_env: str = "chenli"
+    scenic2_conda_env: str = "scenic2.0"
+    scenic3_venv_activate: Optional[str] = None
+    duration_sec: int = 25
+    time_sec: int = 25
+    time_steps: Optional[int] = None
+    timestep: float = 0.1
+    count: int = 1
+    use_2d: bool = True
+    render: bool = True
+    show_params: bool = False
+    auto_map: bool = True
+    seed: Optional[int] = None
+
+
+class RecorderSimulationConfig(BaseModel):
+    """Recorder settings for run_scenic_batch.sh."""
+
+    grace_sec: int = 10
+    start_delay_sec: int = 1
+    ready_timeout_sec: int = 8
+    ego_alive_threshold_sec: float = 0.5
+    disabled: bool = False
+
+
+class SimulationConfig(BaseModel):
+    """Batch simulation (CARLA + Scenic + recorder) configuration."""
+
+    timeout_sec: int = 1000
+    batch_script: str = "src/utils/run_scenic_batch.sh"
+    recorder_script: str = "src/utils/recorder_scenic.py"
+    scenarios_data_dir: str = "data/scenarios"
+    carla: CarlaSimulationConfig = Field(default_factory=CarlaSimulationConfig)
+    scenic: ScenicSimulationConfig = Field(default_factory=ScenicSimulationConfig)
+    recorder: RecorderSimulationConfig = Field(default_factory=RecorderSimulationConfig)
+
+
 class Config(BaseModel):
     vector_db: VectorDBConfig = Field(default_factory=VectorDBConfig)
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
@@ -120,6 +185,7 @@ class Config(BaseModel):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     vlm: VLMConfig = Field(default_factory=VLMConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    simulation: SimulationConfig = Field(default_factory=SimulationConfig)
 
     @classmethod
     def from_yaml(cls, config_path: str = "config/config.yaml") -> "Config":

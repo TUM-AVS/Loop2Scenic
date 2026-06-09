@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import csv
 import json
+import time
 from enum import Enum
 from datetime import datetime
 from pathlib import Path
@@ -21,7 +22,7 @@ from src.services import (
 )
 from src.utils.logger import setup_logging
 
-FOLDER_PATH = "/home/dellpro2/chenli/ads-mrag/ads-mrag/data/scenarios"
+FOLDER_PATH = "/home/avsaw1/chenli/ads-mrag/data/scenarios"
 
 
 class QueryMode(str, Enum):
@@ -153,7 +154,7 @@ class EvalRetrieval:
             if not subfolder.is_dir():
                 continue
 
-            description_path = subfolder / "description.txt"
+            description_path = subfolder / "new_description.txt"
             text = description_path.read_text(encoding="utf-8").strip() if description_path.is_file() else None
 
             image_path = None
@@ -174,6 +175,7 @@ class EvalRetrieval:
                     "query": query,
                 }
             )
+            self.logger.info(f"The query is: {query}")
 
         self.logger.info(
             "Built %d multimodal queries from %s (mode=%s)",
@@ -197,13 +199,13 @@ class EvalRetrieval:
             self.logger.error("Components not initialized: interpreter_agent/embedder")
             return {}
 
-        dsl, flattened_text = self.interpreter_agent.generate_dsl_from_user_query(query)
-        query_to_embed = MultimodalQuery(
-            text=flattened_text,
-            image_path=query.image_path,
-            video_path=query.video_path,
-        )
-        query_embeddings = self.embedder.encode([query_to_embed.model_dump()])
+        dsl, flattened_text = query.text, query.text
+        query_to_embed = {
+            "text": flattened_text,
+            "image": query.image_path,
+            "video": query.video_path,
+        }
+        query_embeddings = self.embedder.encode([query_to_embed])
         if query_embeddings is None:
             self.logger.error("Failed to embed query (got None)")
             return {}
@@ -238,20 +240,22 @@ class EvalRetrieval:
             self.logger.error("Retriever is not initialized")
             return {}
 
-        best_scenarios = self.retriever.retrieve(
+        retrieval = self.retriever.retrieve(
             original_query=user_query,
             query_embedding=query_embedding,
         )
-        if not best_scenarios:
+        if not retrieval.scenarios:
             self.logger.error("No scenarios found for query")
             return {}
 
-        best_scenario_ids = [scenario.scenario_id for scenario in best_scenarios]
-        base_scenario_id = best_scenarios[0].scenario_id
+        best_scenario_ids = [scenario.scenario_id for scenario in retrieval.scenarios]
+        base_scenario_id = retrieval.scenarios[0].scenario_id
 
         return {
             "base_scenario_id": base_scenario_id,
             "best_scenario_ids": best_scenario_ids,
+            "best_similarity_score": retrieval.best_similarity_score,
+            "best_rerank_score": retrieval.best_rerank_score,
         }
 
     def eval_text_only(self, mode: QueryMode = QueryMode.TEXT_ONLY) -> Path:
@@ -276,6 +280,9 @@ class EvalRetrieval:
             "flattened_dsl",
             "base_scenario_id",
             "best_scenario_ids",
+            "best_similarity_score",
+            "best_rerank_score",
+            "response_time_sec",
             "error_message",
         ]
 
@@ -291,7 +298,11 @@ class EvalRetrieval:
                 flattened_dsl = None
                 base_scenario_id = None
                 best_scenario_ids = None
+                best_similarity_score = None
+                best_rerank_score = None
+                response_time_sec = None
 
+                start_time = time.perf_counter()
                 try:
                     embedded_state = self.embed_query({"user_query": query})
                     retrieved_state = self.retrieve_base_scenario(embedded_state) if embedded_state else {}
@@ -300,12 +311,20 @@ class EvalRetrieval:
                     flattened_dsl = embedded_state.get("flattened_dsl") if embedded_state else None
                     base_scenario_id = retrieved_state.get("base_scenario_id") if retrieved_state else None
                     best_scenario_ids = retrieved_state.get("best_scenario_ids") if retrieved_state else None
+                    best_similarity_score = (
+                        retrieved_state.get("best_similarity_score") if retrieved_state else None
+                    )
+                    best_rerank_score = (
+                        retrieved_state.get("best_rerank_score") if retrieved_state else None
+                    )
                 except Exception as exc:
                     error_message = str(exc)
                     self.logger.exception(
                         "Failed to evaluate query for ground_truth=%s",
                         ground_truth,
                     )
+                finally:
+                    response_time_sec = time.perf_counter() - start_time
 
                 writer.writerow(
                     {
@@ -317,6 +336,15 @@ class EvalRetrieval:
                         "best_scenario_ids": json.dumps(best_scenario_ids, ensure_ascii=False)
                         if best_scenario_ids is not None
                         else "",
+                        "best_similarity_score": (
+                            f"{best_similarity_score:.6f}"
+                            if best_similarity_score is not None
+                            else ""
+                        ),
+                        "best_rerank_score": (
+                            f"{best_rerank_score:.6f}" if best_rerank_score is not None else ""
+                        ),
+                        "response_time_sec": f"{response_time_sec:.4f}",
                         "error_message": error_message,
                     }
                 )
@@ -336,6 +364,14 @@ def analyze_retrieval_csv(csv_path: str | Path) -> dict[str, float | list[str]]:
     1) no_error_rate
     2) ground_truth_eq_base_scenario_id_rate_among_no_error
     3) ground_truth_in_best_scenario_ids_rate_among_no_error
+
+    Also returns average response time in seconds:
+    4) avg_response_time_sec
+    5) avg_response_time_sec_among_no_error
+
+    Also returns average scores among successful rows (when present in CSV):
+    6) avg_best_similarity_score_among_no_error
+    7) avg_best_rerank_score_among_no_error
     """
     path = Path(csv_path)
     if not path.exists():
@@ -345,6 +381,12 @@ def analyze_retrieval_csv(csv_path: str | Path) -> dict[str, float | list[str]]:
     no_error_count = 0
     base_match_count = 0
     in_best_ids_count = 0
+    total_response_time_sec = 0.0
+    no_error_response_time_sec = 0.0
+    similarity_score_sum = 0.0
+    similarity_score_count = 0
+    rerank_score_sum = 0.0
+    rerank_score_count = 0
     failed_ground_truths: list[str] = []
 
     with path.open("r", newline="", encoding="utf-8") as csvfile:
@@ -353,12 +395,16 @@ def analyze_retrieval_csv(csv_path: str | Path) -> dict[str, float | list[str]]:
             total_count += 1
             ground_truth = str(row.get("ground_truth", "")).strip()
             error_message = str(row.get("error_message", "")).strip()
+            response_time_raw = str(row.get("response_time_sec", "")).strip()
+            response_time_sec = float(response_time_raw) if response_time_raw else 0.0
+            total_response_time_sec += response_time_sec
 
-            if error_message:
+            if error_message and error_message.lower() not in ["none", "nan", "null", "false"]:
                 failed_ground_truths.append(ground_truth)
                 continue
 
             no_error_count += 1
+            no_error_response_time_sec += response_time_sec
 
             base_scenario_id = str(row.get("base_scenario_id", "")).strip()
             if ground_truth == base_scenario_id:
@@ -381,14 +427,50 @@ def analyze_retrieval_csv(csv_path: str | Path) -> dict[str, float | list[str]]:
             if ground_truth in best_scenario_ids:
                 in_best_ids_count += 1
 
+            similarity_raw = str(row.get("best_similarity_score", "")).strip()
+            if similarity_raw and similarity_raw.lower() not in ("none", "nan", "null"):
+                try:
+                    similarity_score_sum += float(similarity_raw)
+                    similarity_score_count += 1
+                except ValueError:
+                    pass
+
+            rerank_raw = str(row.get("best_rerank_score", "")).strip()
+            if rerank_raw and rerank_raw.lower() not in ("none", "nan", "null"):
+                try:
+                    rerank_score_sum += float(rerank_raw)
+                    rerank_score_count += 1
+                except ValueError:
+                    pass
+
+    print(f"DEBUG: total_count = {total_count}")
+    print(f"DEBUG: no_error_count = {no_error_count}")
+    print(f"DEBUG: base_match_count = {base_match_count}")
+    print(f"DEBUG: in_best_ids_count = {in_best_ids_count}")
+    print(f"DEBUG: skipped strings = {failed_ground_truths[:5]}") # See what got treated as an error
+
     no_error_rate = (no_error_count / total_count * 100.0) if total_count > 0 else 0.0
     base_match_rate = (base_match_count / no_error_count * 100.0) if no_error_count > 0 else 0.0
     in_best_ids_rate = (in_best_ids_count / no_error_count * 100.0) if no_error_count > 0 else 0.0
+    avg_response_time_sec = (total_response_time_sec / total_count) if total_count > 0 else 0.0
+    avg_response_time_sec_among_no_error = (
+        no_error_response_time_sec / no_error_count if no_error_count > 0 else 0.0
+    )
+    avg_best_similarity_score_among_no_error = (
+        similarity_score_sum / similarity_score_count if similarity_score_count > 0 else 0.0
+    )
+    avg_best_rerank_score_among_no_error = (
+        rerank_score_sum / rerank_score_count if rerank_score_count > 0 else 0.0
+    )
 
     return {
         "no_error_rate": no_error_rate,
         "ground_truth_eq_base_scenario_id_rate_among_no_error": base_match_rate,
         "ground_truth_in_best_scenario_ids_rate_among_no_error": in_best_ids_rate,
+        "avg_response_time_sec": avg_response_time_sec,
+        "avg_response_time_sec_among_no_error": avg_response_time_sec_among_no_error,
+        "avg_best_similarity_score_among_no_error": avg_best_similarity_score_among_no_error,
+        "avg_best_rerank_score_among_no_error": avg_best_rerank_score_among_no_error,
         "failed_ground_truths": failed_ground_truths,
     }
 
@@ -398,8 +480,8 @@ if __name__ == "__main__":
     # eval_retrieval.eval_text_only(mode=QueryMode.TEXT_ONLY)
     # eval_retrieval.eval_text_only(mode=QueryMode.TEXT_VIDEO)
 
-    results = analyze_retrieval_csv("eval/results/eval_text_only_20260424_095244.csv")
+    results = analyze_retrieval_csv("eval/results/gemini2/eval_text_only_20260601_224017.csv")
     print("The text only evaluation results are: ", results)
 
-    results = analyze_retrieval_csv("eval/results/eval_text_video_20260424_183838.csv")
+    results = analyze_retrieval_csv("eval/results/gemini2/eval_text_video_20260601_224149.csv")
     print("The text video evaluation results are: ", results)
