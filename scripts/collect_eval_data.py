@@ -2,8 +2,14 @@ from pathlib import Path
 import csv
 import re
 import subprocess
+import sys
 import tempfile
 import shutil
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from src.config import get_config
+from src.utils.simulation import build_run_scenic_batch_command, repo_root, resolve_path
 
 SOURCE_PATH = Path("/home/dellpro2/chenli/ads-mrag/ads-mrag/data/chat2scenic")
 EVAL_PATH = Path("/home/dellpro2/chenli/ads-mrag/ads-mrag/data/eval")
@@ -139,9 +145,16 @@ def run_simulation_and_save_video(
     if not folder_path.is_dir():
         raise NotADirectoryError(f"Expected directory, got: {folder_path}")
 
-    repo_root = Path(__file__).resolve().parent.parent
-    batch_script = repo_root / "src" / "utils" / "run_scenic_batch.sh"
-    recorder_script = repo_root / "src" / "utils" / "recorder_scenic.py"
+    project_root = repo_root()
+    config = get_config()
+    batch_script = Path(
+        resolve_path(config.simulation.batch_script)
+        or project_root / "src/utils/run_scenic_batch.sh"
+    )
+    recorder_script = Path(
+        resolve_path(config.simulation.recorder_script)
+        or project_root / "src/utils/recorder_scenic.py"
+    )
     if not batch_script.is_file():
         raise FileNotFoundError(f"Batch script not found: {batch_script}")
     if not recorder_script.is_file():
@@ -181,20 +194,18 @@ def run_simulation_and_save_video(
             video_dir.mkdir(parents=True, exist_ok=True)
             log_dir.mkdir(parents=True, exist_ok=True)
 
+            cmd = build_run_scenic_batch_command(
+                config,
+                scenic_file,
+                outdir=video_dir,
+                logdir=log_dir,
+                recorder_py=wrapper_path,
+            )
             result = subprocess.run(
-                [
-                    str(batch_script),
-                    "--recorder",
-                    str(wrapper_path),
-                    "--outdir",
-                    str(video_dir),
-                    "--logdir",
-                    str(log_dir),
-                    str(scenic_file),
-                ],
+                cmd,
                 capture_output=True,
                 text=True,
-                cwd=str(repo_root),
+                cwd=str(project_root),
             )
 
             if result.returncode != 0:

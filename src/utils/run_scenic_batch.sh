@@ -2,6 +2,7 @@
 set -u
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$ROOT_DIR/../.." && pwd)"
 
 RECORDER_PY="${RECORDER_PY:-$ROOT_DIR/recorder_scenic.py}"
 SCENIC_CMD="${SCENIC_CMD:-scenic}"
@@ -12,19 +13,20 @@ SCENIC_TIME="${SCENIC_TIME:-25}"
 SCENIC_TIME_STEPS="${SCENIC_TIME_STEPS:-}"
 SCENIC_TIMESTEP="${SCENIC_TIMESTEP:-0.1}"
 SCENIC_TIMESTEP_OVERRIDE="${SCENIC_TIMESTEP_OVERRIDE:-0}"
-SCENIC_WORKDIR="${SCENIC_WORKDIR:-/home/dellpro2/chenli/ads-mrag/ads-mrag/Scenic}"
+SCENIC_WORKDIR="${SCENIC_WORKDIR:-$REPO_ROOT/Scenic}"
 SCENIC_SEED="${SCENIC_SEED:-}"
 SCENIC_SHOW_PARAMS="${SCENIC_SHOW_PARAMS:-0}"
 SCENIC_RENDER="${SCENIC_RENDER:-1}"
 SCENIC_VERSION="${SCENIC_VERSION:-3}"
 SCENIC3_VENV_ACTIVATE="${SCENIC3_VENV_ACTIVATE:-$ROOT_DIR/carla/caiwang-venv/bin/activate}"
 SCENIC2_CONDA_ENV="${SCENIC2_CONDA_ENV:-scenic2.0}"
+CONDA_ENV="${CONDA_ENV:-chenli}"
+PYTHON_CMD="${PYTHON_CMD:-python3}"
 EGO_ALIVE_THRESHOLD="${EGO_ALIVE_THRESHOLD:-0.5}"
 AUTO_MAP="${AUTO_MAP:-1}"
-MAP_ROOT="${MAP_ROOT:-$ROOT_DIR/Scenic/assets/maps/CARLA}"
+MAP_ROOT="${MAP_ROOT:-$REPO_ROOT/Scenic/assets/maps/CARLA}"
 USE_2D_FLAG="${USE_2D_FLAG:-1}"
 SCENIC_COUNT="${SCENIC_COUNT:-1}"
-SCENIC_START_TIMEOUT="${SCENIC_START_TIMEOUT:-30}"
 RECORDER_GRACE="${RECORDER_GRACE:-10}"
 RECORDER_START_DELAY="${RECORDER_START_DELAY:-1}"
 RECORDER_READY_TIMEOUT="${RECORDER_READY_TIMEOUT:-8}"
@@ -35,8 +37,7 @@ CARLA_RESTART_EVERY="${CARLA_RESTART_EVERY:-25}"
 CARLA_COOLDOWN_SEC="${CARLA_COOLDOWN_SEC:-5}"
 CARLA_FORCE_RESTART="${CARLA_FORCE_RESTART:-0}"
 CARLA_LOG_DIR="${CARLA_LOG_DIR:-$ROOT_DIR/scenic_batch_logs}"
-CARLA_BINARY_DIR="${CARLA_BINARY_DIR:-/home/dellpro2/caiwang/carla/Dist/CARLA_Shipping_294096eb1/LinuxNoEditor}"
-CARLA_ENV_ACTIVATE="${CARLA_ENV_ACTIVATE:-$ROOT_DIR/carla/caiwang-venv/bin/activate}"
+CARLA_BINARY_DIR="${CARLA_BINARY_DIR:-}"
 CARLA_CMD_STR="${CARLA_CMD_STR:-./CarlaUE4.sh -quality-level=High -nosound -RenderOffScreen -carla-rpc-port=2000}"
 CARLA_HOST="${CARLA_HOST:-localhost}"
 CARLA_PORT="${CARLA_PORT:-2000}"
@@ -47,6 +48,55 @@ START_TIMEOUT="${START_TIMEOUT:-60}"
 EGO_ROLENAME="${EGO_ROLENAME:-}"
 EGO_ROLE_SCRIPT="${EGO_ROLE_SCRIPT:-$ROOT_DIR/tools/patch_scenic_ego_rolename.py}"
 KEEP_EGO_TMP="${KEEP_EGO_TMP:-0}"
+
+_find_conda_sh() {
+  if [[ -n "${CONDA_EXE:-}" ]]; then
+    local conda_base
+    conda_base="$(cd "$(dirname "$CONDA_EXE")/.." && pwd)"
+    if [[ -f "$conda_base/etc/profile.d/conda.sh" ]]; then
+      echo "$conda_base/etc/profile.d/conda.sh"
+      return 0
+    fi
+  fi
+  local candidate
+  for candidate in \
+    "$HOME/miniconda3/etc/profile.d/conda.sh" \
+    "$HOME/anaconda3/etc/profile.d/conda.sh" \
+    "/opt/conda/etc/profile.d/conda.sh"; do
+    if [[ -f "$candidate" ]]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+activate_runtime_env() {
+  if [[ -n "${CONDA_ENV}" ]]; then
+    if [[ "${CONDA_DEFAULT_ENV:-}" == "$CONDA_ENV" && "${CONDA_SHLVL:-0}" -gt 0 ]]; then
+      echo "[INFO] Conda env already active: ${CONDA_ENV}" >&2
+    else
+      local conda_sh
+      conda_sh="$(_find_conda_sh)" || {
+        echo "[ERROR] conda.sh not found; set CONDA_EXE or install miniconda/anaconda." >&2
+        exit 2
+      }
+      # shellcheck disable=SC1090
+      source "$conda_sh"
+      conda activate "$CONDA_ENV"
+      echo "[INFO] Activated conda env: ${CONDA_ENV}" >&2
+    fi
+    PYTHON_CMD="$(command -v python3)"
+    return 0
+  fi
+
+  if [[ "$SCENIC_VERSION" == "3" && -f "$SCENIC3_VENV_ACTIVATE" ]]; then
+    # shellcheck disable=SC1090
+    source "$SCENIC3_VENV_ACTIVATE"
+    echo "[INFO] Activated venv: ${SCENIC3_VENV_ACTIVATE}" >&2
+    PYTHON_CMD="$(command -v python3)"
+  fi
+}
 
 usage() {
   cat <<'USAGE'
@@ -65,14 +115,14 @@ Options (env vars override):
   --show-params 0|1        Log Scenic params (default: 0)
   --render 0|1             Scenic render (pygame window) (default: 1)
   --scenic-version 2|3     Scenic version switch (default: 3)
-  --scenic3-venv PATH      Scenic3 venv activate path (default: ./carla/caiwang-venv/bin/activate)
-  --scenic2-env NAME       Scenic2 conda env name (default: scenic2.0)
+  --conda-env NAME         Conda env to activate for recorder/scenic/python (default: chenli; set empty to skip)
+  --scenic3-venv PATH      Scenic3 venv activate path if --conda-env is empty (default: ./carla/caiwang-venv/bin/activate)
+  --scenic2-env NAME       Scenic2 conda env name when not using --conda-env (default: scenic2.0)
   --ego-alive-threshold SEC Minimum seconds ego must persist (default: 0.5)
   --auto-map 0|1          Auto override map param using Town (default: 1)
   --map-root DIR          Map root dir (default: ./Scenic/assets/maps/CARLA)
   --use-2d 0|1            Add --2d to Scenic (default: 1)
   --count N               Scenic --count (default: 1)
-  --start-timeout SEC     Wait for Scenic sim start before recorder (default: 30)
   --recorder PATH         recorder_scenic.py path
   --scenic-cmd CMD         Scenic command (default: scenic)
   --recorder-ready SEC     Wait for recorder ready before scenic (default: 8)
@@ -86,7 +136,6 @@ Options (env vars override):
   --carla-dir DIR          CARLA binary dir (default: /home/dellpro2/caiwang/carla/Dist/CARLA_Shipping_294096eb1/LinuxNoEditor)
   --carla-cmd CMD          CARLA command string (default: ./CarlaUE4.sh -quality-level=High -nosound -RenderOffScreen -carla-rpc-port=2000)
   --carla-logdir DIR       CARLA log directory (default: ./scenic_batch_logs)
-  --carla-env PATH          CARLA venv activate path (default: ./carla/caiwang-venv/bin/activate)
   --carla-rpc-port PORT    CARLA RPC port (default: 2000)
   --stop-grace SEC         Grace seconds after SIGINT (default: 10)
   --stop-term-grace SEC    Grace seconds after SIGTERM (default: 5)
@@ -134,6 +183,8 @@ while [[ $# -gt 0 ]]; do
       SCENIC_RENDER="$2"; shift 2 ;;
     --scenic-version)
       SCENIC_VERSION="$2"; shift 2 ;;
+    --conda-env)
+      CONDA_ENV="$2"; shift 2 ;;
     --scenic3-venv)
       SCENIC3_VENV_ACTIVATE="$2"; shift 2 ;;
     --scenic2-env)
@@ -148,8 +199,6 @@ while [[ $# -gt 0 ]]; do
       USE_2D_FLAG="$2"; shift 2 ;;
     --count)
       SCENIC_COUNT="$2"; shift 2 ;;
-    --start-timeout)
-      SCENIC_START_TIMEOUT="$2"; shift 2 ;;
     --recorder)
       RECORDER_PY="$2"; shift 2 ;;
     --scenic-cmd)
@@ -176,8 +225,6 @@ while [[ $# -gt 0 ]]; do
       CARLA_CMD_STR="$2"; shift 2 ;;
     --carla-logdir)
       CARLA_LOG_DIR="$2"; shift 2 ;;
-    --carla-env)
-      CARLA_ENV_ACTIVATE="$2"; shift 2 ;;
     --carla-rpc-port)
       CARLA_RPC_PORT="$2"; shift 2 ;;
     --stop-grace)
@@ -222,8 +269,12 @@ if [[ -n "$EGO_ROLENAME" && ! -f "$EGO_ROLE_SCRIPT" ]]; then
   exit 2
 fi
 
+activate_runtime_env
+
 if [[ "${SCENIC_CMD}" == "scenic" ]]; then
-  if [[ "$SCENIC_VERSION" == "3" ]]; then
+  if command -v scenic >/dev/null 2>&1; then
+    SCENIC_CMD="$(command -v scenic)"
+  elif [[ "$SCENIC_VERSION" == "3" ]]; then
     if [[ -x "${SCENIC3_VENV_ACTIVATE%/bin/activate}/bin/scenic" ]]; then
       SCENIC_CMD="${SCENIC3_VENV_ACTIVATE%/bin/activate}/bin/scenic"
     elif [[ -n "${VIRTUAL_ENV:-}" && -x "$VIRTUAL_ENV/bin/scenic" ]]; then
@@ -249,7 +300,7 @@ log_master() {
 }
 
 init_csv() {
-  python3 - "$MASTER_CSV" <<'PY'
+  "$PYTHON_CMD" - "$MASTER_CSV" <<'PY'
 import csv
 import sys
 path = sys.argv[1]
@@ -283,7 +334,7 @@ append_csv_row() {
   local run_log="$9"
   local ego_threshold="${10}"
 
-  python3 - "$MASTER_CSV" "$scenic_file" "$grandparent_dir" "$parent_dir" "$base_file" "$scenic_rc" "$recorder_started" "$recorder_killed" "$rec_rc" "$run_log" "$ego_threshold" <<'PY'
+  "$PYTHON_CMD" - "$MASTER_CSV" "$scenic_file" "$grandparent_dir" "$parent_dir" "$base_file" "$scenic_rc" "$recorder_started" "$recorder_killed" "$rec_rc" "$run_log" "$ego_threshold" <<'PY'
 import csv
 import re
 import sys
@@ -350,7 +401,7 @@ PY
 }
 
 check_carla() {
-  python3 - <<PY
+  "$PYTHON_CMD" - <<PY
 import carla
 client = carla.Client("${CARLA_HOST}", int("${CARLA_RPC_PORT}"))
 client.set_timeout(2.0)
@@ -367,18 +418,20 @@ CARLA_OWNED=0
 find_carla_pid() {
   local port="$1"
   local pid=""
-  # Prefer listening PID on the RPC port (most reliable).
+  
+  # 1. Prefer listening PID on the RPC port (most reliable).
   if command -v ss >/dev/null 2>&1; then
     pid="$(ss -ltnp 2>/dev/null | awk -v p=":${port}" '$4 ~ p {for (i=1;i<=NF;i++) if ($i ~ /pid=/) {gsub(/.*pid=|,.*/, "", $i); print $i; exit}}')"
   elif command -v lsof >/dev/null 2>&1; then
     pid="$(lsof -nP -iTCP:"${port}" -sTCP:LISTEN 2>/dev/null | awk 'NR==2 {print $2; exit}')"
   fi
+  
+  # 2. Fallback check: Search process list, but strictly IGNORE bash scripts
   if [[ -z "${pid:-}" ]]; then
-    pid="$(pgrep -f "CarlaUE4.*carla-rpc-port[= ]${port}" | head -n1)"
+    # The [C] trick prevents grep from finding itself, and grep -v bash ignores your wrapper script
+    pid="$(ps -A -o pid,cmd | grep "[C]arlaUE4.*carla-rpc-port[= ]${port}" | grep -v "bash" | grep -v "run_scenic_batch" | awk '{print $1}' | head -n1)"
   fi
-  if [[ -z "${pid:-}" ]]; then
-    pid="$(pgrep -f "CarlaUE4-Linux-Shipping.*carla-rpc-port[= ]${port}" | head -n1)"
-  fi
+  
   printf '%s' "${pid:-}"
 }
 
@@ -397,20 +450,24 @@ start_carla() {
   ts="$(date +%Y%m%d_%H%M%S)"
   carla_log="$CARLA_LOG_DIR/carla_${ts}.log"
 
-  # Check port occupancy before starting; avoid conflicting instances.
+  # ALWAYS clean up the port before starting to prevent "ghost" conflicts
   listen_pid="$(find_carla_pid "$CARLA_RPC_PORT")"
   if [[ -n "${listen_pid:-}" ]]; then
-    cmdline="$(ps -p "$listen_pid" -o args= 2>/dev/null)"
-    if [[ "$CARLA_FORCE_RESTART" == "1" ]]; then
-      log_master "CARLA port ${CARLA_RPC_PORT} busy (pid=$listen_pid). Forcing stop before start."
-      if ! stop_carla; then
-        echo "[ERROR] CARLA port ${CARLA_RPC_PORT} still busy after stop attempt." >&2
-        exit 3
-      fi
-    else
-      echo "[ERROR] CARLA port ${CARLA_RPC_PORT} already in use (pid=$listen_pid cmdline='$cmdline')." >&2
-      exit 3
-    fi
+    log_master "Port ${CARLA_RPC_PORT} is busy (pid=$listen_pid). Forcing cleanup before start."
+    stop_carla
+    sleep 2 # Give the kernel time to release the socket
+  fi
+  
+  # Double check it actually cleared
+  if port_listening "$CARLA_RPC_PORT"; then
+     echo "[ERROR] Port ${CARLA_RPC_PORT} is stubbornly blocked. Cannot start CARLA." >&2
+     exit 3
+  fi
+
+  if [[ -z "$CARLA_BINARY_DIR" || ! -d "$CARLA_BINARY_DIR" ]]; then
+    echo "[ERROR] CARLA_BINARY_DIR is unset or not a directory: '${CARLA_BINARY_DIR:-}'" >&2
+    echo "[ERROR] Set simulation.carla.binary_dir in config/config.yaml or pass --carla-dir." >&2
+    return 1
   fi
 
   log_master "Starting CARLA: (cd \"$CARLA_BINARY_DIR\" && ${CARLA_CMD_STR})"
@@ -444,63 +501,49 @@ start_carla() {
   return 1
 }
 
+# --- Replace your existing stop_carla function with this ---
 stop_carla() {
   local port="${CARLA_RPC_PORT}"
-  local start_ts end_ts elapsed
-  local listen_pid pgid target_pgid
   local log_prefix="CARLA stop"
+  local listen_pid
 
-  start_ts=$(date +%s)
   listen_pid="$(find_carla_pid "$port")"
   if [[ -z "${listen_pid:-}" ]]; then
     log_master "${log_prefix}: no listener on port ${port}"
     return 0
   fi
 
-  pgid="$(get_pgid "$listen_pid")"
-  target_pgid="$pgid"
-  if [[ -n "${CARLA_PGID:-}" && "$CARLA_PGID" != "$pgid" ]]; then
-    log_master "${log_prefix}: PGID mismatch (recorded=${CARLA_PGID}, current=${pgid}); using current"
-  fi
+  log_master "${log_prefix}: Attempting to stop CARLA on port ${port}"
 
-  log_master "${log_prefix}: stopping pid=${listen_pid} pgid=${target_pgid:-unknown} on port=${port}"
+  # Get Process Group IDs
+  local carla_pgid
+  carla_pgid="$(ps -o pgid= -p "$listen_pid" | tr -d ' ')"
+  local my_pgid
+  my_pgid="$(ps -o pgid= -p $$ | tr -d ' ')"
 
-  # Use process group so UE4 and its children exit together; fallback to PID if PGID is unknown.
-  if [[ -n "${target_pgid:-}" ]]; then
-    kill -2 "-${target_pgid}" >/dev/null 2>&1 || true
-  else
-    kill -2 "$listen_pid" >/dev/null 2>&1 || true
-  fi
-  sleep "$STOP_GRACE"
-  if port_listening "$port"; then
-    log_master "${log_prefix}: still listening after SIGINT, sending SIGTERM"
-    if [[ -n "${target_pgid:-}" ]]; then
-      kill -15 "-${target_pgid}" >/dev/null 2>&1 || true
-    else
-      kill -15 "$listen_pid" >/dev/null 2>&1 || true
+  # FIX: If CARLA shares our PGID, ONLY kill its specific PID to prevent suicide loops
+  if [[ -n "$carla_pgid" && "$carla_pgid" != "$my_pgid" ]]; then
+    log_master "${log_prefix}: Sending SIGTERM to CARLA process group -${carla_pgid}"
+    kill -15 "-${carla_pgid}" >/dev/null 2>&1 || true
+    sleep 2
+    if port_listening "$port"; then
+      kill -9 "-${carla_pgid}" >/dev/null 2>&1 || true
     fi
-    sleep "$STOP_TERM_GRACE"
-  fi
-  if port_listening "$port"; then
-    log_master "${log_prefix}: still listening after SIGTERM, sending SIGKILL"
-    if [[ -n "${target_pgid:-}" ]]; then
-      kill -9 "-${target_pgid}" >/dev/null 2>&1 || true
-    else
+  else
+    log_master "${log_prefix}: CARLA shares script PGID. Safely killing PID ${listen_pid} directly."
+    kill -15 "$listen_pid" >/dev/null 2>&1 || true
+    sleep 2
+    if port_listening "$port"; then
       kill -9 "$listen_pid" >/dev/null 2>&1 || true
     fi
-    sleep 1
   fi
 
   if port_listening "$port"; then
-    end_ts=$(date +%s)
-    elapsed=$((end_ts - start_ts))
-    log_master "${log_prefix}: FAILED to release port after ${elapsed}s"
+    log_master "${log_prefix}: FAILED to release port ${port}"
     return 1
   fi
 
-  end_ts=$(date +%s)
-  elapsed=$((end_ts - start_ts))
-  log_master "${log_prefix}: released port in ${elapsed}s"
+  log_master "${log_prefix}: released port successfully"
   CARLA_PID=""
   CARLA_PGID=""
   CARLA_OWNED=0
@@ -552,14 +595,13 @@ log_master "Recorder disabled: ${DISABLE_RECORDER}"
 log_master "Auto map override: ${AUTO_MAP} | Map root: ${MAP_ROOT}"
 log_master "--2d flag: ${USE_2D_FLAG}"
 log_master "Scenic --count: ${SCENIC_COUNT}"
-log_master "Scenic start wait: ${SCENIC_START_TIMEOUT}s"
 log_master "Recorder ready wait: ${RECORDER_READY_TIMEOUT}s"
 log_master "Ego rolename: ${EGO_ROLENAME:-none}"
 log_master "Auto start CARLA: ${AUTO_START_CARLA} | Restart every: ${CARLA_RESTART_EVERY} | Cooldown: ${CARLA_COOLDOWN_SEC}s"
 log_master "CARLA dir: ${CARLA_BINARY_DIR} | Force restart: ${CARLA_FORCE_RESTART} | Start timeout: ${START_TIMEOUT}s"
 log_master "CARLA rpc port: ${CARLA_RPC_PORT} | Stop grace: ${STOP_GRACE}s | Stop term grace: ${STOP_TERM_GRACE}s"
 log_master "Scenic version: ${SCENIC_VERSION} | Scenic cmd: ${SCENIC_CMD}"
-log_master "CARLA env activate: ${CARLA_ENV_ACTIVATE} | Scenic3 venv: ${SCENIC3_VENV_ACTIVATE} | Scenic2 env: ${SCENIC2_CONDA_ENV}"
+log_master "Conda env: ${CONDA_ENV:-none} | Python: ${PYTHON_CMD} | Scenic3 venv fallback: ${SCENIC3_VENV_ACTIVATE} | Scenic2 env: ${SCENIC2_CONDA_ENV}"
 log_master "Ego alive threshold: ${EGO_ALIVE_THRESHOLD}s"
 log_master "CSV summary: ${MASTER_CSV}"
 
@@ -576,6 +618,18 @@ cleanup_ego_tmp() {
   fi
 }
 trap cleanup_ego_tmp EXIT
+
+cleanup_on_exit() {
+    # FIX: Clear traps immediately so signals during cleanup don't cause infinite loops!
+    trap - EXIT INT TERM
+    
+    echo "Script exiting or killed. Ensuring CARLA is stopped..."
+    if [[ "$CARLA_OWNED" == "1" || "$CARLA_FORCE_RESTART" == "1" ]]; then
+        stop_carla
+    fi
+    cleanup_ego_tmp
+}
+trap cleanup_on_exit EXIT INT TERM
 
 total_count=0
 success_count=0
@@ -617,14 +671,14 @@ for p in "${INPUT_PATHS[@]}"; do
     fi
     tmp_file="$EGO_TMP_DIR/$rel_path"
     mkdir -p "$(dirname "$tmp_file")"
-    if ! python3 "$EGO_ROLE_SCRIPT" "$scenic_file" "$tmp_file" --rolename "$EGO_ROLENAME"; then
+    if ! "$PYTHON_CMD" "$EGO_ROLE_SCRIPT" "$scenic_file" "$tmp_file" --rolename "$EGO_ROLENAME"; then
       echo "[ERROR] Failed to inject ego rolename for $scenic_file" >&2
       exit 4
     fi
     scenic_run_file="$tmp_file"
   fi
 
-  scenic_file_abs="$(python3 - "$scenic_run_file" <<'PY'
+  scenic_file_abs="$("$PYTHON_CMD" - "$scenic_run_file" <<'PY'
 import os
 import sys
 print(os.path.abspath(sys.argv[1]))
@@ -633,7 +687,7 @@ PY
 
   {
     echo "=== CARLA SETTINGS (pre-scenic) ==="
-    python3 - <<PY || true
+    "$PYTHON_CMD" - <<PY || true
 import carla
 client = carla.Client("${CARLA_HOST}", int("${CARLA_PORT}"))
 client.set_timeout(2.0)
@@ -650,7 +704,7 @@ print("snapshot.timestamp.elapsed_seconds:", world.get_snapshot().timestamp.elap
 PY
   } >> "$run_log" 2>&1
 
-  pre_sim_info="$(python3 - <<PY
+  pre_sim_info="$("$PYTHON_CMD" - <<PY
 import carla
 client = carla.Client("${CARLA_HOST}", int("${CARLA_PORT}"))
 client.set_timeout(2.0)
@@ -683,7 +737,7 @@ PY
   if [[ -n "${SCENIC_TIME_STEPS:-}" ]]; then
     SCENIC_TIME_ARG=(--time "$SCENIC_TIME_STEPS")
   elif [[ -n "${SCENIC_TIME:-}" && "$SCENIC_TIME" != "0" ]]; then
-    steps="$(python3 - "$SCENIC_TIME" "$SCENIC_TIMESTEP" <<'PY'
+    steps="$("$PYTHON_CMD" - "$SCENIC_TIME" "$SCENIC_TIMESTEP" <<'PY'
 import math
 import sys
 sec = float(sys.argv[1])
@@ -697,7 +751,7 @@ PY
   fi
   MAP_NOTE="none"
   if [[ "$AUTO_MAP" == "1" ]]; then
-    town="$(python3 - "$scenic_file" <<'PY'
+    town="$("$PYTHON_CMD" - "$scenic_file" <<'PY'
 import re
 import sys
 path = sys.argv[1]
@@ -742,17 +796,17 @@ PY
     echo "Recorder: $RECORDER_PY ${RECORDER_ARGS[*]} --prefix $prefix"
     echo "Recorder disabled: ${DISABLE_RECORDER}"
     echo "Auto map: $MAP_NOTE"
-    echo "Scenic: (cd \"$SCENIC_WORKDIR\" && $SCENIC_CMD \"$scenic_file_abs\" --simulate --model scenic.simulators.carla.model ${SCENIC_TIME_ARG[*]} --count $SCENIC_COUNT ${MAP_ARGS[*]} ${SCENIC_EXTRA_ARGS[*]} ${SCENIC_ARGS[*]})"
+    echo "Scenic: (cd \"$SCENIC_WORKDIR\" && $SCENIC_CMD \"$scenic_file_abs\" --simulate --model scenic.simulators.carla.model ${SCENIC_TIME_ARG[*]} --count $SCENIC_COUNT ${MAP_ARGS[*]} --param port "$CARLA_PORT" \ ${SCENIC_EXTRA_ARGS[*]} ${SCENIC_ARGS[*]})"
     echo "=== RECORDING START ==="
   } >> "$run_log"
 
-  log_master "CMD recorder: python3 \"$RECORDER_PY\" --prefix \"$prefix\" ${RECORDER_ARGS[*]}"
-  log_master "CMD scenic: (cd \"$SCENIC_WORKDIR\" && $SCENIC_CMD \"$scenic_file_abs\" --simulate --model scenic.simulators.carla.model ${SCENIC_TIME_ARG[*]} --count $SCENIC_COUNT ${MAP_ARGS[*]} ${SCENIC_EXTRA_ARGS[*]} ${SCENIC_ARGS[*]})"
+  log_master "CMD recorder: ${PYTHON_CMD} \"$RECORDER_PY\" --prefix \"$prefix\" ${RECORDER_ARGS[*]}"
+  log_master "CMD scenic: (cd \"$SCENIC_WORKDIR\" && $SCENIC_CMD \"$scenic_file_abs\" --simulate --model scenic.simulators.carla.model ${SCENIC_TIME_ARG[*]} --count $SCENIC_COUNT ${MAP_ARGS[*]} --param port "$CARLA_PORT" \ ${SCENIC_EXTRA_ARGS[*]} ${SCENIC_ARGS[*]})"
 
   rec_pid=""
   recorder_started=0
   if [[ "$DISABLE_RECORDER" != "1" ]]; then
-    python3 "$RECORDER_PY" --prefix "$prefix" "${RECORDER_ARGS[@]}" >> "$run_log" 2>&1 &
+    "$PYTHON_CMD" "$RECORDER_PY" --prefix "$prefix" "${RECORDER_ARGS[@]}" >> "$run_log" 2>&1 &
     rec_pid=$!
     recorder_started=1
     sleep "$RECORDER_START_DELAY"
@@ -771,15 +825,23 @@ PY
     echo "ℹ️ Recorder disabled; running Scenic only." >> "$run_log"
   fi
 
-  (
+(
     cd "$SCENIC_WORKDIR" && \
-    $SCENIC_CMD "$scenic_file_abs" --simulate --model scenic.simulators.carla.model "${SCENIC_TIME_ARG[@]}" --count "$SCENIC_COUNT" "${MAP_ARGS[@]}" "${SCENIC_EXTRA_ARGS[@]}" "${SCENIC_ARGS[@]}"
+    $SCENIC_CMD "$scenic_file_abs" \
+      --simulate \
+      --model scenic.simulators.carla.model \
+      "${SCENIC_TIME_ARG[@]}" \
+      --count "$SCENIC_COUNT" \
+      --param port "$CARLA_PORT" \
+      "${MAP_ARGS[@]}" \
+      "${SCENIC_EXTRA_ARGS[@]}" \
+      "${SCENIC_ARGS[@]}"
   ) >> "$run_log" 2>&1
   scenic_rc=$?
 
   {
     echo "=== CARLA SETTINGS (post-scenic) ==="
-    python3 - <<PY || true
+    "$PYTHON_CMD" - <<PY || true
 import carla
 client = carla.Client("${CARLA_HOST}", int("${CARLA_PORT}"))
 client.set_timeout(2.0)
@@ -796,7 +858,7 @@ print("snapshot.timestamp.elapsed_seconds:", world.get_snapshot().timestamp.elap
 PY
   } >> "$run_log" 2>&1
 
-  python3 - "$pre_sim_info" "$CARLA_HOST" "$CARLA_PORT" <<'PY' >> "$run_log" 2>&1 || true
+  "$PYTHON_CMD" - "$pre_sim_info" "$CARLA_HOST" "$CARLA_PORT" <<'PY' >> "$run_log" 2>&1 || true
 import carla
 import sys
 pre = sys.argv[1].split()
