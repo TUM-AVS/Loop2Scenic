@@ -101,16 +101,46 @@ class E2EEvalResultAnalysis:
     def average_l5_score(self) -> Optional[float]:
         return self._average_field_error_false_ignore_minus_one(self.FIELD_L5_SCORE)
 
+    def average_overall_layer_score(self) -> Optional[float]:
+        """
+        Compute overall layer score by:
+        1) For each record, average available l1..l5 values
+           (skip non-numeric values and -1).
+        2) Average these per-record averages.
+        """
+        per_record_averages: List[float] = []
+        layer_fields = [
+            self.FIELD_L1_SCORE,
+            self.FIELD_L2_SCORE,
+            self.FIELD_L3_SCORE,
+            self.FIELD_L4_SCORE,
+            self.FIELD_L5_SCORE,
+        ]
+
+        for row in self._iter_rows_with_error_false():
+            values: List[float] = []
+            for field_name in layer_fields:
+                raw = str(row.get(field_name, "")).strip()
+                if not raw:
+                    continue
+                try:
+                    score = float(raw)
+                except ValueError:
+                    continue
+                if score == -1:
+                    continue
+                values.append(score)
+
+            if values:
+                per_record_averages.append(sum(values) / len(values))
+
+        if not per_record_averages:
+            return None
+        return sum(per_record_averages) / len(per_record_averages)
+
 
 def _format_average(value: Optional[float]) -> str:
     return "N/A (no valid non--1 values)" if value is None else f"{value:.4f}"
-
-
-def _average_of_values(values: List[Optional[float]]) -> Optional[float]:
-    valid = [value for value in values if value is not None]
-    if not valid:
-        return None
-    return sum(valid) / len(valid)
 
 
 def _count_csv_rows(csv_path: Path) -> int:
@@ -147,7 +177,7 @@ def main() -> None:
     l3_avg = analysis.average_l3_score()
     l4_avg = analysis.average_l4_score()
     l5_avg = analysis.average_l5_score()
-    overall_avg = _average_of_values([l1_avg, l2_avg, l3_avg, l4_avg, l5_avg])
+    overall_avg = analysis.average_overall_layer_score()
 
     print("Averages on rows where error=false (ignoring score=-1):")
     print(f"  - l1_score: {_format_average(l1_avg)}")

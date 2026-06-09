@@ -427,12 +427,40 @@ class VisualScoringWebApp:
                 sanitized_rows.append(clean_row)
             writer.writerows(sanitized_rows)
 
-    def _safe_resolve(self, raw_path: str) -> Path:
-        requested = Path(raw_path)
+    def _normalize_media_raw_path(self, raw_path: str) -> Path:
+        """
+        Normalize stored media paths to locations under project_root.
+
+        CSV exports often use pseudo-absolute paths such as
+        ``/data/inference_data/...`` which do not resolve correctly on Windows.
+        """
+        cleaned = raw_path.strip()
+        if not cleaned:
+            raise ValueError("Empty media path")
+
+        posix = cleaned.replace("\\", "/")
+        if posix.startswith("/data/"):
+            return self.project_root / posix[1:]
+
+        requested = Path(cleaned)
+        root = self.project_root.resolve()
+
         if requested.is_absolute():
             resolved = requested.resolve()
-        else:
-            resolved = (self.project_root / requested).resolve()
+            if str(resolved).startswith(str(root)):
+                return resolved
+
+            parts = Path(posix).parts
+            if "data" in parts:
+                data_idx = parts.index("data")
+                return root / Path(*parts[data_idx:])
+
+            return resolved
+
+        return root / requested
+
+    def _safe_resolve(self, raw_path: str) -> Path:
+        resolved = self._normalize_media_raw_path(raw_path).resolve()
 
         root = self.project_root.resolve()
         if not str(resolved).startswith(str(root)):
@@ -1193,8 +1221,8 @@ class VisualScoringWebApp:
 
 if __name__ == "__main__":
     app = VisualScoringWebApp(
-        csv_path=Path("eval/visual_scoring_csv/C11_CP+CoT+ICL+codeICL/input.csv"), # the path for the original csv file, recommend to make a copy of the original one
-        generated_video_folder_path=Path("data/C11_CP+CoT+ICL+codeICL"), # the path for the folder that contains all the generated results
-        score_output_csv_path=Path("eval/visual_scoring_csv/C11_CP+CoT+ICL+codeICL/output_scores.csv"), # the path for the output scroing file
+        csv_path=Path("data/vlm_threshold_5/e2e_text_only_20260608_032725/input.csv"), # the path for the original csv file, recommend to make a copy of the original one
+        generated_video_folder_path=Path("data/vlm_threshold_5/e2e_text_only_20260608_032725"), # the path for the folder that contains all the generated results
+        score_output_csv_path=Path("data/vlm_threshold_5/e2e_text_only_20260608_032725/output_scores.csv"), # the path for the output scroing file
     )
     app.run()
