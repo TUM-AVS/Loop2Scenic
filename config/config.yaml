@@ -56,3 +56,54 @@ vlm:
 logging:
   level: INFO
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# CARLA + Scenic batch simulation (run_scenic_batch.sh)
+# Paths are relative to the repository root unless absolute.
+simulation:
+  timeout_sec: 1000
+  batch_script: src/utils/run_scenic_batch.sh
+  recorder_script: src/utils/recorder_scenic.py
+  scenarios_data_dir: data/scenarios
+
+  carla:
+    # Set to your CARLA LinuxNoEditor directory (required for --auto-start-carla)
+    binary_dir: "/home/avsaw1/chenli/CARLA_0.9.16"
+    cmd: "./CarlaUE4.sh -quality-level=High -nosound -RenderOffScreen -carla-rpc-port=8200"
+    host: localhost
+    port: 8200
+    rpc_port: null # defaults to port when null
+    log_dir: logs/carla
+    auto_start: true
+    check_connection: true
+    restart_every: 25
+    cooldown_sec: 5
+    force_restart: false
+    start_timeout_sec: 120
+    stop_grace_sec: 10
+    stop_term_grace_sec: 5
+    kill_process_name_pattern: CARLA_Shipping
+
+  scenic:
+    workdir: Scenic
+    map_root: Scenic/assets/maps/CARLA
+    version: 3
+    conda_env: chenli
+    scenic2_conda_env: scenic2.0
+    scenic3_venv_activate: null
+    duration_sec: 25
+    time_sec: 25
+    time_steps: null
+    timestep: 0.1
+    count: 1
+    use_2d: true
+    render: false
+    show_params: false
+    auto_map: true
+    seed: null
+
+  recorder:
+    grace_sec: 10
+    start_delay_sec: 1
+    ready_timeout_sec: 8
+    ego_alive_threshold_sec: 0.5
+    disabled: false

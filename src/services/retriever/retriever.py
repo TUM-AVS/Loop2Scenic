@@ -6,7 +6,9 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
+from src.config import get_config
 from src.schema import ScenarioDocument, MultimodalQuery, RetrievalResult
+from src.utils.simulation import resolve_path
 from ..vectorstore import MilvusVectorStore
 from ..reranker import BaseReranker
 
@@ -134,7 +136,8 @@ class Retriever:
         Get the original scenario from the local file system.
         """
         try:
-            scenario_location = Path(f"data/scenarios/{scenario_id}").resolve() # use absolute path for reranker vlm
+            scenarios_root = resolve_path(get_config().simulation.scenarios_data_dir) or "data/scenarios"
+            scenario_location = (Path(scenarios_root) / scenario_id).resolve()
             
             scenario_description = None
             scenario_scenic_code = None

@@ -1,12 +1,26 @@
 from pathlib import Path
 import csv
+import random
 import re
 import subprocess
+import sys
 import tempfile
 import shutil
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from src.config import get_config
+from src.utils.simulation import build_run_scenic_batch_command, repo_root, resolve_path
+
 SOURCE_PATH = Path("/home/dellpro2/chenli/ads-mrag/ads-mrag/data/chat2scenic")
 EVAL_PATH = Path("/home/dellpro2/chenli/ads-mrag/ads-mrag/data/eval")
+REPO_ROOT = Path(__file__).resolve().parent.parent
+EVAL_272_PATH = REPO_ROOT / "data" / "272eval"
+INFERENCE_TEXT_ONLY_PATH = REPO_ROOT / "data" / "inference_data" / "text-only"
+INFERENCE_TEXT_IMAGE_PATH = REPO_ROOT / "data" / "inference_data" / "text-image"
+INFERENCE_IMAGE_ONLY_PATH = REPO_ROOT / "data" / "inference_data" / "image-only"
+SCENARIOS_PATH = REPO_ROOT / "data" / "scenarios"
+WENTING100_PATH = REPO_ROOT / "data" / "wenting100"
 
 def collect_description(
     folder_path: Path = SOURCE_PATH,
@@ -139,9 +153,16 @@ def run_simulation_and_save_video(
     if not folder_path.is_dir():
         raise NotADirectoryError(f"Expected directory, got: {folder_path}")
 
-    repo_root = Path(__file__).resolve().parent.parent
-    batch_script = repo_root / "src" / "utils" / "run_scenic_batch.sh"
-    recorder_script = repo_root / "src" / "utils" / "recorder_scenic.py"
+    project_root = repo_root()
+    config = get_config()
+    batch_script = Path(
+        resolve_path(config.simulation.batch_script)
+        or project_root / "src/utils/run_scenic_batch.sh"
+    )
+    recorder_script = Path(
+        resolve_path(config.simulation.recorder_script)
+        or project_root / "src/utils/recorder_scenic.py"
+    )
     if not batch_script.is_file():
         raise FileNotFoundError(f"Batch script not found: {batch_script}")
     if not recorder_script.is_file():
@@ -181,20 +202,18 @@ def run_simulation_and_save_video(
             video_dir.mkdir(parents=True, exist_ok=True)
             log_dir.mkdir(parents=True, exist_ok=True)
 
+            cmd = build_run_scenic_batch_command(
+                config,
+                scenic_file,
+                outdir=video_dir,
+                logdir=log_dir,
+                recorder_py=wrapper_path,
+            )
             result = subprocess.run(
-                [
-                    str(batch_script),
-                    "--recorder",
-                    str(wrapper_path),
-                    "--outdir",
-                    str(video_dir),
-                    "--logdir",
-                    str(log_dir),
-                    str(scenic_file),
-                ],
+                cmd,
                 capture_output=True,
                 text=True,
-                cwd=str(repo_root),
+                cwd=str(project_root),
             )
 
             if result.returncode != 0:
@@ -319,6 +338,299 @@ def check_if_all_files_exist(folder_path: Path = SOURCE_PATH) -> bool:
     return all_complete
 
 
+def sample_inference_data(
+    source_path: Path = EVAL_272_PATH,
+    text_only_path: Path = INFERENCE_TEXT_ONLY_PATH,
+    text_image_path: Path = INFERENCE_TEXT_IMAGE_PATH,
+    text_only_count: int = 27,
+    text_image_count: int = 50,
+    seed: int | None = None,
+) -> dict[str, list[str]]:
+    """
+    Randomly sample scenario subfolders and copy them into inference_data splits.
+
+    Selects ``text_only_count + text_image_count`` subfolders from source_path,
+    then copies the first group to text_only_path and the second to text_image_path.
+    """
+    total_count = text_only_count + text_image_count
+
+    if not source_path.exists():
+        raise FileNotFoundError(f"Folder does not exist: {source_path}")
+    if not source_path.is_dir():
+        raise NotADirectoryError(f"Expected directory, got: {source_path}")
+
+    subfolders = sorted(path for path in source_path.iterdir() if path.is_dir())
+    if len(subfolders) < total_count:
+        raise ValueError(
+            f"Need at least {total_count} subfolders in {source_path}, found {len(subfolders)}"
+        )
+
+    rng = random.Random(seed)
+    selected = rng.sample(subfolders, total_count)
+    text_only_folders = selected[:text_only_count]
+    text_image_folders = selected[text_only_count:]
+
+    text_only_path.mkdir(parents=True, exist_ok=True)
+    text_image_path.mkdir(parents=True, exist_ok=True)
+
+    copied_text_only: list[str] = []
+    for folder in text_only_folders:
+        target = text_only_path / folder.name
+        shutil.copytree(folder, target, dirs_exist_ok=True)
+        copied_text_only.append(folder.name)
+
+    copied_text_image: list[str] = []
+    for folder in text_image_folders:
+        target = text_image_path / folder.name
+        shutil.copytree(folder, target, dirs_exist_ok=True)
+        copied_text_image.append(folder.name)
+
+    return {
+        "text_only": copied_text_only,
+        "text_image": copied_text_image,
+    }
+
+
+def sample_eval_subfolders_excluding_existing(
+    source_path: Path = EVAL_272_PATH,
+    text_only_path: Path = INFERENCE_TEXT_ONLY_PATH,
+    text_image_path: Path = INFERENCE_IMAGE_ONLY_PATH,
+    dest_path: Path = INFERENCE_TEXT_IMAGE_PATH,
+    sample_count: int = 1,
+    seed: int | None = None,
+) -> list[str]:
+    """
+    Randomly sample subfolders from source_path, excluding names already present
+    in text_only_path or text_image_path, then copy them to dest_path.
+    """
+    if not source_path.exists():
+        raise FileNotFoundError(f"Folder does not exist: {source_path}")
+    if not source_path.is_dir():
+        raise NotADirectoryError(f"Expected directory, got: {source_path}")
+
+    existing_names: set[str] = set()
+    for folder_path in (text_only_path, text_image_path):
+        if not folder_path.exists():
+            continue
+        for subfolder in folder_path.iterdir():
+            if subfolder.is_dir():
+                existing_names.add(subfolder.name)
+
+    candidates = sorted(
+        path
+        for path in source_path.iterdir()
+        if path.is_dir() and path.name not in existing_names
+    )
+    if len(candidates) < sample_count:
+        raise ValueError(
+            f"Need at least {sample_count} available subfolders in {source_path}, "
+            f"found {len(candidates)} after excluding {len(existing_names)} existing names"
+        )
+
+    rng = random.Random(seed)
+    selected = rng.sample(candidates, sample_count)
+
+    dest_path.mkdir(parents=True, exist_ok=True)
+    copied: list[str] = []
+    for folder in selected:
+        target = dest_path / folder.name
+        shutil.copytree(folder, target, dirs_exist_ok=True)
+        copied.append(folder.name)
+
+    return copied
+
+
+def create_text_only_folders_from_descriptions(
+    descriptions_file: Path = INFERENCE_TEXT_ONLY_PATH / "descriptions.txt",
+    output_path: Path = INFERENCE_TEXT_ONLY_PATH,
+) -> list[Path]:
+    """
+    Create text-only scenario subfolders from a descriptions.txt file.
+
+    Each non-empty line is expected in ``scenario_id;description`` format.
+    Creates ``output_path / scenario_id / description.txt`` with the full line text.
+    """
+    if not descriptions_file.is_file():
+        raise FileNotFoundError(f"Descriptions file does not exist: {descriptions_file}")
+
+    output_path.mkdir(parents=True, exist_ok=True)
+    created_folders: list[Path] = []
+
+    for line in descriptions_file.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+
+        scenario_id = line.split(";", 1)[0].strip()
+        if not scenario_id:
+            continue
+
+        scenario_folder = output_path / scenario_id
+        scenario_folder.mkdir(parents=True, exist_ok=True)
+        (scenario_folder / "description.txt").write_text(line, encoding="utf-8")
+        created_folders.append(scenario_folder)
+
+    return created_folders
+
+
+def count_subfolders(folder_path: Path) -> int:
+    """
+    Count immediate subfolders under folder_path.
+
+    Returns:
+        Number of direct child directories.
+    """
+    if not folder_path.exists():
+        raise FileNotFoundError(f"Folder does not exist: {folder_path}")
+    if not folder_path.is_dir():
+        raise NotADirectoryError(f"Expected directory, got: {folder_path}")
+
+    return sum(1 for path in folder_path.iterdir() if path.is_dir())
+
+
+def keep_only_txt_files(folder_path: Path = INFERENCE_TEXT_ONLY_PATH) -> list[Path]:
+    """
+    Delete all non-.txt files inside each immediate subfolder of folder_path.
+
+    Returns:
+        List of deleted file paths.
+    """
+    if not folder_path.exists():
+        raise FileNotFoundError(f"Folder does not exist: {folder_path}")
+    if not folder_path.is_dir():
+        raise NotADirectoryError(f"Expected directory, got: {folder_path}")
+
+    deleted_files: list[Path] = []
+    for subfolder in sorted(folder_path.iterdir()):
+        if not subfolder.is_dir():
+            continue
+
+        for file_path in subfolder.iterdir():
+            if not file_path.is_file():
+                continue
+            if file_path.suffix.lower() == ".txt":
+                continue
+
+            file_path.unlink()
+            deleted_files.append(file_path)
+
+    return deleted_files
+
+
+def move_random_subfolders_to_image_only(
+    source_path: Path = INFERENCE_TEXT_IMAGE_PATH,
+    dest_path: Path = INFERENCE_IMAGE_ONLY_PATH,
+    move_count: int = 50,
+    seed: int | None = None,
+) -> list[str]:
+    """
+    Randomly move subfolders from text-image to image-only.
+
+    Returns:
+        List of moved subfolder names.
+    """
+    if not source_path.exists():
+        raise FileNotFoundError(f"Folder does not exist: {source_path}")
+    if not source_path.is_dir():
+        raise NotADirectoryError(f"Expected directory, got: {source_path}")
+
+    subfolders = sorted(path for path in source_path.iterdir() if path.is_dir())
+    if len(subfolders) < move_count:
+        raise ValueError(
+            f"Need at least {move_count} subfolders in {source_path}, found {len(subfolders)}"
+        )
+
+    rng = random.Random(seed)
+    selected = rng.sample(subfolders, move_count)
+
+    dest_path.mkdir(parents=True, exist_ok=True)
+    moved: list[str] = []
+    for folder in selected:
+        target = dest_path / folder.name
+        if target.exists():
+            raise FileExistsError(f"Target already exists, refusing to overwrite: {target}")
+        shutil.move(str(folder), str(target))
+        moved.append(folder.name)
+
+    return moved
+
+
+def copy_carla_scenarios_to_wenting100(
+    source_path: Path = SCENARIOS_PATH,
+    dest_path: Path = WENTING100_PATH,
+    prefix: str = "UN",
+) -> list[str]:
+    """
+    Copy all subfolders starting with prefix from source_path to dest_path.
+
+    Returns:
+        List of copied subfolder names.
+    """
+    if not source_path.exists():
+        raise FileNotFoundError(f"Folder does not exist: {source_path}")
+    if not source_path.is_dir():
+        raise NotADirectoryError(f"Expected directory, got: {source_path}")
+
+    dest_path.mkdir(parents=True, exist_ok=True)
+
+    copied: list[str] = []
+    for subfolder in sorted(source_path.iterdir()):
+        if not subfolder.is_dir():
+            continue
+        if not subfolder.name.startswith(prefix):
+            continue
+
+        target = dest_path / subfolder.name
+        shutil.copytree(subfolder, target, dirs_exist_ok=True)
+        copied.append(subfolder.name)
+
+    return copied
+
+
+def rename_png_files_to_image(
+    folder_path: Path = INFERENCE_TEXT_IMAGE_PATH,
+    target_name: str = "image.png",
+) -> list[Path]:
+    """
+    Rename .png files inside each immediate subfolder to target_name.
+
+    Skips files already named target_name. Raises if target_name already exists
+    from a different source file in the same subfolder.
+
+    Returns:
+        List of renamed file paths (new locations).
+    """
+    if not folder_path.exists():
+        raise FileNotFoundError(f"Folder does not exist: {folder_path}")
+    if not folder_path.is_dir():
+        raise NotADirectoryError(f"Expected directory, got: {folder_path}")
+
+    renamed_files: list[Path] = []
+    for subfolder in sorted(folder_path.iterdir()):
+        if not subfolder.is_dir():
+            continue
+
+        for file_path in sorted(subfolder.iterdir()):
+            if not file_path.is_file():
+                continue
+            if file_path.suffix.lower() != ".png":
+                continue
+            if file_path.name == target_name:
+                continue
+
+            target = subfolder / target_name
+            if target.exists():
+                raise FileExistsError(
+                    f"Cannot rename {file_path} to {target}: target already exists"
+                )
+
+            file_path.rename(target)
+            renamed_files.append(target)
+
+    return renamed_files
+
+
+
 def rename_png_to_image_png(folder_path: Path) -> list[Path]:
     """
     Rename each subfolder's PNG file to image.png.
@@ -379,5 +691,15 @@ if __name__ == "__main__":
     # run_simulation_and_save_video()
     # move_videos()
     # remove_extra_folders()
-    rename_png_to_image_png(Path("/home/avsaw1/chenli/ads-mrag/data/inference_data/image-only"))
+    # sample_inference_data()
+    # sample_eval_subfolders_excluding_existing()
+    # move_random_subfolders_to_image_only()
+    # copy_carla_scenarios_to_wenting100()
+    rename_png_files_to_image()
+    # create_text_only_folders_from_descriptions()
+    # print(count_subfolders(Path("data\wenting100")))
+    # keep_only_txt_files()
+    # rename_png_to_image_png(Path("/home/avsaw1/chenli/ads-mrag/data/inference_data/image-only"))
     # check_if_all_files_exist()
+    # sample_eval_subfolders_excluding_existing()
+    pass
