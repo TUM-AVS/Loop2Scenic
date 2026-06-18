@@ -107,6 +107,7 @@ class EvalE2EWorkflow:
     def build_multimodal_queries(
         self,
         mode: QueryMode = QueryMode.TEXT_IMAGE_VIDEO,
+        folder_path: Path | str | None = None,
     ) -> list[dict[str, Any]]:
         """
         Scan immediate subfolders and build query records.
@@ -119,13 +120,14 @@ class EvalE2EWorkflow:
         Returns:
         - list of {"ground_truth": str, "query": MultimodalQuery}
         """
-        if not self.folder_path.exists():
-            raise FileNotFoundError(f"Folder does not exist: {self.folder_path}")
-        if not self.folder_path.is_dir():
-            raise NotADirectoryError(f"Expected directory, got: {self.folder_path}")
+        source_folder = Path(folder_path) if folder_path is not None else self.folder_path
+        if not source_folder.exists():
+            raise FileNotFoundError(f"Folder does not exist: {source_folder}")
+        if not source_folder.is_dir():
+            raise NotADirectoryError(f"Expected directory, got: {source_folder}")
 
         queries: list[dict[str, Any]] = []
-        for subfolder in sorted(self.folder_path.iterdir()):
+        for subfolder in sorted(source_folder.iterdir()):
             if not subfolder.is_dir():
                 continue
 
@@ -169,7 +171,7 @@ class EvalE2EWorkflow:
         self.logger.info(
             "Built %d multimodal queries from %s (mode=%s)",
             len(queries),
-            self.folder_path,
+            source_folder,
             mode.value,
         )
         return queries
@@ -234,6 +236,7 @@ class EvalE2EWorkflow:
     def run_batch(
         self,
         mode: QueryMode = QueryMode.TEXT_IMAGE_VIDEO,
+        folder_path: Path | str | None = None,
     ) -> Path:
         """
         Run end-to-end evaluation for all built queries.
@@ -248,18 +251,20 @@ class EvalE2EWorkflow:
           eval/results/e2e_<timestamp>/<best_scenario_id>/header_settings.json
         - append batch row to CSV (including model_metrics_json: full metrics object)
         """
-        query_records = self.build_multimodal_queries(mode=mode)
+        query_records = self.build_multimodal_queries(mode=mode, folder_path=folder_path)
         n_records = len(query_records)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        results_root = Path(__file__).resolve().parent / "results" / f"e2e_{timestamp}"
+        mode_slug = mode.value.replace("-", "_")
+        results_root = Path(__file__).resolve().parent / "results" / f"e2e_{mode_slug}_{timestamp}"
         results_root.mkdir(parents=True, exist_ok=True)
         output_csv_path = results_root / "batch_results.csv"
 
+        batch_folder = Path(folder_path) if folder_path is not None else self.folder_path
         self.logger.info(
             "e2e run_batch: built %d record(s), mode=%s, folder_path=%s",
             n_records,
             mode.value,
-            self.folder_path,
+            batch_folder,
         )
         self.logger.info("e2e run_batch: results_root=%s", results_root)
         self.logger.info("e2e run_batch: output_csv_path=%s", output_csv_path)
@@ -460,6 +465,16 @@ class EvalE2EWorkflow:
         return output_csv_path
 
 if __name__ == "__main__":
+    # text_image_path = "/home/dellpro2/chenli/ads-mrag/ads-mrag/data/inference_data/text-image"
+    text_only_path = "/home/dellpro2/chenli/ads-mrag/ads-mrag/data/inference_data/text-only"
+    image_only_path = "/home/dellpro2/chenli/ads-mrag/ads-mrag/data/inference_data/image-only"
+
     evaluator = EvalE2EWorkflow()
-    output_csv2 = evaluator.run_batch(mode=QueryMode.TEXT_IMAGE)
-    print(f"Batch done. CSV: {output_csv2}")
+    batches = [
+        # (text_image_path, QueryMode.TEXT_IMAGE),
+        (text_only_path, QueryMode.TEXT_ONLY),
+        (image_only_path, QueryMode.IMAGE_ONLY),
+    ]
+    for folder_path, mode in batches:
+        output_csv = evaluator.run_batch(mode=mode, folder_path=folder_path)
+        print(f"Batch done ({mode.value}, {folder_path}). CSV: {output_csv}")
