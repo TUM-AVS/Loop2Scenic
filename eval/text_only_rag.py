@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from google.genai import types
 
 from src.config import get_config
 from src.services import get_vlm_service
+from src.utils.helpers import clean_and_parse_json
 from src.utils.logger import setup_logging
 
 PROMPT = """
@@ -72,7 +72,7 @@ You must explicitly state the visual evidence that justifies your conclusions re
 """
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_SCENARIOS_PATH = REPO_ROOT / "data" / "scenarios"
+DEFAULT_SCENARIOS_PATH = REPO_ROOT / "data" / "test"
 OUTPUT_FILENAME = "text_query_description.txt"
 
 
@@ -81,6 +81,61 @@ def find_bev_video(subfolder: Path) -> Path | None:
         if file_path.is_file() and file_path.name.lower() == "bev.mp4":
             return file_path
     return None
+
+
+def _is_reasoning_chain_key(key: str) -> bool:
+    return key.strip().lower().replace("_", " ") == "reasoning chain"
+
+
+def remove_reasoning_chain(data: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in data.items() if not _is_reasoning_chain_key(key)}
+
+
+def _flatten_value(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        if not value:
+            return ""
+        parts = []
+        for key, nested in value.items():
+            nested_text = _flatten_value(nested)
+            if nested_text:
+                parts.append(f"{key}: {nested_text}")
+        return "; ".join(parts)
+    if isinstance(value, list):
+        parts = [_flatten_value(item) for item in value]
+        return "; ".join(part for part in parts if part)
+    return str(value).strip()
+
+
+def flatten_vlm_response_to_text(data: dict[str, Any]) -> str:
+    lines: list[str] = []
+    for key, value in data.items():
+        flat_value = _flatten_value(value)
+        if flat_value:
+            lines.append(f"{key}: {flat_value}")
+    return "\n".join(lines)
+
+
+def format_vlm_response_for_save(response: str | dict[str, Any]) -> str:
+    if isinstance(response, dict):
+        data = response
+    elif isinstance(response, str):
+        parsed = clean_and_parse_json(response)
+        if not parsed:
+            raise ValueError(f"Failed to parse VLM response as JSON: {response[:200]!r}")
+        data = parsed
+    else:
+        raise ValueError(f"Unexpected VLM response type: {type(response).__name__}")
+
+    cleaned = remove_reasoning_chain(data)
+    text = flatten_vlm_response_to_text(cleaned).strip()
+    if not text:
+        raise ValueError("VLM response became empty after formatting")
+    return text
 
 
 def describe_scenario_from_video(
@@ -100,12 +155,8 @@ def describe_scenario_from_video(
     contents.append(types.Part.from_uri(file_uri=video_file.uri, mime_type=video_file.mime_type))
 
     response = vlm_service.chat_with_content(contents=contents, system_instruction=prompt)
-    if isinstance(response, str):
-        text = response.strip()
-        if text:
-            return text
-    if isinstance(response, dict):
-        return json.dumps(response, ensure_ascii=False, indent=2)
+    if isinstance(response, (str, dict)):
+        return format_vlm_response_for_save(response)
     raise ValueError(f"Unexpected or empty VLM response: {response!r}")
 
 
