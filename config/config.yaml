@@ -49,7 +49,7 @@ llm:
 vlm:
   provider: gemini # Options: qwen, openai, gemini
   model_path: None # Required for Qwen3VL, path to local model directory
-  model: gemini-3-flash-preview # For OpenAI Vision (e.g., "gpt-4-vision-preview", "gpt-4o")
+  model: gemini-3.1-flash-lite # For OpenAI Vision (e.g., "gpt-4-vision-preview", "gpt-4o")
   temperature: 0 # Sampling temperature
   max_tokens: 16384 # Maximum tokens to generate
 
