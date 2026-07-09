@@ -65,53 +65,179 @@ ads-mrag/
 
 ### Prerequisites
 
-- Python 3.8+
-- pip or conda
-- Docker (for Milvus - recommended) OR Milvus Lite
+- **Python 3.12.3** (recommended; tested with conda)
+- **Conda** (Miniconda or Anaconda)
+- **Docker** and **Docker Compose** (for Milvus)
+- **CUDA-capable GPU** (recommended for Qwen embedding/reranking models)
+- **Linux** (required for CARLA simulation)
+- **Git**
 
-### Installation
+### Environment Setup
 
-1. **Clone the repository**
+Follow these steps in order.
+
+#### 1. Clone the repository
 
 ```bash
+git clone https://github.com/CelanLi/ads-mrag.git
 cd ads-mrag
 ```
 
-2. **Create a virtual environment**
+If the repository uses submodules, initialize them:
 
 ```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+git submodule update --init --recursive
 ```
 
-3. **Install dependencies**
+#### 2. Create a Conda environment (Python 3.12.3)
+
+```bash
+conda create -n ads-mrag python=3.12.3 -y
+conda activate ads-mrag
+python --version  # should print Python 3.12.3
+```
+
+#### 3. Install Python dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-4. **Start Milvus (vector database)**
+#### 4. Start Milvus and configure environment variables
+
+Start the vector database:
 
 ```bash
-# Start Milvus using Docker Compose
 docker-compose up -d
-
-# Verify it's running
 docker-compose ps
+curl http://localhost:9091/healthz
 ```
 
-> **Note**: For detailed Milvus setup instructions, see [MILVUS_SETUP.md](MILVUS_SETUP.md)
-
-5. **Set up environment variables**
+Copy and edit environment variables:
 
 ```bash
 cp .env.example .env
-# Edit .env and add your API keys
 ```
 
-Required API keys:
+Edit `.env` and add your API keys as needed:
 
-- `OPENAI_API_KEY`: For OpenAI LLM (or use alternative providers)
+- `OPENAI_API_KEY`
+- `GOOGLE_API_KEY`
+- `QWEN_API_KEY`
+- `DEEPSEEK_API_KEY`
+
+> For detailed Milvus setup, troubleshooting, and configuration options, see [MILVUS_SETUP.md](MILVUS_SETUP.md).
+
+#### 5. Download embedding models from Hugging Face
+
+Local Qwen VL models used by the pipeline should be downloaded into `./models`.
+Install the Hugging Face CLI if needed:
+
+```bash
+pip install -U huggingface_hub
+```
+
+Example: download **Qwen3-VL-Embedding-2B**:
+
+```bash
+hf download Qwen/Qwen3-VL-Embedding-2B \
+  --local-dir ./models/Qwen3-VL-Embedding-2B
+```
+
+> **Note:** The Hugging Face CLI command is now `hf` (replacing the older `huggingface-cli`).
+
+Then point `config/config.yaml` to the local path:
+
+```yaml
+embedding:
+  provider: qwen
+  model_name: Qwen3-VL-Embedding-2B
+  model_path: ./models/Qwen3-VL-Embedding-2B
+```
+
+Download other models the same way (for example reranker models) and update the corresponding paths in `config/config.yaml`.
+
+#### 6. Install CARLA 0.9.15 and rebuild the Python API for Python 3.12.3
+
+CARLA should be placed **one directory above** the project root (`../`), alongside `ads-mrag/`.
+
+**6.1 Download CARLA 0.9.15 Simulator (Server)**
+
+From the parent directory of the repo, download and extract the pre-compiled server binaries:
+
+```bash
+cd ..
+wget [https://carla-releases.s3.us-east-005.backblazeb2.com/Linux/CARLA_0.9.15.tar.gz](https://carla-releases.s3.us-east-005.backblazeb2.com/Linux/CARLA_0.9.15.tar.gz)
+tar -xzf CARLA_0.9.15.tar.gz
+```
+
+This creates the simulator binary home folder at `../CARLA_0.9.15/`.
+
+**6.2 Compile the CARLA Python API for Python 3.12.3**
+
+Because the prebuilt release package only ships with legacy Python 3.7 extensions, you must compile the client library from the source repository to support Python 3.12.
+
+1. Clone the CARLA source tree framework into a temporary folder:
+```bash
+git clone -b 0.9.15 [https://github.com/carla-simulator/carla.git](https://github.com/carla-simulator/carla.git) carla-source
+cd carla-source
+```
+
+2. Activate the `ads-mrag` conda environment and map your environment compiler paths:
+```bash
+conda activate ads-mrag
+export PYTHON_INCLUDE=$CONDA_PREFIX/include/python3.12
+export PYTHON_LIB=$CONDA_PREFIX/lib/libpython3.12.so
+export PATH=$CONDA_PREFIX/bin:$PATH
+```
+*(Note: Ensure `numpy<2.0` is active in your environment before building, as NumPy 2.0+ headers will conflict with the C++ dependency engine).*
+
+3. Patch the build system to support modern Python variants. Open `Util/BuildTools/Setup.sh` in a text editor and update the `BOOST_VERSION` variable to `1.83.0`.
+
+4. Compile the custom Python API module:
+```bash
+make PythonAPI
+```
+
+5. Install the newly generated Python 3.12 wheel directly into your conda environment:
+```bash
+cd PythonAPI/carla/dist
+pip install carla-0.9.15-cp312-cp312-linux_x86_64.whl
+```
+
+6. Clean up the temporary source code directory:
+```bash
+cd ../../../..
+rm -rf carla-source
+```
+
+**6.3 Verify the Installation**
+
+Run a quick sanity check to verify that Python 3.12 can actively discover and bind the compiled CARLA module properly:
+
+```bash
+python -c "import carla; print('Success! Path:', carla.__file__)"
+```
+
+**6.4 Point the project config to your CARLA install**
+
+Update `config/config.yaml`:
+
+```yaml
+simulation:
+  carla:
+    binary_dir: "/absolute/path/to/CARLA_0.9.15"
+```
+
+Use the absolute path to your `CARLA_0.9.15` directory on your machine.
+
+Optionally set `CARLA_ROOT` in your shell profile:
+
+```bash
+export CARLA_ROOT=/absolute/path/to/CARLA_0.9.15
+```
+
+> **Note:** CARLA ships prebuilt Python wheels/eggs for older Python versions. Rebuilding with `setup.py` is required when using Python 3.12.3. The CARLA server version and Python API version must match.
 
 ### Quick Start
 
