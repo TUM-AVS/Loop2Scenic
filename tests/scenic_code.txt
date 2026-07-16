@@ -3,6 +3,7 @@ param map = localPath('../../maps/Town05.xodr')
 param carla_map = 'Town05'
 model scenic.simulators.carla.model
 MODEL = 'vehicle.lincoln.mkz_2017'
+param weather="ClearNoon"
 
 intersection = Uniform(*filter(lambda i: i.is4Way, network.intersections))
 
@@ -51,5 +52,3 @@ TERM_DIST = 70
 require EGO_INIT_DIST[0] <= (distance to intersection) <= EGO_INIT_DIST[1]
 require ADV_INIT_DIST[0] <= (distance from adversary to intersection) <= ADV_INIT_DIST[1]
 terminate when (distance to egoSpawnPt) > TERM_DIST
-
-param weather = 'None'
