@@ -12,6 +12,14 @@ from src.schema import ScenarioDocument, MultimodalQuery
 logger = logging.getLogger(__name__)
 
 
+def _absolutize(path: Optional[str]) -> Optional[str]:
+    """Make a local media path absolute; leave URLs/None untouched."""
+    import os
+    if not path or path.startswith(("http://", "https://", "file://", "oss")):
+        return path
+    return os.path.abspath(path)
+
+
 class QwenVLReranker(BaseReranker):
     """
     Reranker for QwenVL models.
@@ -44,12 +52,14 @@ class QwenVLReranker(BaseReranker):
             Dictionary with text, image, video fields
         """
         doc_dict: dict[str, Any] = {}
-        
-        # Extract all fields from ScenarioDocument
+
+        # Extract all fields from ScenarioDocument.
+        # Media paths MUST be absolute: relative paths become file://<relative> inside the
+        # reranker, decord/torchvision fail, and tokenize() silently scores "NULL" content.
         doc_dict["text"] = doc.description
-        doc_dict["image"] = doc.image_path
-        doc_dict["video"] = doc.video_path
-        
+        doc_dict["image"] = _absolutize(doc.image_path)
+        doc_dict["video"] = _absolutize(doc.video_path)
+
         return doc_dict
 
     def rerank(
@@ -104,11 +114,11 @@ class QwenVLReranker(BaseReranker):
 
         instruction = kwargs.get("instruction", self.instruction)
         
-        # 1. Convert query to dictionary format
+        # 1. Convert query to dictionary format (absolute media paths — see _document_to_dict)
         query_dict = {
             "text": query.text,
-            "image": query.image_path,
-            "video": query.video_path
+            "image": _absolutize(query.image_path),
+            "video": _absolutize(query.video_path)
         }
         
         # 2. Convert documents to dictionary format
@@ -275,7 +285,10 @@ class Qwen3VLReranker():
                 return_video_metadata=True,
             )
         except Exception as e:
-            logger.error(f"Error in processing vision info: {e}")
+            logger.error(
+                f"Error in processing vision info: {e} — FALLING BACK TO 'NULL' CONTENT; "
+                f"the resulting rerank score is MEANINGLESS for this pair (check media paths are absolute)"
+            )
             images = None
             videos = None
             video_kwargs = {'do_sample_frames': False}

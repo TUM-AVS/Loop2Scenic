@@ -63,26 +63,42 @@ class GeminiEmbedding(BaseEmbeddingModel):
         if not inputs:
             return []
 
+        import time
+
         embeddings: List[List[float]] = []
         for item in inputs:
-            try:
-                contents = self._build_contents(item)
-                config = self._build_embed_config()
+            contents = self._build_contents(item)
+            config = self._build_embed_config()
 
-                result = self.client.models.embed_content(
-                    model=self.model_name,
-                    contents=contents,
-                    config=config,
-                )
-
-                embedding_values = self._extract_embedding_values(result)
-                if embedding_values is None:
-                    raise RuntimeError(f"Gemini embedder returned no embedding for input: {item}")
-
-                embeddings.append(embedding_values)
-            except Exception as exc:
-                logger.error("Error during embedding: %s", exc)
-                raise
+            # Retry transient API errors (503 UNAVAILABLE / 429 RESOURCE_EXHAUSTED) with
+            # exponential backoff — a raw single-shot call silently drops ~1% of docs under
+            # load, which in query-by-example retrieval is a guaranteed self-miss per dropped doc.
+            last_exc: Optional[Exception] = None
+            for attempt in range(6):
+                try:
+                    result = self.client.models.embed_content(
+                        model=self.model_name,
+                        contents=contents,
+                        config=config,
+                    )
+                    embedding_values = self._extract_embedding_values(result)
+                    if embedding_values is None:
+                        raise RuntimeError(f"Gemini embedder returned no embedding for input: {item}")
+                    embeddings.append(embedding_values)
+                    last_exc = None
+                    break
+                except Exception as exc:
+                    msg = str(exc)
+                    transient = any(s in msg for s in ("503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED", "500", "INTERNAL"))
+                    last_exc = exc
+                    if not transient or attempt == 5:
+                        break
+                    wait = min(2 ** attempt, 30)
+                    logger.warning("Transient embed error (attempt %d/6): %s — retrying in %ds", attempt + 1, msg[:100], wait)
+                    time.sleep(wait)
+            if last_exc is not None:
+                logger.error("Error during embedding after retries: %s", last_exc)
+                raise last_exc
 
         return embeddings
 
@@ -96,15 +112,20 @@ class GeminiEmbedding(BaseEmbeddingModel):
             return None
         return {"output_dimensionality": self.output_dimensionality}
 
-    def _build_contents(self, item: Dict[str, Any]) -> List[Any]:
+    def _build_contents(self, item: Dict[str, Any]) -> Any:
         from google.genai import types
 
-        contents: List[Any] = []
+        # Parts of ONE multimodal input. A bare list passed to embed_content is treated as a
+        # BATCH of separate inputs (one embedding per element): [text, video] returns the text
+        # embedding at index 0 and the video's at index 1, and taking embeddings[0] silently
+        # discards the video. A joint text+video embedding requires a single
+        # types.Content(parts=[...]).
+        parts: List[Any] = []
 
         # Handle text
         text = item.get("text")
         if text:
-            contents.append(str(text))
+            parts.append(types.Part.from_text(text=str(text)))
 
         # Handle media (image or video)
         media_path = item.get("video") or item.get("video_path") or item.get("image") or item.get("image_path")
@@ -125,15 +146,14 @@ class GeminiEmbedding(BaseEmbeddingModel):
             with open(media_path, "rb") as f:
                 media_bytes = f.read()
 
-            # Append the bytes directly into the contents payload
-            contents.append(
+            parts.append(
                 types.Part.from_bytes(data=media_bytes, mime_type=mime_type)
             )
 
-        if not contents:
-            contents.append("")
+        if not parts:
+            parts.append(types.Part.from_text(text=""))
 
-        return contents
+        return types.Content(parts=parts)
 
     def _extract_embedding_values(self, result: Any) -> Optional[List[float]]:
         embeddings = getattr(result, "embeddings", None)

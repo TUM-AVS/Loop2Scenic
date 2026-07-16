@@ -5,9 +5,8 @@ from pymilvus import connections, Collection, FieldSchema, CollectionSchema, Dat
 from src.services import get_embedder
 from src.config import get_config
 
-def create_collection():
-    collection_name = "scenario_components"
-    
+def create_collection(collection_name: str = "scenario_components"):
+
     if utility.has_collection(collection_name):
         print(f"Collection '{collection_name}' already exists - will append new chunks.")
         collection = Collection(name=collection_name)
@@ -139,17 +138,23 @@ def insert_scenarios(collection: Collection, data_items: List[Dict], embedding_m
     print(f"Finished! Inserted: {inserted_count}, Skipped: {skipped_count}")
 
 def main():
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--collection", default="scenario_components")
+    ap.add_argument("--json", default="data/raw_snippets/recovered_scenario_components_with_subject.json")
+    args = ap.parse_args()
+
     config = get_config()
     connections.connect(uri=f"http://{config.vector_db.host}:{config.vector_db.port}")
-    
+
     device = "cuda"
     embedding_model = get_embedder(provider="huggingface", model_name="sentence-transformers/all-MiniLM-L6-v2", device=device)
-    
+
     print(f"Using device: {device}")
-    
-    collection = create_collection()
-    
-    json_filepath = "data/raw_snippets/recovered_scenario_components_with_subject.json"
+
+    collection = create_collection(args.collection)
+
+    json_filepath = args.json
     scenarios = load_json_file(json_filepath)
     
     print(f"Inserting {len(scenarios)} scenarios into Milvus...")
