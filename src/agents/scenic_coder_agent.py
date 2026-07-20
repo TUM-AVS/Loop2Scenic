@@ -30,6 +30,7 @@ class ScenicCoderAgent(BaseAgent):
         self.vector_store = vector_store
         self.snippets_embedder = snippets_embedder
         self.prompt_template = load_prompt("adapt_code")
+        self.last_debug_failure: str | None = None
 
     def process(self, state: dict) -> dict:
         return state
@@ -408,9 +409,18 @@ param weather = '{weather}'
             full_code = result_json.get("full_code", "") if result_json else ""
 
         if full_code:
+            self.last_debug_failure = None
             return full_code
-        else:
-            raise ValueError(f"Failed to fix the bug for {error_component}")
+
+        # Do not abort the workflow: keep the previous script so the graph can
+        # continue and eventually fall back to the baseline in output_best_scenario.
+        # Record the failure so callers/eval CSV can still surface it.
+        self.last_debug_failure = f"Failed to fix the bug for {error_component}"
+        logger.error(
+            "%s; returning the previous scenic code unchanged",
+            self.last_debug_failure,
+        )
+        return scenic_code
 
 if __name__ == "__main__":
     from src.services import MilvusVectorStore
