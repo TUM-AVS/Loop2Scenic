@@ -388,13 +388,36 @@ class ScenarioWorkflow:
         # 2. adapt the code: debug on sim error; otherwise regenerate from DSL
         #    (no VLM critic — evaluation_result may be None)
         coder_llm_before = self._snapshot_service_metrics(getattr(self.coder, "llm_service", None))
-        adapted_scenic_code = ""
-        if current_scenic_code_error:
-            adapted_scenic_code = self.coder.debug_code(current_scenic_code, current_scenic_code_error)
-        else:
-            adapted_scenic_code = self.coder.adapt_code(
-                current_scenic_code, current_evaluation_result, scenario_dsl, header_settings
-            )
+        adapted_scenic_code = current_scenic_code
+        adapt_warnings: list[str] = []
+        try:
+            if current_scenic_code_error or not current_evaluation_result:
+                if hasattr(self.coder, "last_debug_failure"):
+                    self.coder.last_debug_failure = None
+                adapted_scenic_code = self.coder.debug_code(
+                    current_scenic_code, current_scenic_code_error
+                )
+                debug_failure = getattr(self.coder, "last_debug_failure", None)
+                if debug_failure:
+                    adapt_warnings.append(str(debug_failure))
+            else:
+                adapted_scenic_code = self.coder.adapt_code(
+                    current_scenic_code,
+                    current_evaluation_result,
+                    scenario_dsl,
+                    header_settings,
+                )
+            if not adapted_scenic_code:
+                warning = "Coder returned empty scenic code; keeping previous script"
+                self.logger.error(warning)
+                adapt_warnings.append(warning)
+                adapted_scenic_code = current_scenic_code
+        except Exception as exc:
+            # Keep previous code so we still reach output_best_scenario / baseline fallback.
+            warning = f"adapt_code/debug_code failed ({exc}); keeping previous scenic code"
+            self.logger.exception(warning)
+            adapt_warnings.append(warning)
+            adapted_scenic_code = current_scenic_code
         self.logger.info(f"🛠 Adapted Scenic code, generation count: {generation_count + 1}")
         coder_llm_after = self._snapshot_service_metrics(getattr(self.coder, "llm_service", None))
         coder_llm_delta = self._delta_metrics(coder_llm_before, coder_llm_after)
@@ -404,7 +427,7 @@ class ScenarioWorkflow:
         adapted_scenic_scenario = ScenicScenario(scenario_id=adpated_scenario_id, scenic_code=adapted_scenic_code) # the description from previous scenario will not be used
         scenic_scenarios_list = state.get("scenic_scenarios_list", [])
         scenic_scenarios_list.append(adapted_scenic_scenario)
-        return {
+        result: Dict = {
             "scenic_scenarios_list": scenic_scenarios_list,
             "current_scenic_scenario": adapted_scenic_scenario,
             "generation_count": generation_count + 1,
@@ -416,6 +439,15 @@ class ScenarioWorkflow:
                 delta=coder_llm_delta,
             ),
         }
+        if adapt_warnings:
+            result["messages"] = [
+                {
+                    "role": "assistant",
+                    "content": f"[workflow_warning] {warning}",
+                }
+                for warning in adapt_warnings
+            ]
+        return result
 
     def output_best_scenario(self, state: ScenarioWorkflowState) -> Dict:
         log_workflow_state(self.logger, "output_best_scenario", state)
