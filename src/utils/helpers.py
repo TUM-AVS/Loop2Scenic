@@ -199,6 +199,44 @@ def find_scenic_code_with_scenario_id(scenario_id: str) -> str:
         logger.error(f"Error finding scenic code for ID: {scenario_id}: {e}")
         return None
 
+
+def find_corpus_scenario_bev(scenario_id: str) -> Optional[Path]:
+    """Return ``data/scenarios/<id>/BEV.mp4`` if it exists, else None."""
+    if not scenario_id or "_adapted_" in scenario_id:
+        return None
+    from src.utils.simulation import resolve_path
+
+    scenarios_root = (
+        resolve_path(get_config().simulation.scenarios_data_dir) or "data/scenarios"
+    )
+    bev = Path(scenarios_root) / scenario_id / "BEV.mp4"
+    return bev if bev.is_file() else None
+
+
+def stage_corpus_bev_for_scenario(scenario_id: str) -> Optional[str]:
+    """
+    Copy a library BEV into ``temp/<id>/video/BEV.mp4`` so VLM / interpreter
+    consumers keep using the same path as a live CARLA run.
+
+    Returns the staged temp path on success, else None.
+    """
+    corpus_bev = find_corpus_scenario_bev(scenario_id)
+    if corpus_bev is None:
+        return None
+
+    dest_dir = Path(f"temp/{scenario_id}/video")
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / "BEV.mp4"
+    try:
+        shutil.copy2(str(corpus_bev), str(dest))
+    except OSError as exc:
+        logger.error(
+            "Failed to stage corpus BEV %s -> %s: %s", corpus_bev, dest, exc
+        )
+        return None
+    logger.info("Staged corpus BEV for scenario %s: %s -> %s", scenario_id, corpus_bev, dest)
+    return str(dest)
+
 def get_scenario_document_with_scenario_id(scenario_id: str) -> ScenarioDocument:
     """
     Get a local scenario document for a given scenario ID.
