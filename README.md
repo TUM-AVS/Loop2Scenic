@@ -12,6 +12,8 @@ A modular, production-ready RAG (Retrieval-Augmented Generation) pipeline with a
 - **Configurable Pipeline**: YAML-based configuration for easy customization
 - **Production-Ready**: Comprehensive logging, error handling, and testing
 
+
+
 ## 📁 Project Structure
 
 ```
@@ -61,7 +63,11 @@ ads-mrag/
 └── README.md
 ```
 
+
+
 ## 🚀 Getting Started
+
+
 
 ### Prerequisites
 
@@ -71,6 +77,8 @@ ads-mrag/
 - **CUDA-capable GPU** (recommended for Qwen embedding/reranking models)
 - **Linux** (required for CARLA simulation)
 - **Git**
+
+
 
 ### Environment Setup
 
@@ -89,6 +97,8 @@ If the repository uses submodules, initialize them:
 git submodule update --init --recursive
 ```
 
+
+
 #### 2. Create a Conda environment (Python 3.12.3)
 
 ```bash
@@ -97,11 +107,15 @@ conda activate ads-mrag
 python --version  # should print Python 3.12.3
 ```
 
+
+
 #### 3. Install Python dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
+
+
 
 #### 4. Start Milvus and configure environment variables
 
@@ -127,6 +141,8 @@ Edit `.env` and add your API keys as needed:
 - `DEEPSEEK_API_KEY`
 
 > For detailed Milvus setup, troubleshooting, and configuration options, see [MILVUS_SETUP.md](MILVUS_SETUP.md).
+
+
 
 #### 5. Download embedding models from Hugging Face
 
@@ -157,89 +173,74 @@ embedding:
 
 Download other models the same way (for example reranker models) and update the corresponding paths in `config/config.yaml`.
 
-#### 6. Install CARLA 0.9.15 and rebuild the Python API for Python 3.12.3
+#### 6. Install CARLA 0.9.16 and the Python API (Python 3.12.3)
 
-CARLA should be placed **one directory above** the project root (`../`), alongside `ads-mrag/`.
+CARLA is the driving simulator used for Scenic batch runs. Install it **next to** the project directory (one level above the repo root):
 
-**6.1 Download CARLA 0.9.15 Simulator (Server)**
-
-From the parent directory of the repo, download and extract the pre-compiled server binaries:
-
-```bash
-cd ..
-wget [https://carla-releases.s3.us-east-005.backblazeb2.com/Linux/CARLA_0.9.15.tar.gz](https://carla-releases.s3.us-east-005.backblazeb2.com/Linux/CARLA_0.9.15.tar.gz)
-tar -xzf CARLA_0.9.15.tar.gz
+```
+chenli2/
+├── ads-mrag/          ← this repository
+└── carla_0.9.16/      ← CARLA simulator (you create this)
 ```
 
-This creates the simulator binary home folder at `../CARLA_0.9.15/`.
+**6.1 Download and extract the CARLA server**
 
-**6.2 Compile the CARLA Python API for Python 3.12.3**
+From the parent directory of the repo, download and extract the pre-built Linux binaries:
 
-Because the prebuilt release package only ships with legacy Python 3.7 extensions, you must compile the client library from the source repository to support Python 3.12.
-
-1. Clone the CARLA source tree framework into a temporary folder:
 ```bash
-git clone -b 0.9.15 [https://github.com/carla-simulator/carla.git](https://github.com/carla-simulator/carla.git) carla-source
-cd carla-source
+cd ..   # from ads-mrag/ to the parent folder
+wget https://carla-releases.s3.us-east-005.backblazeb2.com/Linux/CARLA_0.9.16.tar.gz
+tar -xzf CARLA_0.9.16.tar.gz
 ```
 
-2. Activate the `ads-mrag` conda environment and map your environment compiler paths:
+The archive may extract to `CARLA_0.9.16/`. If you prefer lowercase, rename it:
+
+```bash
+mv CARLA_0.9.16 carla_0.9.16
+```
+
+After extraction, you should have `CarlaUE4.sh` at `../carla_0.9.16/CarlaUE4.sh`.
+
+**6.2 Install the CARLA Python wheel**
+
+Activate the Conda environment from step 2, then install the wheel that matches Python 3.12:
+
 ```bash
 conda activate ads-mrag
-export PYTHON_INCLUDE=$CONDA_PREFIX/include/python3.12
-export PYTHON_LIB=$CONDA_PREFIX/lib/libpython3.12.so
-export PATH=$CONDA_PREFIX/bin:$PATH
-```
-*(Note: Ensure `numpy<2.0` is active in your environment before building, as NumPy 2.0+ headers will conflict with the C++ dependency engine).*
-
-3. Patch the build system to support modern Python variants. Open `Util/BuildTools/Setup.sh` in a text editor and update the `BOOST_VERSION` variable to `1.83.0`.
-
-4. Compile the custom Python API module:
-```bash
-make PythonAPI
+cd ../carla_0.9.16/PythonAPI/carla/dist
+pip install carla-0.9.16-cp312-cp312-manylinux_2_31_x86_64.whl
 ```
 
-5. Install the newly generated Python 3.12 wheel directly into your conda environment:
-```bash
-cd PythonAPI/carla/dist
-pip install carla-0.9.15-cp312-cp312-linux_x86_64.whl
-```
-
-6. Clean up the temporary source code directory:
-```bash
-cd ../../../..
-rm -rf carla-source
-```
-
-**6.3 Verify the Installation**
-
-Run a quick sanity check to verify that Python 3.12 can actively discover and bind the compiled CARLA module properly:
+Verify the install:
 
 ```bash
-python -c "import carla; print('Success! Path:', carla.__file__)"
+python -c "import carla; print(carla.__file__)"
 ```
 
-**6.4 Point the project config to your CARLA install**
+**6.3 Point the project config at CARLA**
 
-Update `config/config.yaml`:
+Edit `config/config.yaml` and set:
+
+- `simulation.carla.binary_dir` — absolute path to the CARLA folder (the directory that contains `CarlaUE4.sh`)
+- `simulation.scenic.conda_env` — name of the Conda environment you created in step 2 (for example `ads-mrag`)
+
+Example:
 
 ```yaml
 simulation:
   carla:
-    binary_dir: "/absolute/path/to/CARLA_0.9.15"
+    binary_dir: "/home/your_user/chenli2/carla_0.9.16"
+  scenic:
+    conda_env: ads-mrag
 ```
 
-Use the absolute path to your `CARLA_0.9.15` directory on your machine.
+Replace `/home/your_user/chenli2/carla_0.9.16` with the actual path on your machine.
 
-Optionally set `CARLA_ROOT` in your shell profile:
 
-```bash
-export CARLA_ROOT=/absolute/path/to/CARLA_0.9.15
-```
-
-> **Note:** CARLA ships prebuilt Python wheels/eggs for older Python versions. Rebuilding with `setup.py` is required when using Python 3.12.3. The CARLA server version and Python API version must match.
 
 ### Quick Start
+
+
 
 #### Python API
 
@@ -266,6 +267,8 @@ response = pipeline.query(
 print(response["response"])
 ```
 
+
+
 #### Command Line
 
 **Ingest documents:**
@@ -286,7 +289,11 @@ python scripts/query_pipeline.py \
     --show-sources
 ```
 
+
+
 ## 📚 Usage Examples
+
+
 
 ### 1. Basic Document Ingestion
 
@@ -311,6 +318,8 @@ pipeline.ingest_documents(
 )
 ```
 
+
+
 ### 2. Tag-Based Filtering
 
 ```python
@@ -329,6 +338,8 @@ results = pipeline.retriever.retrieve_by_tags(
 )
 ```
 
+
+
 ### 3. Custom Configuration
 
 ```python
@@ -338,6 +349,8 @@ from src.config import Config
 config = Config.from_yaml("custom_config.yaml")
 pipeline = RAGPipeline(config=config)
 ```
+
+
 
 ### 4. Processing Text Directly
 
@@ -358,6 +371,8 @@ chunks = pipeline.processor.process_texts(
 )
 pipeline.vectorstore.add_documents(chunks)
 ```
+
+
 
 ## ⚙️ Configuration
 
@@ -390,7 +405,11 @@ llm:
   temperature: 0.7
 ```
 
+
+
 ## 🎯 Key Features Explained
+
+
 
 ### Tag-Based Filtering
 
@@ -410,6 +429,8 @@ results = pipeline.vectorstore.similarity_search(
     k=5
 )
 ```
+
+
 
 ### Modular Design & Flexible Models
 
@@ -432,6 +453,8 @@ generator = Generator(provider="anthropic", model="claude-3-opus-20240229")
 pipeline = RAGPipeline()  # Reads from config/config.yaml
 ```
 
+
+
 ## 🧪 Testing
 
 Run tests with pytest:
@@ -446,6 +469,8 @@ pytest tests/test_config.py -v
 # Run with coverage
 pytest tests/ --cov=src --cov-report=html
 ```
+
+
 
 ## 📊 Monitoring and Logging
 
@@ -464,7 +489,11 @@ stats = pipeline.get_stats()
 print(f"Total documents: {stats['document_count']}")
 ```
 
+
+
 ## 🔧 Advanced Usage
+
+
 
 ### Custom Prompts & Models
 
@@ -493,6 +522,8 @@ pipeline.generator = generator
 response = pipeline.query("What is the main topic?", custom_prompt=custom_prompt)
 ```
 
+
+
 ### Batch Processing
 
 ```python
@@ -512,7 +543,11 @@ responses = pipeline.generator.batch_generate(
 )
 ```
 
+
+
 ## 🛠️ Troubleshooting
+
+
 
 ### ChromaDB Issues
 
@@ -522,6 +557,8 @@ If you encounter ChromaDB errors:
 # Reset the vector store
 python scripts/reset_vectorstore.py --confirm
 ```
+
+
 
 ### Memory Issues
 
@@ -536,11 +573,15 @@ ingestion:
   max_workers: 2
 ```
 
+
+
 ## 📖 Documentation
 
 - **Notebooks**: See `notebooks/` for interactive tutorials
 - **Examples**: Check `examples/` for code samples
 - **API Docs**: Each module has comprehensive docstrings
+
+
 
 ## 🤝 Contributing
 
@@ -550,6 +591,8 @@ Contributions are welcome! Please:
 2. Create a feature branch
 3. Add tests for new features
 4. Submit a pull request
+
+
 
 ## 📝 License
 
@@ -561,6 +604,8 @@ This project is licensed under the MIT License.
 - [Milvus](https://milvus.io/) for high-performance vector storage
 - [ChromaDB](https://www.trychroma.com/) for alternative vector storage
 - [Sentence Transformers](https://www.sbert.net/) for embeddings
+
+
 
 ## 📧 Contact
 
