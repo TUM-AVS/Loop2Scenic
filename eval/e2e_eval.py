@@ -473,7 +473,6 @@ class EvalE2EWorkflow:
             output_csv_path = Path(output_csv_path)
             output_csv_path.parent.mkdir(parents=True, exist_ok=True)
 
-        batch_folder = Path(folder_path) if folder_path is not None else self.folder_path
         self.logger.info(
             "e2e run_batch: built %d record(s), mode=%s, category=%s, folder_path=%s",
             n_records,
