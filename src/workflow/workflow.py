@@ -174,7 +174,11 @@ class ScenarioWorkflow:
             return "interpret"
 
         for scenario in scenic_scenarios_list:
-            if scenario.score and scenario.score > best_score and scenario.error is None:
+            if (
+                scenario.score is not None
+                and scenario.score > best_score
+                and scenario.error is None
+            ):
                 best_score = scenario.score
                 best_scenario = scenario
         
@@ -510,29 +514,103 @@ class ScenarioWorkflow:
 
     def output_best_scenario(self, state: ScenarioWorkflowState) -> Dict:
         log_workflow_state(self.logger, "output_best_scenario", state)
-        
-        scenic_scenarios_list = state.get("scenic_scenarios_list", [])
+
+        scenic_scenarios_list = state.get("scenic_scenarios_list", []) or []
         best_scenario = None
         best_score = -1.0
         for scenario in scenic_scenarios_list:
-            if scenario.score and scenario.score > best_score and scenario.error is None and scenario.scenic_code:
+            if (
+                scenario.score is not None
+                and scenario.score > best_score
+                and scenario.error is None
+                and scenario.scenic_code
+            ):
                 best_score = scenario.score
                 best_scenario = scenario
+
         if best_scenario:
             self.logger.info(f"🏆 Returning best scenario: {best_scenario.scenario_id}")
             return {
-                "messages":[
-                    {"role": "assistant", "content": f"Best scenario id is {best_scenario.scenario_id}, scenic code is {best_scenario.scenic_code}"}
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": (
+                            f"Best scenario id is {best_scenario.scenario_id}, "
+                            f"scenic code is {best_scenario.scenic_code}"
+                        ),
+                    }
                 ],
                 "best_scenario": best_scenario,
             }
-        else:
-            self.logger.error("No best scenario found")
+
+        # No scored/error-free candidate — fall back to the retrieved base scenario.
+        fallback = self._fallback_base_scenario(state, scenic_scenarios_list)
+        if fallback:
+            self.logger.warning(
+                "No scored best scenario; falling back to base scenario: %s "
+                "(error=%s, score=%s)",
+                fallback.scenario_id,
+                getattr(fallback, "error", None),
+                getattr(fallback, "score", None),
+            )
             return {
-                "messages":[
-                    {"role": "assistant", "content": "Not able to generate a valid scenic code after multiple attempts."}
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": (
+                            f"Fell back to base scenario id {fallback.scenario_id}, "
+                            f"scenic code is {fallback.scenic_code}"
+                        ),
+                    }
                 ],
+                "best_scenario": fallback,
             }
+
+        self.logger.error("No best scenario found (and no base-scenario fallback available)")
+        return {
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": "Not able to generate a valid scenic code after multiple attempts.",
+                }
+            ],
+        }
+
+    def _fallback_base_scenario(
+        self,
+        state: ScenarioWorkflowState,
+        scenic_scenarios_list: list,
+    ) -> ScenicScenario | None:
+        """Prefer the retrieved base scenario; else any list entry with scenic code."""
+        base_id = state.get("base_scenario_id")
+
+        if base_id:
+            for scenario in scenic_scenarios_list:
+                if scenario.scenario_id == base_id and scenario.scenic_code:
+                    return scenario
+
+        for scenario in scenic_scenarios_list:
+            if scenario.scenic_code:
+                return scenario
+
+        if not base_id:
+            return None
+
+        scenic_code = find_scenic_code_with_scenario_id(base_id)
+        if not scenic_code:
+            return None
+        description = ""
+        try:
+            doc = get_scenario_document_with_scenario_id(base_id)
+            if doc is not None:
+                description = getattr(doc, "description", "") or ""
+        except Exception:
+            pass
+        return ScenicScenario(
+            scenario_id=base_id,
+            scenic_code=scenic_code,
+            description=description,
+        )
 
     def human_review(self, state: ScenarioWorkflowState) -> Dict:
         log_workflow_state(self.logger, "human_review", state)

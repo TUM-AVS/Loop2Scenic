@@ -21,57 +21,120 @@ if _EVAL_DIR not in sys.path:
 
 from e2e_metrics import extract_vlm_llm_metrics_rows, normalize_model_metrics_blob
 
-FOLDER_PATH = "/home/dellpro2/chenli/ads-mrag/ads-mrag/data/test"
+FOLDER_PATH = "/home/mifcom2/chenli2/ads-mrag/data/e2e_test_batch"
+
+_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"}
+_VIDEO_EXTS = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
 
 
-def _extract_best_vlm_eval_score(final_state: dict[str, Any], result: dict[str, Any]) -> str:
-    """Best VLM evaluation score across generated scenarios (same logic as workflow router)."""
+def _resolve_media_path(subfolder: Path, preferred_name: str, extensions: set[str]) -> Optional[str]:
+    """Prefer ``preferred_name`` if present; else first matching file in the subfolder (sorted)."""
+    preferred = subfolder / preferred_name
+    if preferred.is_file():
+        return str(preferred.resolve())
+    matches = sorted(
+        p for p in subfolder.iterdir()
+        if p.is_file() and p.suffix.lower() in extensions
+    )
+    return str(matches[0].resolve()) if matches else None
+
+
+def _extract_final_candidate_vlm_score(final_state: dict[str, Any], result: dict[str, Any]) -> str:
+    """VLM critic score for the scenario actually returned as the final output.
+
+    Prefers ``best_scenario.score`` / ``result["best_score"]``. If that is missing
+    (e.g. baseline fallback without a fresh critic pass), looks up the same
+    ``scenario_id`` in ``scenic_scenarios_list``. Does not take max over other
+    candidates. Treats score ``0`` as valid.
+    """
+    def _fmt(score: Any) -> str:
+        return f"{float(score):.2f}"
+
     best_score = result.get("best_score")
     if best_score is not None:
-        return f"{float(best_score):.2f}"
+        return _fmt(best_score)
 
-    scenic_scenarios_list = final_state.get("scenic_scenarios_list") or []
-    max_score = -1.0
-    found = False
-    for scenario in scenic_scenarios_list:
-        if getattr(scenario, "error", None) is not None:
+    best_scenario = None
+    if isinstance(final_state, dict):
+        best_scenario = final_state.get("best_scenario")
+    score = getattr(best_scenario, "score", None) if best_scenario is not None else None
+    if score is not None:
+        return _fmt(score)
+
+    best_id = (
+        str(result.get("best_scenario_id") or "").strip()
+        or str(getattr(best_scenario, "scenario_id", "") or "").strip()
+    )
+    if not best_id:
+        return ""
+
+    for scenario in (final_state.get("scenic_scenarios_list") or []) if isinstance(final_state, dict) else []:
+        if str(getattr(scenario, "scenario_id", "") or "").strip() != best_id:
             continue
         score = getattr(scenario, "score", None)
-        if score is not None and score > max_score:
-            max_score = float(score)
-            found = True
-
-    if found:
-        return f"{max_score:.2f}"
+        if score is not None:
+            return _fmt(score)
+        break
     return ""
 
 
-def _try_move_temp_bev_to_eval_result(
+def _try_copy_temp_bev_to_eval_result(
     best_scenario_id: str,
     query_result_dir: Path,
     logger: logging.Logger,
+    *,
+    base_scenario_id: str = "",
+    final_state: Optional[dict[str, Any]] = None,
 ) -> None:
     """
-    Move ``temp/<best_scenario_id>/video/BEV.mp4`` (relative to repo root) into
-    ``query_result_dir / generated_video.mp4``. No-op if source missing; log on failure.
+    Copy a generated (or baseline) BEV into ``query_result_dir / generated_video.mp4``.
+
+    Tries, in order:
+    1. ``temp/<best_scenario_id>/video/BEV.mp4``
+    2. ``temp/<base_scenario_id>/video/BEV.mp4`` (baseline fallback)
+    3. Any ``temp/<id>/video/BEV.mp4`` for ids in ``scenic_scenarios_list`` (newest first)
+    4. ``data/scenarios/<id>/BEV.mp4`` for best/base ids (corpus baseline clip)
+
+    Uses copy (not move) so ``temp/`` keeps the original for later inspection.
     """
-    sid = (best_scenario_id or "").strip()
-    if not sid:
-        return
     repo_root = Path(__file__).resolve().parent.parent
-    src = repo_root / "temp" / sid / "video" / "BEV.mp4"
     dest = query_result_dir / "generated_video.mp4"
+
+    candidate_ids: list[str] = []
+    for sid in (best_scenario_id, base_scenario_id):
+        sid = (sid or "").strip()
+        if sid and sid not in candidate_ids and not sid.startswith("no_best_scenario_"):
+            candidate_ids.append(sid)
+
+    if isinstance(final_state, dict):
+        scenarios = final_state.get("scenic_scenarios_list") or []
+        # Prefer later (more adapted) sims first when hunting for a rendered BEV.
+        for scenario in reversed(list(scenarios)):
+            sid = str(getattr(scenario, "scenario_id", "") or "").strip()
+            if sid and sid not in candidate_ids:
+                candidate_ids.append(sid)
+
+    sources: list[Path] = []
+    for sid in candidate_ids:
+        sources.append(repo_root / "temp" / sid / "video" / "BEV.mp4")
+    for sid in candidate_ids:
+        # Corpus baseline video (useful when fallback is library base and temp was cleaned).
+        sources.append(repo_root / "data" / "scenarios" / sid / "BEV.mp4")
+
+    src: Optional[Path] = next((p for p in sources if p.is_file()), None)
+    if src is None:
+        logger.warning(
+            "Generated/baseline BEV not found for ids=%s; skip video copy",
+            candidate_ids or ["(none)"],
+        )
+        return
+
     try:
-        if not src.is_file():
-            logger.warning("Generated BEV not found, skip move: %s", src)
-            return
         query_result_dir.mkdir(parents=True, exist_ok=True)
-        if dest.is_file():
-            dest.unlink()
-        shutil.move(str(src), str(dest))
-        logger.info("Moved generated BEV to %s", dest)
+        shutil.copy2(str(src), str(dest))
+        logger.info("Copied BEV %s -> %s", src, dest)
     except OSError as exc:
-        logger.warning("Could not move BEV %s -> %s: %s", src, dest, exc)
+        logger.warning("Could not copy BEV %s -> %s: %s", src, dest, exc)
 
 
 class QueryMode(str, Enum):
@@ -113,8 +176,8 @@ class EvalE2EWorkflow:
 
         Mapping per subfolder:
         - text: content of description.txt if present, else None
-        - image_path: absolute path to image.png (when mode includes image)
-        - video_path: absolute path to BEV.mp4 (when mode includes video)
+        - image_path: image.png if present, else any image in the subfolder (when mode includes image)
+        - video_path: BEV.mp4 if present, else any video in the subfolder (when mode includes video)
 
         Returns:
         - list of {"ground_truth": str, "query": MultimodalQuery}
@@ -150,9 +213,9 @@ class EvalE2EWorkflow:
             image_path = None
             video_path = None
             if mode in (QueryMode.TEXT_IMAGE, QueryMode.IMAGE_ONLY, QueryMode.TEXT_IMAGE_VIDEO):
-                image_path = str((subfolder / "image.png").resolve())
+                image_path = _resolve_media_path(subfolder, "image.png", _IMAGE_EXTS)
             if mode in (QueryMode.TEXT_VIDEO, QueryMode.VIDEO_ONLY, QueryMode.TEXT_IMAGE_VIDEO):
-                video_path = str((subfolder / "BEV.mp4").resolve())
+                video_path = _resolve_media_path(subfolder, "BEV.mp4", _VIDEO_EXTS)
 
             query = MultimodalQuery(
                 text=text,
@@ -338,7 +401,7 @@ class EvalE2EWorkflow:
                     final_state = result.get("state", {})
                     best_scenic_code = result.get("best_scenic_code")
                     best_scenario_id = str(result.get("best_scenario_id") or "")
-                    best_vlm_eval_score = _extract_best_vlm_eval_score(final_state, result)
+                    best_vlm_eval_score = _extract_final_candidate_vlm_score(final_state, result)
                     base_scenario_id = str(final_state.get("base_scenario_id") or "")
                     generation_count = final_state.get("generation_count", "")
                     model_metrics = (
@@ -388,10 +451,12 @@ class EvalE2EWorkflow:
                         encoding="utf-8",
                     )
 
-                    _try_move_temp_bev_to_eval_result(
+                    _try_copy_temp_bev_to_eval_result(
                         best_scenario_id=best_scenario_id,
                         query_result_dir=query_result_dir,
                         logger=self.logger,
+                        base_scenario_id=base_scenario_id,
+                        final_state=final_state if isinstance(final_state, dict) else None,
                     )
                 except Exception as exc:
                     error_message = str(exc)
@@ -461,5 +526,5 @@ class EvalE2EWorkflow:
 
 if __name__ == "__main__":
     evaluator = EvalE2EWorkflow()
-    output_csv2 = evaluator.run_batch(mode=QueryMode.TEXT_IMAGE)
+    output_csv2 = evaluator.run_batch(mode=QueryMode.VIDEO_ONLY)
     print(f"Batch done. CSV: {output_csv2}")
