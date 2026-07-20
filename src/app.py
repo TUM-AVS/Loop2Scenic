@@ -24,7 +24,7 @@ from src.services import (
 )
 
 # Import Agents
-from src.agents import InterpreterAgent, ScenicCoderAgent, CriticAgent
+from src.agents import InterpreterAgent, ScenicCoderAgent
 
 # Import Workflow / schema
 from src.workflow import ScenarioWorkflow
@@ -176,22 +176,20 @@ def _initialize_agents(
     vector_db,
     snippets_embedder,
     logger: logging.Logger,
-) -> Tuple[InterpreterAgent, ScenicCoderAgent, CriticAgent]:
-    """Initialize all agents."""
+) -> Tuple[InterpreterAgent, ScenicCoderAgent]:
+    """Initialize all agents (VLM critic disabled)."""
     logger.info("Initializing Agents...")
 
     interpreter_agent = InterpreterAgent(vlm_service=vlm_service)
     scenic_coder_agent = ScenicCoderAgent(llm_service=shared_llm_service, vector_store=vector_db, snippets_embedder=snippets_embedder)
-    critic_agent = CriticAgent(vlm_service=vlm_service)
 
     logger.info("Agents initialized.")
-    return interpreter_agent, scenic_coder_agent, critic_agent
+    return interpreter_agent, scenic_coder_agent
 
 
 def _initialize_workflow(
     interpreter_agent: InterpreterAgent,
     scenic_coder_agent: ScenicCoderAgent,
-    critic_agent: CriticAgent,
     retrieval_pipeline: Retriever,
     embedder,
     logger: logging.Logger,
@@ -201,7 +199,7 @@ def _initialize_workflow(
     workflow = ScenarioWorkflow(
         interpreter=interpreter_agent,
         coder=scenic_coder_agent,
-        critic=critic_agent,
+        critic=None,
         retriever=retrieval_pipeline,
         embedder=embedder,
         logger=logger,
@@ -238,7 +236,7 @@ class ChatbotWorkflow:
         reranker = _initialize_reranker(config, logger)
         retrieval_pipeline = _initialize_retriever(config, vector_db, reranker, logger)
 
-        interpreter_agent, scenic_coder_agent, critic_agent = _initialize_agents(
+        interpreter_agent, scenic_coder_agent = _initialize_agents(
             shared_llm_service=shared_llm_service,
             vlm_service=vlm_service,
             vector_db=vector_db,
@@ -248,7 +246,6 @@ class ChatbotWorkflow:
         workflow = _initialize_workflow(
             interpreter_agent=interpreter_agent,
             scenic_coder_agent=scenic_coder_agent,
-            critic_agent=critic_agent,
             retrieval_pipeline=retrieval_pipeline,
             embedder=embedder,
             logger=logger,

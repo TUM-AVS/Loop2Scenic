@@ -290,7 +290,11 @@ param weather = '{weather}'
             else:
                 # for those aspects that are not a list, generate a new component with the description
                 target_description = aim_dsl.get(aspect, "")
-                needs_modification = not (evaluation_result or {}).get(aspect, True)
+                # No critic → regenerate from DSL; otherwise use critic match flags.
+                if not evaluation_result:
+                    needs_modification = True
+                else:
+                    needs_modification = not evaluation_result.get(aspect, True)
                 new_code = None
                 if needs_modification:
                     # generate a new component with the description

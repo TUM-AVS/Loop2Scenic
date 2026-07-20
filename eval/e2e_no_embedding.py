@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from src.agents import CriticAgent, InterpreterAgent, ScenicCoderAgent
+from src.agents import InterpreterAgent, ScenicCoderAgent
 from src.config import get_config
 from src.schema import HeaderSetting, MultimodalQuery, ScenicScenario
 from src.services import MilvusVectorStore, get_embedder, get_llm_service, get_vlm_service
@@ -118,12 +118,11 @@ class EvalE2ENoEmbeddingWorkflow:
             vector_store=vector_db,
             snippets_embedder=snippets_embedder,
         )
-        critic_agent = CriticAgent(vlm_service=vlm_service)
 
         return ScenarioWorkflow(
             interpreter=interpreter_agent,
             coder=scenic_coder_agent,
-            critic=critic_agent,
+            critic=None,
             retriever=_NoopRetriever(),
             embedder=_NoopEmbedder(),
             logger=self.logger,
@@ -304,23 +303,9 @@ class EvalE2ENoEmbeddingWorkflow:
 
     def run_record(self, record: dict[str, Any]) -> dict[str, Any]:
         state = self._build_initial_state(record)
-        loop_guard = 0
-        while True:
-            loop_guard += 1
-            if loop_guard > 10:
-                raise RuntimeError("Unexpected loop overflow in no-embedding pipeline.")
-
-            state.update(self.workflow.run_simulation(state))
-            state.update(self.workflow.evaluate_with_vlm(state))
-
-            route = self.workflow.route_after_vlm_evaluation(state)
-            if route == "output_best_scenario":
-                state.update(self.workflow.output_best_scenario(state))
-                break
-
-            # Keep same node sequence as original workflow.
-            state.update(self.workflow.interpret(state))
-            state.update(self.workflow.adapt_code(state))
+        # No VLM critic: simulate once and return the scenario.
+        state.update(self.workflow.run_simulation(state))
+        state.update(self.workflow.output_best_scenario(state))
 
         best_scenario = state.get("best_scenario")
         return {

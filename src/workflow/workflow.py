@@ -1,13 +1,13 @@
 import logging
 from copy import deepcopy
-from typing import Any, Dict, Literal
+from typing import Any, Dict, Literal, Optional
 from langgraph.graph import END, START, StateGraph
 from langgraph.checkpoint.memory import MemorySaver
 
 import sys
 from pathlib import Path
 
-from src.schema import MultimodalQuery, ScenarioDocument, ScenicScenario
+from src.schema import MultimodalQuery, ScenicScenario
 from src.utils.helpers import get_scenario_document_with_scenario_id
 
 # Add the project root (ads-mrag) to the python path
@@ -15,7 +15,7 @@ root_path = str(Path(__file__).parent.parent.parent)
 if root_path not in sys.path:
     sys.path.append(root_path)
 
-from .scenario_workflow_state import CLEAN_STATE, MAX_COUNT, ScenarioWorkflowState
+from .scenario_workflow_state import CLEAN_STATE, ScenarioWorkflowState
 from src.utils import find_scenic_code_with_scenario_id, get_error_message_from_logs, run_simulation_in_carla_and_save_video, setup_logging, log_workflow_state, to_safe_string
 from src.agents import InterpreterAgent, ScenicCoderAgent, CriticAgent
 from src.services import Retriever, BaseEmbeddingModel
@@ -25,7 +25,7 @@ class ScenarioWorkflow:
         self, 
         interpreter: InterpreterAgent, 
         coder: ScenicCoderAgent, 
-        critic: CriticAgent, 
+        critic: Optional[CriticAgent], 
         retriever: Retriever, 
         embedder: BaseEmbeddingModel,
         logger: logging.Logger
@@ -35,7 +35,7 @@ class ScenarioWorkflow:
         # Inject agents
         self.interpreter = interpreter
         self.coder = coder
-        self.critic = critic
+        self.critic = critic  # unused: VLM critic disabled; kept for optional re-enable
         self.retriever = retriever
         self.embedder = embedder
         self.logger = logger
@@ -44,30 +44,21 @@ class ScenarioWorkflow:
         self.workflow.add_node("embed_query", self.embed_query)
         self.workflow.add_node("retrieve_base_scenario", self.retrieve_base_scenario)
         self.workflow.add_node("run_simulation", self.run_simulation)
-        self.workflow.add_node("evaluate_with_vlm", self.evaluate_with_vlm)
         self.workflow.add_node("interpret", self.interpret)
         self.workflow.add_node("adapt_code", self.adapt_code)
         self.workflow.add_node("output_best_scenario", self.output_best_scenario)
         self.workflow.add_node("human_review", self.human_review)
 
-        # 2. add static edges
+        # 2. add static edges (no VLM critic: simulate → return scenario)
         self.workflow.add_edge(START, "embed_query")
         self.workflow.add_edge("embed_query", "retrieve_base_scenario")
         self.workflow.add_edge("retrieve_base_scenario", "run_simulation")
-        self.workflow.add_edge("run_simulation", "evaluate_with_vlm")
+        self.workflow.add_edge("run_simulation", "output_best_scenario")
         self.workflow.add_edge("interpret", "adapt_code")
         self.workflow.add_edge("adapt_code", "run_simulation")
         self.workflow.add_edge("output_best_scenario", "human_review")
 
         # 3. add dynamic edges
-        self.workflow.add_conditional_edges(
-            "evaluate_with_vlm",
-            self.route_after_vlm_evaluation,
-            {
-                "output_best_scenario": "output_best_scenario",
-                "interpret": "interpret",
-            }
-        )
         self.workflow.add_conditional_edges(
             "human_review",
             self.route_after_human_review,
@@ -159,36 +150,6 @@ class ScenarioWorkflow:
     # ==========================================
     # ROUTING FUNCTIONS
     # ==========================================
-    def route_after_vlm_evaluation(self, state: ScenarioWorkflowState) -> Literal["human_review", "interpret"]:
-        count = state.get("generation_count", 0)
-        max_count = MAX_COUNT
-
-        best_score = -1.0
-        best_scenario = None
-        scenic_scenarios_list = state.get("scenic_scenarios_list", [])
-
-        # if to find the best scenario should depends on if user has provided any feedback
-        # if user provides feedback, which means the scenarios list should be cleaned, because that is already from the last round
-        if not scenic_scenarios_list or len(scenic_scenarios_list) == 0:
-            self.logger.info("🚦 ROUTER: No scenic scenarios list provided, sending to interpreter for dsl generation")
-            return "interpret"
-
-        for scenario in scenic_scenarios_list:
-            if (
-                scenario.score is not None
-                and scenario.score > best_score
-                and scenario.error is None
-            ):
-                best_score = scenario.score
-                best_scenario = scenario
-        
-        if count >= max_count or (best_scenario and best_score >= 70):
-            self.logger.info(f"🚦 ROUTER: Best score {best_score} or max count {count}/{max_count} reached. Sending to User.")
-            return "output_best_scenario"
-        else:
-            self.logger.info(f"🚦 ROUTER: Best score {best_score} is too low. Sending to Interpreter.")
-            return "interpret"
-
     def route_after_human_review(self, state: ScenarioWorkflowState) -> Literal["end", "interpret"]:
         if state.get("user_satisfied", False):
             self.logger.info("🚦 ROUTER: User satisfied. Ending workflow.")
@@ -342,65 +303,6 @@ class ScenarioWorkflow:
             "current_scenic_scenario": scenic_scenario,
         }
 
-    def evaluate_with_vlm(self, state: ScenarioWorkflowState) -> Dict:
-        log_workflow_state(self.logger, "evaluate_with_vlm", state)
-        
-        # 1. get query and current scenario, if not provided, return the state
-        original_query = state.get("user_query", None) # TODO: have to be combined with the user modification (chat history)
-        current_scenic_scenario = state.get("current_scenic_scenario", None)
-        if not original_query or not current_scenic_scenario or not current_scenic_scenario.scenario_id:
-            self.logger.error("No original query or scenario provided")
-            return state
-        if current_scenic_scenario.error: # if the scenario has error, skip the evaluation
-            self.logger.error("Scenario has error, skipping evaluation")
-            return state
-
-        # 2. get video path and compose the scenario document
-        video_path = f"temp/{current_scenic_scenario.scenario_id}/video/BEV.mp4"
-        scenario_document = ScenarioDocument(
-            scenario_id=current_scenic_scenario.scenario_id,
-            description=current_scenic_scenario.description,
-            scenic_code=current_scenic_scenario.scenic_code,
-            image_path=None,
-            video_path=video_path
-        )
-        if not scenario_document:
-            self.logger.error("No scenario document found for id")
-            return state
-        
-        # 3. evaluate with vlm
-        critic_vlm_before = self._snapshot_service_metrics(getattr(self.critic, "vlm_service", None))
-        score, feedback, evaluation_result = self.critic.evaluate_with_vlm(original_query, scenario_document)
-        critic_vlm_after = self._snapshot_service_metrics(getattr(self.critic, "vlm_service", None))
-        critic_vlm_delta = self._delta_metrics(critic_vlm_before, critic_vlm_after)
-        self.logger.info(f"📊 VLM Score: {score}")
-        if feedback is None:
-            self.logger.error("Failed to evaluate with VLM")
-            return state
-
-        # 4. update the current scenario with the evaluation result
-        current_scenic_scenario.score = score
-        current_scenic_scenario.evaluation_feedback = feedback
-        current_scenic_scenario.evaluation_result = evaluation_result
-        scenic_scenarios_list = state.get("scenic_scenarios_list", [])
-        for scenario in scenic_scenarios_list:
-            if scenario.scenario_id == current_scenic_scenario.scenario_id:
-                scenario.score = score
-                scenario.evaluation_feedback = feedback
-                scenario.evaluation_result = evaluation_result
-                break
-        return {
-            "scenic_scenarios_list": scenic_scenarios_list,
-            "current_scenic_scenario": current_scenic_scenario,
-            "model_metrics": self._record_model_metrics(
-                state,
-                node_name="evaluate_with_vlm",
-                service_name="critic_vlm",
-                service_type="vlm",
-                delta=critic_vlm_delta,
-            ),
-        }
-
     def interpret(self, state: ScenarioWorkflowState) -> Dict:
         log_workflow_state(self.logger, "interpret", state)
 
@@ -483,13 +385,16 @@ class ScenarioWorkflow:
         current_scenic_code_error = current_scenic_scenario.error
         header_settings = state.get("header_settings", None)
 
-        # 2. adapt the code, if the code has error, call debug function, otherwise call adapt function
+        # 2. adapt the code: debug on sim error; otherwise regenerate from DSL
+        #    (no VLM critic — evaluation_result may be None)
         coder_llm_before = self._snapshot_service_metrics(getattr(self.coder, "llm_service", None))
         adapted_scenic_code = ""
-        if current_scenic_code_error or not current_evaluation_result:
+        if current_scenic_code_error:
             adapted_scenic_code = self.coder.debug_code(current_scenic_code, current_scenic_code_error)
         else:
-            adapted_scenic_code = self.coder.adapt_code(current_scenic_code, current_evaluation_result, scenario_dsl, header_settings)
+            adapted_scenic_code = self.coder.adapt_code(
+                current_scenic_code, current_evaluation_result, scenario_dsl, header_settings
+            )
         self.logger.info(f"🛠 Adapted Scenic code, generation count: {generation_count + 1}")
         coder_llm_after = self._snapshot_service_metrics(getattr(self.coder, "llm_service", None))
         coder_llm_delta = self._delta_metrics(coder_llm_before, coder_llm_after)
@@ -516,6 +421,25 @@ class ScenarioWorkflow:
         log_workflow_state(self.logger, "output_best_scenario", state)
 
         scenic_scenarios_list = state.get("scenic_scenarios_list", []) or []
+        current = state.get("current_scenic_scenario")
+
+        # Prefer the scenario just simulated (no VLM critic scoring).
+        if current and current.scenic_code and current.error is None:
+            self.logger.info(f"🏆 Returning current scenario (no critic): {current.scenario_id}")
+            return {
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": (
+                            f"Best scenario id is {current.scenario_id}, "
+                            f"scenic code is {current.scenic_code}"
+                        ),
+                    }
+                ],
+                "best_scenario": current,
+            }
+
+        # Prefer any scored candidate if present (legacy / optional critic).
         best_scenario = None
         best_score = -1.0
         for scenario in scenic_scenarios_list:
@@ -543,11 +467,11 @@ class ScenarioWorkflow:
                 "best_scenario": best_scenario,
             }
 
-        # No scored/error-free candidate — fall back to the retrieved base scenario.
+        # Fall back to the retrieved base scenario (even if sim had errors).
         fallback = self._fallback_base_scenario(state, scenic_scenarios_list)
         if fallback:
             self.logger.warning(
-                "No scored best scenario; falling back to base scenario: %s "
+                "No clean current scenario; falling back to base scenario: %s "
                 "(error=%s, score=%s)",
                 fallback.scenario_id,
                 getattr(fallback, "error", None),
