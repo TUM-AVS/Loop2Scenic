@@ -186,6 +186,7 @@ class EvalE2EWorkflow:
     def build_multimodal_queries(
         self,
         mode: QueryMode = QueryMode.TEXT_IMAGE_VIDEO,
+        folder_path: Path | str | None = None,
     ) -> list[dict[str, Any]]:
         """
         Scan immediate subfolders and build query records.
@@ -198,13 +199,14 @@ class EvalE2EWorkflow:
         Returns:
         - list of {"ground_truth": str, "query": MultimodalQuery}
         """
-        if not self.folder_path.exists():
-            raise FileNotFoundError(f"Folder does not exist: {self.folder_path}")
-        if not self.folder_path.is_dir():
-            raise NotADirectoryError(f"Expected directory, got: {self.folder_path}")
+        source_folder = Path(folder_path) if folder_path is not None else self.folder_path
+        if not source_folder.exists():
+            raise FileNotFoundError(f"Folder does not exist: {source_folder}")
+        if not source_folder.is_dir():
+            raise NotADirectoryError(f"Expected directory, got: {source_folder}")
 
         queries: list[dict[str, Any]] = []
-        for subfolder in sorted(self.folder_path.iterdir()):
+        for subfolder in sorted(source_folder.iterdir()):
             if not subfolder.is_dir():
                 continue
 
@@ -248,7 +250,7 @@ class EvalE2EWorkflow:
         self.logger.info(
             "Built %d multimodal queries from %s (mode=%s)",
             len(queries),
-            self.folder_path,
+            source_folder,
             mode.value,
         )
         return queries
@@ -471,6 +473,7 @@ class EvalE2EWorkflow:
             output_csv_path = Path(output_csv_path)
             output_csv_path.parent.mkdir(parents=True, exist_ok=True)
 
+        batch_folder = Path(folder_path) if folder_path is not None else self.folder_path
         self.logger.info(
             "e2e run_batch: built %d record(s), mode=%s, category=%s, folder_path=%s",
             n_records,
