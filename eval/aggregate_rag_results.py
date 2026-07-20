@@ -104,16 +104,22 @@ def main() -> None:
     if not rows:
         raise SystemExit(f"No CSVs found under {runs_dir}")
 
-    # Dedup: one row per full variant (embedder, mode, query source, repr, reranker, top_k),
-    # keeping the latest run. rerank_on is redundant given `reranker` but kept in the key for safety.
+    # Dedup: one row per full variant (embedder, mode, query source, repr, reranker, top_k).
+    # Prefer phase-2 offline reranks (HIT@3-invariant) over live re-retrievals; else latest run_ts.
     if not args.no_dedup:
         def variant_key(r):
             return (r["embedder"], r["mode"], r["query_text_source"], r["query_repr"],
                     r["rerank_on"], r["reranker"], r["top_k"])
+
+        def variant_rank(r):
+            name = Path(r["csv"]).name.lower()
+            phase2 = 1 if "phase2" in name else 0
+            return (phase2, r["run_ts"])
+
         best = {}
         for r in rows:
             k = variant_key(r)
-            if k not in best or r["run_ts"] > best[k]["run_ts"]:
+            if k not in best or variant_rank(r) > variant_rank(best[k]):
                 best[k] = r
         collapsed = len(rows) - len(best)
         rows = list(best.values())

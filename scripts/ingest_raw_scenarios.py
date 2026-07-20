@@ -31,7 +31,7 @@ def scan_test_subfolders_for_required_files(
         Subfolders with an empty list are complete.
     """
     base_path = Path(base_dir)
-    required_files = ("new_description.txt", "video.mp4")
+    required_files = ("new_description.txt", "BEV.mp4")
 
     if not base_path.exists():
         raise FileNotFoundError(f"Base directory does not exist: {base_path}")

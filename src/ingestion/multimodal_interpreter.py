@@ -185,7 +185,7 @@ class MultimodalDocumentInterpreter:
             doc_dict["text"] = " ".join(text_parts)
         
         # Extract video
-        video_path = folder_path / "video.mp4"
+        video_path = folder_path / "BEV.mp4"
         if video_path.exists() and video_path.is_file():
             doc_dict["video"] = str(video_path.resolve())
         else:

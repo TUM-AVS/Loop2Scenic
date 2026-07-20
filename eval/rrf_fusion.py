@@ -42,10 +42,24 @@ def main() -> None:
     common = sorted(set(dense) & set(sparse))
     print(f"fusing {len(common)} queries (dense={len(dense)}, sparse={len(sparse)})")
 
+    dense_path = Path(args.dense)
+    # Unique slug so rapid successive runs don't overwrite each other, and so
+    # aggregate_rag_results.py keeps one summary row per dense parent (not one global rrf-hybrid).
+    dense_slug = f"{dense_path.parent.name}__{dense_path.stem}"
+    dense_slug = "".join(c if c.isalnum() or c in "-._" else "-" for c in dense_slug)[:120]
+    # Infer mode stamp from dense filename when possible (text_only / text_video / video_only).
+    mode = "text-only"
+    stem_lower = dense_path.name.lower()
+    if "text_video" in stem_lower or "text-video" in stem_lower:
+        mode = "text-video"
+    elif "video_only" in stem_lower or "video-only" in stem_lower:
+        mode = "video-only"
+
     out_dir = Path("eval/results/rag/runs/rrf-hybrid")
     out_dir.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_path = out_dir / f"text_only__fused__raw__norerank__{ts}.csv"
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")  # microseconds → unique even in the same second
+    out_path = out_dir / f"{mode.replace('-', '_')}__fused__{dense_slug}__norerank__{ts}.csv"
+    embedder_label = f"rrf-hybrid::{dense_slug}"
 
     fieldnames = ["ground_truth", "user_query", "scenario_dsl", "flattened_dsl", "base_scenario_id",
                   "best_scenario_ids", "best_similarity_score", "best_rerank_score", "response_time_sec",
@@ -70,11 +84,11 @@ def main() -> None:
                 "best_rerank_score": "",
                 "response_time_sec": "0",
                 "error_message": "",
-                "mode": "text-only",
-                "query_text_source": "fused(dense+bm25)",
+                "mode": mode,
+                "query_text_source": f"fused(dense+bm25)::{dense_slug}",
                 "query_repr": "raw",
                 "rerank_on": "False",
-                "embedder": "rrf-hybrid",
+                "embedder": embedder_label,
                 "top_k": str(args.top_k),
             })
     print(f"RRF_DONE -> {out_path}")
