@@ -96,19 +96,29 @@ def _try_copy_temp_bev_to_eval_result(
     Copy a generated (or baseline) BEV into ``query_result_dir / generated_video.mp4``.
 
     Tries, in order:
-    1. ``temp/<best_scenario_id>/video/BEV.mp4``
-    2. ``temp/<base_scenario_id>/video/BEV.mp4`` (baseline fallback)
-    3. Any ``temp/<id>/video/BEV.mp4`` for ids in ``scenic_scenarios_list`` (newest first)
-    4. ``data/scenarios/<id>/BEV.mp4`` for best/base ids (corpus baseline clip)
+    1. ``data/scenarios/<best>/BEV.mp4`` when the final output is the retrieved
+       library scenario (``best_scenario_id == base_scenario_id``)
+    2. ``temp/<best_scenario_id>/video/BEV.mp4``
+    3. ``temp/<base_scenario_id>/video/BEV.mp4`` (baseline fallback)
+    4. Any ``temp/<id>/video/BEV.mp4`` for ids in ``scenic_scenarios_list`` (newest first)
+    5. ``data/scenarios/<id>/BEV.mp4`` for best/base ids (corpus baseline clip)
 
     Uses copy (not move) so ``temp/`` keeps the original for later inspection.
     """
     repo_root = Path(__file__).resolve().parent.parent
     dest = query_result_dir / "generated_video.mp4"
 
+    best_id = (best_scenario_id or "").strip()
+    base_id = (base_scenario_id or "").strip()
+    output_is_library_scenario = bool(
+        best_id
+        and base_id
+        and best_id == base_id
+        and "_adapted_" not in best_id
+    )
+
     candidate_ids: list[str] = []
-    for sid in (best_scenario_id, base_scenario_id):
-        sid = (sid or "").strip()
+    for sid in (best_id, base_id):
         if sid and sid not in candidate_ids and not sid.startswith("no_best_scenario_"):
             candidate_ids.append(sid)
 
@@ -121,11 +131,15 @@ def _try_copy_temp_bev_to_eval_result(
                 candidate_ids.append(sid)
 
     sources: list[Path] = []
+    if output_is_library_scenario:
+        # Final pick is the retrieved corpus scenario — prefer library media.
+        sources.append(repo_root / "data" / "scenarios" / best_id / "BEV.mp4")
     for sid in candidate_ids:
         sources.append(repo_root / "temp" / sid / "video" / "BEV.mp4")
     for sid in candidate_ids:
-        # Corpus baseline video (useful when fallback is library base and temp was cleaned).
-        sources.append(repo_root / "data" / "scenarios" / sid / "BEV.mp4")
+        corpus = repo_root / "data" / "scenarios" / sid / "BEV.mp4"
+        if corpus not in sources:
+            sources.append(corpus)
 
     src: Optional[Path] = next((p for p in sources if p.is_file()), None)
     if src is None:
@@ -160,6 +174,23 @@ BENCHMARK_CATEGORIES: tuple[QueryMode, ...] = (
     QueryMode.IMAGE_ONLY,
     QueryMode.VIDEO_ONLY,
 )
+
+
+def discover_benchmark_categories(benchmark_root: Path | str) -> tuple[QueryMode, ...]:
+    """Return known modality folders that actually exist under ``benchmark_root``.
+
+    Discovery order follows ``BENCHMARK_CATEGORIES``. Unknown sibling directories
+    (e.g. ``__pycache__``) are ignored.
+    """
+    root = Path(benchmark_root)
+    if not root.is_dir():
+        raise NotADirectoryError(f"Benchmark root does not exist: {root}")
+
+    found: list[QueryMode] = []
+    for mode in BENCHMARK_CATEGORIES:
+        if (root / mode.value).is_dir():
+            found.append(mode)
+    return tuple(found)
 
 
 class EvalE2EWorkflow:
@@ -727,21 +758,52 @@ class EvalE2EWorkflow:
 
     def run_benchmark_categories(
         self,
-        categories: Sequence[QueryMode] = BENCHMARK_CATEGORIES,
+        categories: Optional[Sequence[QueryMode]] = None,
         *,
         benchmark_root: Path | str = BENCHMARK_ROOT,
         limit: Optional[int] = None,
     ) -> Path:
         """
-        Run e2e evaluation for each modality folder under ``data/benchmark``.
+        Run e2e evaluation for each modality folder under ``benchmark_root``.
 
         Uses one shared ``eval/results/e2e_<timestamp>/`` tree and one CSV:
           - results: ``e2e_<ts>/<category>/<scenario>/...``
           - CSV: ``batch_results.csv`` with a ``category`` column
+
+        If ``categories`` is None, auto-detect which known modality folders exist
+        under ``benchmark_root`` (e.g. only ``video-only`` → run only that).
+        Explicit categories that are missing on disk are skipped with a warning.
         """
         benchmark_root = Path(benchmark_root)
         if not benchmark_root.is_dir():
             raise NotADirectoryError(f"Benchmark root does not exist: {benchmark_root}")
+
+        if categories is None:
+            categories = discover_benchmark_categories(benchmark_root)
+            self.logger.info(
+                "Auto-detected benchmark categories under %s: %s",
+                benchmark_root,
+                [c.value for c in categories],
+            )
+        else:
+            present: list[QueryMode] = []
+            for mode in categories:
+                category_dir = benchmark_root / mode.value
+                if category_dir.is_dir():
+                    present.append(mode)
+                else:
+                    self.logger.warning(
+                        "Skipping missing benchmark category folder: %s",
+                        category_dir,
+                    )
+                    print(f"[e2e_batch] skip missing category folder: {category_dir}")
+            categories = tuple(present)
+
+        if not categories:
+            raise FileNotFoundError(
+                f"No known modality folders found under {benchmark_root}. "
+                f"Expected one or more of: {[c.value for c in BENCHMARK_CATEGORIES]}"
+            )
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         results_root = Path(__file__).resolve().parent / "results" / f"e2e_{timestamp}"
@@ -761,10 +823,6 @@ class EvalE2EWorkflow:
 
         for idx, mode in enumerate(categories):
             category_dir = benchmark_root / mode.value
-            if not category_dir.is_dir():
-                raise FileNotFoundError(
-                    f"Missing benchmark category folder: {category_dir}"
-                )
             self.folder_path = category_dir
             self.run_batch(
                 mode=mode,
@@ -782,22 +840,26 @@ class EvalE2EWorkflow:
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Run end-to-end ADS-MRAG evaluation on data/benchmark modality folders "
-            "(text-only, text-image, text-video, image-only, video-only)."
+            "Run end-to-end ADS-MRAG evaluation on modality folders under "
+            "benchmark-root (text-only, text-image, text-video, image-only, "
+            "video-only). By default, only folders that exist are run."
         )
     )
     parser.add_argument(
         "--benchmark-root",
         type=Path,
         default=BENCHMARK_ROOT,
-        help=f"Parent of the five modality folders (default: {BENCHMARK_ROOT})",
+        help=f"Parent of modality folders (default: {BENCHMARK_ROOT})",
     )
     parser.add_argument(
         "--categories",
         nargs="+",
         choices=[c.value for c in BENCHMARK_CATEGORIES],
-        default=[c.value for c in BENCHMARK_CATEGORIES],
-        help="Subset of categories to run (default: all five)",
+        default=None,
+        help=(
+            "Subset of categories to run. Default: auto-detect existing "
+            "modality folders under --benchmark-root"
+        ),
     )
     parser.add_argument(
         "--limit",
@@ -816,7 +878,11 @@ def _parse_args() -> argparse.Namespace:
 
 if __name__ == "__main__":
     args = _parse_args()
-    categories = tuple(QueryMode(c) for c in args.categories)
+    categories = (
+        tuple(QueryMode(c) for c in args.categories)
+        if args.categories is not None
+        else None
+    )
     evaluator = EvalE2EWorkflow(
         folder_path=args.benchmark_root,
         config_path=args.config_path,

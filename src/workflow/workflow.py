@@ -15,8 +15,16 @@ root_path = str(Path(__file__).parent.parent.parent)
 if root_path not in sys.path:
     sys.path.append(root_path)
 
-from .scenario_workflow_state import CLEAN_STATE, ScenarioWorkflowState
-from src.utils import find_scenic_code_with_scenario_id, get_error_message_from_logs, run_simulation_in_carla_and_save_video, setup_logging, log_workflow_state, to_safe_string
+from .scenario_workflow_state import CLEAN_STATE, MAX_COUNT, ScenarioWorkflowState
+from src.utils import (
+    find_scenic_code_with_scenario_id,
+    get_error_message_from_logs,
+    run_simulation_in_carla_and_save_video,
+    setup_logging,
+    log_workflow_state,
+    stage_corpus_bev_for_scenario,
+    to_safe_string,
+)
 from src.agents import InterpreterAgent, ScenicCoderAgent, CriticAgent
 from src.services import Retriever, BaseEmbeddingModel
 
@@ -261,9 +269,35 @@ class ScenarioWorkflow:
             self.logger.error("No current scenic scenario provided")
             return state
 
-        # 2. run simulation
-        self.logger.info("🎬 Running Carla Simulation...")
-        video_path = run_simulation_in_carla_and_save_video(scenic_scenario.scenic_code, scenic_scenario.scenario_id)
+        # 2. For the first-retrieved library scenario, reuse data/scenarios BEV
+        #    instead of re-running CARLA (adapted candidates still simulate).
+        base_scenario_id = state.get("base_scenario_id")
+        is_retrieved_base = bool(
+            base_scenario_id
+            and scenic_scenario.scenario_id == base_scenario_id
+            and "_adapted_" not in scenic_scenario.scenario_id
+        )
+        video_path = None
+        if is_retrieved_base:
+            video_path = stage_corpus_bev_for_scenario(scenic_scenario.scenario_id)
+            if video_path:
+                self.logger.info(
+                    "Skipping CARLA for retrieved base scenario %s; "
+                    "using staged corpus BEV at %s",
+                    scenic_scenario.scenario_id,
+                    video_path,
+                )
+            else:
+                self.logger.warning(
+                    "Corpus BEV missing for base scenario %s; falling back to CARLA",
+                    scenic_scenario.scenario_id,
+                )
+
+        if not video_path:
+            self.logger.info("🎬 Running Carla Simulation...")
+            video_path = run_simulation_in_carla_and_save_video(
+                scenic_scenario.scenic_code, scenic_scenario.scenario_id
+            )
 
         # 3. if simulation failed, put the error message and the score, this kind of scenario will not go to evaluate with vlm
         if not video_path:
