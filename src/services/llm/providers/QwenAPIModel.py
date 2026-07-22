@@ -68,7 +68,7 @@ class QwenAPIModel(BaseLLMModel):
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
-            "extra_body": {"enable_thinking": False},
+            # "extra_body": {"enable_thinking": False},
             "timeout": kwargs.get("timeout", self.timeout),
             **{
                 k: v

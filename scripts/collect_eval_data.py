@@ -15,6 +15,7 @@ from src.utils.simulation import build_run_scenic_batch_command, repo_root, reso
 SOURCE_PATH = Path("/home/dellpro2/chenli/ads-mrag/ads-mrag/data/chat2scenic")
 EVAL_PATH = Path("/home/dellpro2/chenli/ads-mrag/ads-mrag/data/eval")
 REPO_ROOT = Path(__file__).resolve().parent.parent
+BENCHMARK_PATH = REPO_ROOT / "data" / "benchmark"
 EVAL_272_PATH = REPO_ROOT / "data" / "272eval"
 INFERENCE_TEXT_ONLY_PATH = REPO_ROOT / "data" / "inference_data" / "text-only"
 INFERENCE_TEXT_IMAGE_PATH = REPO_ROOT / "data" / "inference_data" / "text-image"
@@ -684,22 +685,134 @@ def rename_png_to_image_png(folder_path: Path) -> list[Path]:
     return renamed_files
 
 
+def parse_cuda_oom_cases_from_batch_csv(
+    batch_results_csv: Path | str,
+    *,
+    cuda_token: str = "CUDA",
+) -> list[dict[str, str]]:
+    """
+    Read an e2e ``batch_results.csv`` and return rows whose ``error_message``
+    contains ``cuda_token`` (default: ``"CUDA"``).
+
+    Returns a de-duplicated list of dicts with keys:
+    - category: modality folder name (e.g. ``text-only``)
+    - ground_truth: benchmark scenario subfolder name
+    """
+    csv_path = Path(batch_results_csv)
+    if not csv_path.is_file():
+        raise FileNotFoundError(f"Batch results CSV not found: {csv_path}")
+
+    seen: set[tuple[str, str]] = set()
+    cases: list[dict[str, str]] = []
+
+    with csv_path.open(newline="", encoding="utf-8") as csvfile:
+        reader = csv.DictReader(csvfile)
+        required = {"category", "ground_truth", "error_message"}
+        if not reader.fieldnames or not required.issubset(set(reader.fieldnames)):
+            raise ValueError(
+                f"CSV must contain columns {sorted(required)}; got {reader.fieldnames}"
+            )
+
+        for row in reader:
+            error_message = (row.get("error_message") or "").strip()
+            if cuda_token not in error_message:
+                continue
+
+            category = (row.get("category") or "").strip()
+            ground_truth = (row.get("ground_truth") or "").strip()
+            if not category or not ground_truth:
+                continue
+
+            key = (category, ground_truth)
+            if key in seen:
+                continue
+            seen.add(key)
+            cases.append({"category": category, "ground_truth": ground_truth})
+
+    return cases
+
+
+def collect_cuda_oom_rerun_benchmark(
+    batch_results_csv: Path | str,
+    *,
+    benchmark_root: Path | str = BENCHMARK_PATH,
+    dest_root: Path | str = REPO_ROOT / "data" / "C22_cuda_oom_rerun",
+    cuda_token: str = "CUDA",
+    overwrite: bool = True,
+) -> dict[str, list[str]]:
+    """
+    Collect CUDA-OOM failures from an e2e batch CSV and copy the matching
+    benchmark subfolders for rerun.
+
+    For each CSV row where ``error_message`` contains ``cuda_token``:
+      source: ``<benchmark_root>/<category>/<ground_truth>/``
+      dest:   ``<dest_root>/<category>/<ground_truth>/``
+
+    Returns:
+        {
+            "cuda_oom_cases": ["text-only/NHTSA_Crash_15", ...],
+            "copied": [...],
+            "missing_source": [...],
+            "skipped_existing": [...],
+        }
+    """
+    benchmark_root = Path(benchmark_root)
+    dest_root = Path(dest_root)
+    if not benchmark_root.is_dir():
+        raise NotADirectoryError(f"Benchmark root does not exist: {benchmark_root}")
+
+    cases = parse_cuda_oom_cases_from_batch_csv(
+        batch_results_csv,
+        cuda_token=cuda_token,
+    )
+
+    copied: list[str] = []
+    missing_source: list[str] = []
+    skipped_existing: list[str] = []
+    case_labels: list[str] = []
+
+    for case in cases:
+        category = case["category"]
+        ground_truth = case["ground_truth"]
+        label = f"{category}/{ground_truth}"
+        case_labels.append(label)
+
+        source = benchmark_root / category / ground_truth
+        target = dest_root / category / ground_truth
+
+        if not source.is_dir():
+            missing_source.append(label)
+            print(f"[MISSING] {source}")
+            continue
+
+        if target.exists():
+            if not overwrite:
+                skipped_existing.append(label)
+                print(f"[SKIP] {target} already exists")
+                continue
+            shutil.rmtree(target)
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(source, target)
+        copied.append(label)
+        print(f"[OK] {source} -> {target}")
+
+    print(
+        f"CUDA-OOM rerun collect: {len(copied)} copied, "
+        f"{len(missing_source)} missing, {len(skipped_existing)} skipped "
+        f"(from {len(case_labels)} unique case(s))"
+    )
+
+    return {
+        "cuda_oom_cases": case_labels,
+        "copied": copied,
+        "missing_source": missing_source,
+        "skipped_existing": skipped_existing,
+    }
+
+
 if __name__ == "__main__":
-    # csv_path = collect_description()
-    # reformat_scenarios()
-    # extract_description()
-    # run_simulation_and_save_video()
-    # move_videos()
-    # remove_extra_folders()
-    # sample_inference_data()
-    # sample_eval_subfolders_excluding_existing()
-    # move_random_subfolders_to_image_only()
-    # copy_carla_scenarios_to_wenting100()
-    rename_png_files_to_image()
-    # create_text_only_folders_from_descriptions()
-    # print(count_subfolders(Path("data\wenting100")))
-    # keep_only_txt_files()
-    # rename_png_to_image_png(Path("/home/avsaw1/chenli/ads-mrag/data/inference_data/image-only"))
-    # check_if_all_files_exist()
-    # sample_eval_subfolders_excluding_existing()
+    collect_cuda_oom_rerun_benchmark(
+    "eval/results/e2e_20260720_230115_C22/batch_results.csv",
+    dest_root="data/C22_cuda_oom_rerun",)
     pass

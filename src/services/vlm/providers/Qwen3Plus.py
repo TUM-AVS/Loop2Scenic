@@ -181,7 +181,7 @@ class Qwen3Plus(BaseVLMModel):
                     messages=messages,
                     temperature=temperature,
                     max_tokens=max_tokens,
-                    extra_body={"enable_thinking": False},
+                    # extra_body={"enable_thinking": True},
                     **call_kwargs,
                 )
                 break
