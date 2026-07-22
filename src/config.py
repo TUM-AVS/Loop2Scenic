@@ -103,6 +103,8 @@ class VLMConfig(BaseModel):
                 self.api_key = os.getenv("GOOGLE_API_KEY")
             elif p in {"openai", "openai_vision"}:
                 self.api_key = os.getenv("OPENAI_API_KEY")
+            elif p in {"qwen", "dashscope"}:
+                self.api_key = os.getenv("QWEN_API_KEY") or os.getenv("DASHSCOPE_API_KEY")
         return self
 
 

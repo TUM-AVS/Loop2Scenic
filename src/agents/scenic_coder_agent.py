@@ -30,6 +30,7 @@ class ScenicCoderAgent(BaseAgent):
         self.vector_store = vector_store
         self.snippets_embedder = snippets_embedder
         self.prompt_template = load_prompt("adapt_code")
+        self.last_debug_failure: str | None = None
 
     def process(self, state: dict) -> dict:
         return state
@@ -235,31 +236,62 @@ param weather = '{weather}'
         # generate the components in the first generation order
         for aspect in generation_order:
             logger.info(f"🧩 Processing Component: {aspect}")
-            # deal with adversarials separately since the evaluation result is a list
+            # deal with list aspects separately (eval is a list of booleans aligned to DSL entries)
             if aspect in list_aspects:
-                description_list = aim_dsl.get(aspect, "")
+                raw_descriptions = aim_dsl.get(aspect, [])
+                if raw_descriptions is None or raw_descriptions == "":
+                    description_list: list = []
+                elif isinstance(raw_descriptions, list):
+                    description_list = raw_descriptions
+                else:
+                    description_list = [raw_descriptions]
+
+                raw_flags = evaluation_result.get(aspect, []) if evaluation_result else []
+                if raw_flags is None or raw_flags == "":
+                    eval_flags: list = []
+                elif isinstance(raw_flags, list):
+                    eval_flags = raw_flags
+                else:
+                    eval_flags = [raw_flags]
+
+                if len(eval_flags) != len(description_list):
+                    logger.warning(
+                        "Length mismatch for %s: DSL has %d description(s), "
+                        "evaluation has %d flag(s) — aligning to DSL length",
+                        aspect,
+                        len(description_list),
+                        len(eval_flags),
+                    )
+
                 generated_components = []
-                for idx, adversarial_result in enumerate(evaluation_result[aspect]):
-                    new_code = None
-                    if not adversarial_result:
-                        # generate a new adversarial with description
-                        description  = description_list[idx]
+                # DSL is the source of truth for what to generate/extract.
+                for idx, description in enumerate(description_list):
+                    # Missing flag → treat as mismatch (needs generation).
+                    matched = eval_flags[idx] if idx < len(eval_flags) else False
+                    if not matched:
                         new_code = self.generate_component(aspect, description, retrieved_components)
                     else:
-                        # extract the existing adversarial
-                        description = description_list[idx]
-                        new_code = self.extract_component(aspect, description, original_scenic_code, retrieved_components)
+                        new_code = self.extract_component(
+                            aspect, description, original_scenic_code, retrieved_components
+                        )
                     if new_code:
                         generated_components.append(new_code)
                         retrieved_components[aspect] = generated_components
                         logger.info(f"✅ Successfully generated {aspect} {idx+1}")
                     else:
                         logger.warning(f"⚠️ LLM returned empty code for {aspect} {idx+1}")
+
+                if len(eval_flags) > len(description_list):
+                    logger.warning(
+                        "Ignoring %d extra evaluation flag(s) for %s with no DSL description",
+                        len(eval_flags) - len(description_list),
+                        aspect,
+                    )
                 continue
             else:
                 # for those aspects that are not a list, generate a new component with the description
                 target_description = aim_dsl.get(aspect, "")
-                needs_modification = not evaluation_result.get(aspect, True)
+                needs_modification = not (evaluation_result or {}).get(aspect, True)
                 new_code = None
                 if needs_modification:
                     # generate a new component with the description
@@ -377,9 +409,18 @@ param weather = '{weather}'
             full_code = result_json.get("full_code", "") if result_json else ""
 
         if full_code:
+            self.last_debug_failure = None
             return full_code
-        else:
-            raise ValueError(f"Failed to fix the bug for {error_component}")
+
+        # Do not abort the workflow: keep the previous script so the graph can
+        # continue and eventually fall back to the baseline in output_best_scenario.
+        # Record the failure so callers/eval CSV can still surface it.
+        self.last_debug_failure = f"Failed to fix the bug for {error_component}"
+        logger.error(
+            "%s; returning the previous scenic code unchanged",
+            self.last_debug_failure,
+        )
+        return scenic_code
 
 if __name__ == "__main__":
     from src.services import MilvusVectorStore

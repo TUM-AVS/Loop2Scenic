@@ -22,14 +22,29 @@ from src.services import (
 )
 from src.utils.logger import setup_logging
 
-FOLDER_PATH = "/home/avsaw1/chenli/ads-mrag/data/scenarios"
+FOLDER_PATH = str(Path(__file__).resolve().parent.parent / "data" / "scenarios")
 
 
 class QueryMode(str, Enum):
     TEXT_ONLY = "text-only"
     TEXT_IMAGE = "text-image"
     TEXT_VIDEO = "text-video"
+    VIDEO_ONLY = "video-only"
     TEXT_IMAGE_VIDEO = "text-image-video"
+
+
+class QueryTextSource(str, Enum):
+    """Where the query text comes from.
+
+    INDEXED_DESCRIPTION (new_description.txt) is the text embedded in the vector DB —
+    querying with it is self-retrieval (leaks the indexed document into the query).
+    MLLM_CAPTION (text_query_description.txt) is an independent VLM description of the
+    scenario video, i.e. a fair, deployment-faithful query.
+    """
+    INDEXED_DESCRIPTION = "new_description.txt"
+    MLLM_CAPTION = "text_query_description.txt"
+    VIDEO_ONLY_CAPTION = "video_only_description.txt"  # pure-video caption (qwen3.6-plus, no GT text)
+    COMBINED_CAPTION = "__combined__"  # text caption + video-only caption (the "two texts" bridge)
 
 class EvalRetrieval:
     """
@@ -132,14 +147,20 @@ class EvalRetrieval:
     def build_multimodal_queries(
         self,
         mode: QueryMode = QueryMode.TEXT_IMAGE_VIDEO,
+        query_text_source: QueryTextSource = QueryTextSource.MLLM_CAPTION,
     ) -> list[dict[str, Any]]:
         """
         Scan immediate subfolders and build query records.
 
         Mapping per subfolder:
-        - text: content of description.txt if present, else None
+        - text: content of the query_text_source file (None for VIDEO_ONLY mode)
         - image_path: absolute path to image.png (when mode includes image)
         - video_path: absolute path to BEV.mp4 (when mode includes video)
+
+        Args:
+        - mode: which modalities feed the query
+        - query_text_source: MLLM_CAPTION (default, fair independent query) or
+          INDEXED_DESCRIPTION (self-retrieval upper bound — the text embedded in the DB)
 
         Returns:
         - list of {"ground_truth": str, "query": MultimodalQuery}
@@ -154,14 +175,32 @@ class EvalRetrieval:
             if not subfolder.is_dir():
                 continue
 
-            description_path = subfolder / "new_description.txt"
-            text = description_path.read_text(encoding="utf-8").strip() if description_path.is_file() else None
+            text = None
+            if mode != QueryMode.VIDEO_ONLY:
+                if query_text_source == QueryTextSource.COMBINED_CAPTION:
+                    # Bridge "two texts": text caption + video-only caption concatenated.
+                    tpath = subfolder / QueryTextSource.MLLM_CAPTION.value
+                    vpath = subfolder / QueryTextSource.VIDEO_ONLY_CAPTION.value
+                    if not (tpath.is_file() and vpath.is_file()):
+                        self.logger.warning("Missing caption(s) in %s — skipping", subfolder.name)
+                        continue
+                    text = (tpath.read_text(encoding="utf-8").strip() + "\n"
+                            + vpath.read_text(encoding="utf-8").strip())
+                else:
+                    description_path = subfolder / query_text_source.value
+                    if not description_path.is_file():
+                        self.logger.warning(
+                            "Missing %s in %s — skipping scenario (generate captions first)",
+                            query_text_source.value, subfolder.name,
+                        )
+                        continue
+                    text = description_path.read_text(encoding="utf-8").strip()
 
             image_path = None
             video_path = None
             if mode in (QueryMode.TEXT_IMAGE, QueryMode.TEXT_IMAGE_VIDEO):
                 image_path = str((subfolder / "image.png").resolve())
-            if mode in (QueryMode.TEXT_VIDEO, QueryMode.TEXT_IMAGE_VIDEO):
+            if mode in (QueryMode.TEXT_VIDEO, QueryMode.VIDEO_ONLY, QueryMode.TEXT_IMAGE_VIDEO):
                 video_path = str((subfolder / "BEV.mp4").resolve())
 
             query = MultimodalQuery(
@@ -199,7 +238,12 @@ class EvalRetrieval:
             self.logger.error("Components not initialized: interpreter_agent/embedder")
             return {}
 
-        dsl, flattened_text = query.text, query.text
+        if getattr(self, "query_repr", "raw") == "dsl":
+            # F1: production symmetric path — VLM interprets the query into the structured DSL,
+            # the flattened DSL text is what gets embedded (mirrors workflow.embed_query).
+            dsl, flattened_text = self.interpreter_agent.generate_dsl_from_user_query(query)
+        else:
+            dsl, flattened_text = query.text, query.text
         query_to_embed = {
             "text": flattened_text,
             "image": query.image_path,
@@ -258,20 +302,38 @@ class EvalRetrieval:
             "best_rerank_score": retrieval.best_rerank_score,
         }
 
-    def eval_text_only(self, mode: QueryMode = QueryMode.TEXT_ONLY) -> Path:
+    def eval_text_only(
+        self,
+        mode: QueryMode = QueryMode.TEXT_ONLY,
+        query_text_source: QueryTextSource = QueryTextSource.MLLM_CAPTION,
+    ) -> Path:
         """
         Run retrieval evaluation for a selected query mode and save results to CSV.
 
         Output file:
-        - eval/results/eval_<mode>_<timestamp>.csv
+        - eval/results/eval_<mode>_<source>_<timestamp>.csv
         """
-        query_records = self.build_multimodal_queries(mode=mode)
+        query_records = self.build_multimodal_queries(mode=mode, query_text_source=query_text_source)
 
-        results_dir = Path(__file__).resolve().parent / "results"
+        # Variant stamping: arms must be self-identifying (see ABLATION_PLAN.md F3)
+        rerank_on = self.reranker is not None
+        embedder_name = getattr(self.config.embedding, "model_name", "unknown")
+
+        # Structured output: eval/results/rag/runs/<embedder-slug>/<mode>__<source>__<rerank>__<ts>.csv
+        embedder_slug = re.sub(r"[^A-Za-z0-9.]+", "-", str(embedder_name)).strip("-").lower()
+        results_dir = Path(__file__).resolve().parent / "results" / "rag" / "runs" / embedder_slug
         results_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         mode_slug = mode.value.replace("-", "_")
-        output_csv_path = results_dir / f"eval_{mode_slug}_{timestamp}.csv"
+        source_slug = {
+            QueryTextSource.MLLM_CAPTION: "caption",
+            QueryTextSource.INDEXED_DESCRIPTION: "indexed",
+            QueryTextSource.VIDEO_ONLY_CAPTION: "vcaption",
+            QueryTextSource.COMBINED_CAPTION: "combined",
+        }[query_text_source]
+        rerank_slug = "rerank" if rerank_on else "norerank"
+        repr_slug = getattr(self, "query_repr", "raw")
+        output_csv_path = results_dir / f"{mode_slug}__{source_slug}__{repr_slug}__{rerank_slug}__{timestamp}.csv"
 
         fieldnames = [
             "ground_truth",
@@ -284,6 +346,12 @@ class EvalRetrieval:
             "best_rerank_score",
             "response_time_sec",
             "error_message",
+            "mode",
+            "query_text_source",
+            "query_repr",
+            "rerank_on",
+            "embedder",
+            "top_k",
         ]
 
         with output_csv_path.open("w", newline="", encoding="utf-8") as csvfile:
@@ -346,6 +414,12 @@ class EvalRetrieval:
                         ),
                         "response_time_sec": f"{response_time_sec:.4f}",
                         "error_message": error_message,
+                        "mode": mode.value,
+                        "query_text_source": query_text_source.value,
+                        "query_repr": getattr(self, "query_repr", "raw"),
+                        "rerank_on": str(rerank_on),
+                        "embedder": str(embedder_name),
+                        "top_k": str(getattr(self.retriever, "top_k", self.config.retrieval.top_k)),
                     }
                 )
 
@@ -387,6 +461,8 @@ def analyze_retrieval_csv(csv_path: str | Path) -> dict[str, float | list[str]]:
     similarity_score_count = 0
     rerank_score_sum = 0.0
     rerank_score_count = 0
+    reciprocal_rank_sum = 0.0
+    recall_at = {1: 0, 3: 0, 5: 0, 10: 0}  # counts; only meaningful up to the stored list length
     failed_ground_truths: list[str] = []
 
     with path.open("r", newline="", encoding="utf-8") as csvfile:
@@ -426,6 +502,13 @@ def analyze_retrieval_csv(csv_path: str | Path) -> dict[str, float | list[str]]:
 
             if ground_truth in best_scenario_ids:
                 in_best_ids_count += 1
+                rank = best_scenario_ids.index(ground_truth) + 1  # 1-indexed
+                # MRR over the ordered list (rank position, not just membership).
+                reciprocal_rank_sum += 1.0 / rank
+                # Recall@k at multiple cutoffs (needs the stored list length >= k).
+                for _k in recall_at:
+                    if rank <= _k:
+                        recall_at[_k] += 1
 
             similarity_raw = str(row.get("best_similarity_score", "")).strip()
             if similarity_raw and similarity_raw.lower() not in ("none", "nan", "null"):
@@ -462,11 +545,18 @@ def analyze_retrieval_csv(csv_path: str | Path) -> dict[str, float | list[str]]:
     avg_best_rerank_score_among_no_error = (
         rerank_score_sum / rerank_score_count if rerank_score_count > 0 else 0.0
     )
+    mrr_among_no_error = (reciprocal_rank_sum / no_error_count) if no_error_count > 0 else 0.0
+    recall_rates = {
+        f"recall@{k}_among_no_error": (recall_at[k] / no_error_count * 100.0) if no_error_count > 0 else 0.0
+        for k in recall_at
+    }
 
     return {
         "no_error_rate": no_error_rate,
         "ground_truth_eq_base_scenario_id_rate_among_no_error": base_match_rate,
         "ground_truth_in_best_scenario_ids_rate_among_no_error": in_best_ids_rate,
+        "mrr_among_no_error": mrr_among_no_error,
+        **recall_rates,
         "avg_response_time_sec": avg_response_time_sec,
         "avg_response_time_sec_among_no_error": avg_response_time_sec_among_no_error,
         "avg_best_similarity_score_among_no_error": avg_best_similarity_score_among_no_error,
@@ -476,12 +566,32 @@ def analyze_retrieval_csv(csv_path: str | Path) -> dict[str, float | list[str]]:
 
 
 if __name__ == "__main__":
-    # eval_retrieval = EvalRetrieval()
-    # eval_retrieval.eval_text_only(mode=QueryMode.TEXT_ONLY)
-    # eval_retrieval.eval_text_only(mode=QueryMode.TEXT_VIDEO)
+    import argparse
 
-    results = analyze_retrieval_csv("eval/results/gemini2/eval_text_only_20260601_224017.csv")
-    print("The text only evaluation results are: ", results)
+    parser = argparse.ArgumentParser(description="Retrieval evaluation / CSV analysis")
+    parser.add_argument("--mode", choices=[m.value for m in QueryMode], default=None,
+                        help="Run retrieval eval for this query mode")
+    parser.add_argument("--query-text-source", choices=[s.name.lower() for s in QueryTextSource],
+                        default="mllm_caption",
+                        help="mllm_caption (fair, default) or indexed_description (self-retrieval upper bound)")
+    parser.add_argument("--folder", default=FOLDER_PATH, help="Scenario folder path")
+    parser.add_argument("--config", default=None, help="Config yaml path (e.g. config/config_norerank.yaml)")
+    parser.add_argument("--query-repr", choices=["raw", "dsl"], default="raw",
+                        help="raw = embed query text directly; dsl = production symmetric VLM->DSL->flatten path")
+    parser.add_argument("--top-k", type=int, default=None,
+                        help="Override retrieval top_k (e.g. 20 to enable Recall@5/@10; top-1/@3 are unchanged)")
+    parser.add_argument("--analyze", default=None, help="Only analyze an existing CSV, no retrieval run")
+    args = parser.parse_args()
 
-    results = analyze_retrieval_csv("eval/results/gemini2/eval_text_video_20260601_224149.csv")
-    print("The text video evaluation results are: ", results)
+    if args.analyze:
+        print(analyze_retrieval_csv(args.analyze))
+    elif args.mode:
+        source = QueryTextSource[args.query_text_source.upper()]
+        eval_retrieval = EvalRetrieval(folder_path=args.folder, config_path=args.config)
+        eval_retrieval.query_repr = args.query_repr
+        if args.top_k is not None:
+            eval_retrieval.retriever.top_k = args.top_k
+        csv_path = eval_retrieval.eval_text_only(mode=QueryMode(args.mode), query_text_source=source)
+        print(analyze_retrieval_csv(csv_path))
+    else:
+        parser.print_help()

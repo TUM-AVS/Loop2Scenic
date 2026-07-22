@@ -16,7 +16,15 @@ if root_path not in sys.path:
     sys.path.append(root_path)
 
 from .scenario_workflow_state import CLEAN_STATE, MAX_COUNT, ScenarioWorkflowState
-from src.utils import find_scenic_code_with_scenario_id, get_error_message_from_logs, run_simulation_in_carla_and_save_video, setup_logging, log_workflow_state, to_safe_string
+from src.utils import (
+    find_scenic_code_with_scenario_id,
+    get_error_message_from_logs,
+    run_simulation_in_carla_and_save_video,
+    setup_logging,
+    log_workflow_state,
+    stage_corpus_bev_for_scenario,
+    to_safe_string,
+)
 from src.agents import InterpreterAgent, ScenicCoderAgent, CriticAgent
 from src.services import Retriever, BaseEmbeddingModel
 
@@ -174,7 +182,11 @@ class ScenarioWorkflow:
             return "interpret"
 
         for scenario in scenic_scenarios_list:
-            if scenario.score and scenario.score > best_score and scenario.error is None:
+            if (
+                scenario.score is not None
+                and scenario.score > best_score
+                and scenario.error is None
+            ):
                 best_score = scenario.score
                 best_scenario = scenario
         
@@ -296,9 +308,35 @@ class ScenarioWorkflow:
             self.logger.error("No current scenic scenario provided")
             return state
 
-        # 2. run simulation
-        self.logger.info("🎬 Running Carla Simulation...")
-        video_path = run_simulation_in_carla_and_save_video(scenic_scenario.scenic_code, scenic_scenario.scenario_id)
+        # 2. For the first-retrieved library scenario, reuse data/scenarios BEV
+        #    instead of re-running CARLA (adapted candidates still simulate).
+        base_scenario_id = state.get("base_scenario_id")
+        is_retrieved_base = bool(
+            base_scenario_id
+            and scenic_scenario.scenario_id == base_scenario_id
+            and "_adapted_" not in scenic_scenario.scenario_id
+        )
+        video_path = None
+        if is_retrieved_base:
+            video_path = stage_corpus_bev_for_scenario(scenic_scenario.scenario_id)
+            if video_path:
+                self.logger.info(
+                    "Skipping CARLA for retrieved base scenario %s; "
+                    "using staged corpus BEV at %s",
+                    scenic_scenario.scenario_id,
+                    video_path,
+                )
+            else:
+                self.logger.warning(
+                    "Corpus BEV missing for base scenario %s; falling back to CARLA",
+                    scenic_scenario.scenario_id,
+                )
+
+        if not video_path:
+            self.logger.info("🎬 Running Carla Simulation...")
+            video_path = run_simulation_in_carla_and_save_video(
+                scenic_scenario.scenic_code, scenic_scenario.scenario_id
+            )
 
         # 3. if simulation failed, put the error message and the score, this kind of scenario will not go to evaluate with vlm
         if not video_path:
@@ -481,11 +519,36 @@ class ScenarioWorkflow:
 
         # 2. adapt the code, if the code has error, call debug function, otherwise call adapt function
         coder_llm_before = self._snapshot_service_metrics(getattr(self.coder, "llm_service", None))
-        adapted_scenic_code = ""
-        if current_scenic_code_error or not current_evaluation_result:
-            adapted_scenic_code = self.coder.debug_code(current_scenic_code, current_scenic_code_error)
-        else:
-            adapted_scenic_code = self.coder.adapt_code(current_scenic_code, current_evaluation_result, scenario_dsl, header_settings)
+        adapted_scenic_code = current_scenic_code
+        adapt_warnings: list[str] = []
+        try:
+            if current_scenic_code_error or not current_evaluation_result:
+                if hasattr(self.coder, "last_debug_failure"):
+                    self.coder.last_debug_failure = None
+                adapted_scenic_code = self.coder.debug_code(
+                    current_scenic_code, current_scenic_code_error
+                )
+                debug_failure = getattr(self.coder, "last_debug_failure", None)
+                if debug_failure:
+                    adapt_warnings.append(str(debug_failure))
+            else:
+                adapted_scenic_code = self.coder.adapt_code(
+                    current_scenic_code,
+                    current_evaluation_result,
+                    scenario_dsl,
+                    header_settings,
+                )
+            if not adapted_scenic_code:
+                warning = "Coder returned empty scenic code; keeping previous script"
+                self.logger.error(warning)
+                adapt_warnings.append(warning)
+                adapted_scenic_code = current_scenic_code
+        except Exception as exc:
+            # Keep previous code so we still reach output_best_scenario / baseline fallback.
+            warning = f"adapt_code/debug_code failed ({exc}); keeping previous scenic code"
+            self.logger.exception(warning)
+            adapt_warnings.append(warning)
+            adapted_scenic_code = current_scenic_code
         self.logger.info(f"🛠 Adapted Scenic code, generation count: {generation_count + 1}")
         coder_llm_after = self._snapshot_service_metrics(getattr(self.coder, "llm_service", None))
         coder_llm_delta = self._delta_metrics(coder_llm_before, coder_llm_after)
@@ -495,7 +558,7 @@ class ScenarioWorkflow:
         adapted_scenic_scenario = ScenicScenario(scenario_id=adpated_scenario_id, scenic_code=adapted_scenic_code) # the description from previous scenario will not be used
         scenic_scenarios_list = state.get("scenic_scenarios_list", [])
         scenic_scenarios_list.append(adapted_scenic_scenario)
-        return {
+        result: Dict = {
             "scenic_scenarios_list": scenic_scenarios_list,
             "current_scenic_scenario": adapted_scenic_scenario,
             "generation_count": generation_count + 1,
@@ -507,32 +570,115 @@ class ScenarioWorkflow:
                 delta=coder_llm_delta,
             ),
         }
+        if adapt_warnings:
+            result["messages"] = [
+                {
+                    "role": "assistant",
+                    "content": f"[workflow_warning] {warning}",
+                }
+                for warning in adapt_warnings
+            ]
+        return result
 
     def output_best_scenario(self, state: ScenarioWorkflowState) -> Dict:
         log_workflow_state(self.logger, "output_best_scenario", state)
-        
-        scenic_scenarios_list = state.get("scenic_scenarios_list", [])
+
+        scenic_scenarios_list = state.get("scenic_scenarios_list", []) or []
         best_scenario = None
         best_score = -1.0
         for scenario in scenic_scenarios_list:
-            if scenario.score and scenario.score > best_score and scenario.error is None and scenario.scenic_code:
+            if (
+                scenario.score is not None
+                and scenario.score > best_score
+                and scenario.error is None
+                and scenario.scenic_code
+            ):
                 best_score = scenario.score
                 best_scenario = scenario
+
         if best_scenario:
             self.logger.info(f"🏆 Returning best scenario: {best_scenario.scenario_id}")
             return {
-                "messages":[
-                    {"role": "assistant", "content": f"Best scenario id is {best_scenario.scenario_id}, scenic code is {best_scenario.scenic_code}"}
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": (
+                            f"Best scenario id is {best_scenario.scenario_id}, "
+                            f"scenic code is {best_scenario.scenic_code}"
+                        ),
+                    }
                 ],
                 "best_scenario": best_scenario,
             }
-        else:
-            self.logger.error("No best scenario found")
+
+        # No scored/error-free candidate — fall back to the retrieved base scenario.
+        fallback = self._fallback_base_scenario(state, scenic_scenarios_list)
+        if fallback:
+            self.logger.warning(
+                "No scored best scenario; falling back to base scenario: %s "
+                "(error=%s, score=%s)",
+                fallback.scenario_id,
+                getattr(fallback, "error", None),
+                getattr(fallback, "score", None),
+            )
             return {
-                "messages":[
-                    {"role": "assistant", "content": "Not able to generate a valid scenic code after multiple attempts."}
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": (
+                            f"Fell back to base scenario id {fallback.scenario_id}, "
+                            f"scenic code is {fallback.scenic_code}"
+                        ),
+                    }
                 ],
+                "best_scenario": fallback,
             }
+
+        self.logger.error("No best scenario found (and no base-scenario fallback available)")
+        return {
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": "Not able to generate a valid scenic code after multiple attempts.",
+                }
+            ],
+        }
+
+    def _fallback_base_scenario(
+        self,
+        state: ScenarioWorkflowState,
+        scenic_scenarios_list: list,
+    ) -> ScenicScenario | None:
+        """Prefer the retrieved base scenario; else any list entry with scenic code."""
+        base_id = state.get("base_scenario_id")
+
+        if base_id:
+            for scenario in scenic_scenarios_list:
+                if scenario.scenario_id == base_id and scenario.scenic_code:
+                    return scenario
+
+        for scenario in scenic_scenarios_list:
+            if scenario.scenic_code:
+                return scenario
+
+        if not base_id:
+            return None
+
+        scenic_code = find_scenic_code_with_scenario_id(base_id)
+        if not scenic_code:
+            return None
+        description = ""
+        try:
+            doc = get_scenario_document_with_scenario_id(base_id)
+            if doc is not None:
+                description = getattr(doc, "description", "") or ""
+        except Exception:
+            pass
+        return ScenicScenario(
+            scenario_id=base_id,
+            scenic_code=scenic_code,
+            description=description,
+        )
 
     def human_review(self, state: ScenarioWorkflowState) -> Dict:
         log_workflow_state(self.logger, "human_review", state)

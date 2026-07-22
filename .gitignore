@@ -89,4 +89,6 @@ Thumbs.db
 .coverage
 htmlcov/
 .pytest_cache/
-volumes/
+volumes/.env.bak
+.env.*
+volumes

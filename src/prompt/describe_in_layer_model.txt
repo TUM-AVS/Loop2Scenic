@@ -13,10 +13,10 @@ Output ONLY a valid JSON object with the following structure. Do NOT wrap the ou
     "adversarials": [
         {
             "object":"<Name of the Adversarial object>",
-            "behavior": "<A short description of the behavior of the Adversarial object>"
+            "behavior": "<A short description of the behavior of this specific Adversarial object>"
         }
     ],
-    "spatial_relation": "<A single short sentence defining the road type (e.g., straight road, highway, intersection) and the relative positioning of all entities within the environment.>",
+    "spatial_relation": "<A single short sentence defining the road type (e.g., straight road, highway, intersection) and the relative positioning of the ego AND EVERY adversarial entity within the environment.>",
     "requirements_and_restrictions": "<Describe any initial distance constraints (e.g., distance between the ego and the intersection) and termination conditions. Leave empty if none apply.>",
     "road_side_structures": [
         {
@@ -35,10 +35,17 @@ Output ONLY a valid JSON object with the following structure. Do NOT wrap the ou
 
 ** Strict Rules to Follow **
 - Cross-Reference Modalities: Use the image or video to visually confirm the static entities, road types, and initial spatial layouts.
-- Use the video to confirm the dynamic behaviors and trajectories of the Ego and Adversarial objects over time.
+- Use the video to confirm the dynamic behaviors and trajectories of the Ego and ALL Adversarial objects over time.
 - Subject-First Descriptions: Start descriptions with the subject (e.g., "The ego vehicle travels...", "A debris object remains...").
 - Separation of Concerns: Exclude spatial relations from the "Ego" and "Adversarials" components. Spatial data belongs ONLY in the "Spatial Relation" component.
-- Adversarials Parsing: Create a separate array entry for each distinct adversarial object. Combine its type (from the allowed list) and behavior in a single sentence.
+- Multiple Adversarials (CRITICAL):
+    - Enumerate EVERY non-ego dynamic entity as its own entry in the "adversarials" array. Do NOT collapse several actors into one entry.
+    - If the scene contains N adversarial cars/pedestrians/cyclists/obstacles, the "adversarials" array MUST contain exactly N objects (N can be 0, 1, 2, 3, or more).
+    - Never omit a secondary or background adversarial just because another adversarial is more salient.
+    - Never merge different behaviors (e.g., one car stopping and another crossing) into a single adversarial description.
+    - Write each adversarial's behavior independently; do not say "the adversarials..." as a group inside one array item.
+    - In "spatial_relation" and "requirements_and_restrictions", explicitly account for ALL adversarials (not only the ego and the primary adversary).
+- Adversarials Parsing: Create a separate array entry for each distinct adversarial object. Use an allowed object type for "object" and a short subject-first behavior sentence for that one entity only.
 - Traffic Lights: Any mention of traffic lights (e.g., red lights) must be placed in the "Requirement and restrictions" component, NOT in the Ego or Adversarials components.
 - Quantitative Details Only allowed for road side structures and temporary modifications: Do NOT include specific numbers, distances, speeds, or durations for all other perspectives, but can be included in the <road_side_structures> and <temporary_modifications> (e.g., say "a certain distance" instead of "50 meters").
 
@@ -56,17 +63,23 @@ Street Barrier, Construction Cone, Traffic Cone, Iron Plank, Traffic Warning, Ac
 
 ** Reasoning and Implementation plan **
 1. Identify the Actors: 
-You must explicitly classify all dynamic entities in the scene as either the Ego vehicle or an Adversary vehicle based on the following strict hierarchy:
+You must explicitly classify all dynamic entities in the scene as either the Ego vehicle or an Adversary based on the following strict hierarchy:
     - Explicit Labels: If the user text explicitly numbers or letters vehicles (e.g., "Vehicle A", "Vehicle B"), assign "Vehicle A" as the Ego and all others as Adversaries.
     - Camera Perspective: If no explicit labels exist, but the video/image is shot from a first-person dashboard or hood perspective, the camera-host vehicle is the Ego.
     - Spatial Inference: If the perspective is a third-person drone or traffic camera view, the vehicle located nearest to the exact center of the frame is the Ego.
-    - Default Classification: Once the Ego is identified, all other active vehicles, pedestrians, or dynamic entities MUST be classified as Adversaries.
+    - Default Classification: Once the Ego is identified, all other active vehicles, pedestrians, cyclists, or dynamic entities MUST be classified as Adversaries.
 
-2. Conduct a Chronological Analysis: 
-Break the video sequence into three strict temporal phases: Initial (start), Midpoint, and Ending. Track the exact spatial positions of the Ego and adversarials during each phase. By directly comparing how their relative positions change across these three distinct frames, deduce their dynamic behaviors (e.g., accelerating, yielding, remaining stationary).
+2. Enumerate All Adversarials Before Describing Them:
+    - Count every non-ego dynamic entity visible in the text/image/video.
+    - Assign each one a distinct array slot before writing behaviors.
+    - If two adversarials share the same object type (e.g., two Cars or two Pedestrians), still create two separate entries and differentiate them by behavior and role in the scene.
+    - Only after this enumeration is complete may you fill ego behavior, spatial_relation, and requirements.
 
-3. Ground Conclusions in Visual Evidence: 
-You must explicitly state the visual evidence that justifies your conclusions regarding dynamic behavior. Do not guess; cite specific spatial cues (e.g., "The adversarial vehicle is decelerating because its distance to the intersection visibly decreases between the Midpoint and Ending phases").
+3. Conduct a Chronological Analysis: 
+Break the video sequence into three strict temporal phases: Initial (start), Midpoint, and Ending. Track the Ego AND EACH adversarial separately across the three phases. Deduce each adversarial's own behavior (e.g., accelerating, yielding, remaining stationary, crossing) from how THAT entity's position changes; do not assume all adversarials share one behavior.
+
+4. Ground Conclusions in Visual Evidence: 
+You must explicitly state the visual evidence that justifies your conclusions regarding dynamic behavior for the ego and for each adversarial. Do not guess; cite specific spatial cues (e.g., "Adversarial 1 decelerates because its distance to the intersection visibly decreases between Midpoint and Ending; Adversarial 2 stays fixed relative to the curb across all three phases").
 
 ** Examples **
 Example 1 (single ego, single adversarial):
@@ -100,13 +113,13 @@ Example 1 (single ego, single adversarial):
     "reasoning_chain": "1. Actors: The ego vehicle is identified from the first-person perspective; the adversarial is the vehicle in the opposing lane. 2. Chronological Analysis: Initially, both approach the 3-way intersection. At the midpoint, the ego initiates a right turn while the adversarial continues straight into the intersection. In the ending phase, the ego completes its turn while the adversarial clears the intersection. 3. Evidence: The ego's trajectory visually arcs 90 degrees right relative to the static lane markings, whereas the adversarial maintains a constant forward vector without deviation.",
 }}
 
-Example 2 (single ego, multiple adversarials):
+Example 2 (single ego, multiple adversarials of the same type):
 {{
     "scenario": "The ego vehicle encounters two pedestrians on the road, where one is standing still and the other is crossing the street.",
-    "ego":{
+    "ego": {
             "object": "Car",
             "behavior": "The car travels straight forward along its lane."
-        }
+        },
     "adversarials": [
         {
             "object": "Pedestrian",
@@ -117,11 +130,35 @@ Example 2 (single ego, multiple adversarials):
             "behavior": "The pedestrian is actively crossing the road in front of the ego vehicle."
         }
     ],
-    "spatial_relation": "The ego vehicle is positioned on a standard road lane, approaching the two pedestrians who are located within its path.",
-    "requirements_and_restrictions": "The ego vehicle must spawn a set distance away from the pedestrians, and the scenario terminates once the ego vehicle has traveled safely past both of them.",
+    "spatial_relation": "The ego vehicle is positioned on a standard road lane, approaching two pedestrians located within its path: one stationary pedestrian ahead in-lane and one crossing pedestrian moving across the ego path.",
+    "requirements_and_restrictions": "The ego vehicle must spawn a set distance away from both pedestrians, and the scenario terminates once the ego vehicle has traveled safely past both of them.",
     "road_side_structures": [],
     "temporary_modifications": [],
-    "reasoning_chain":""
+    "reasoning_chain": "1. Actors: Ego is the centered car; two non-ego pedestrians are adversarials (not merged). 2. Enumeration: adversarials length is 2. 3. Chronology: initial both pedestrians appear ahead; midpoint one stays fixed while the other crosses; ending ego passes both. 4. Evidence: stationary pedestrian's image location is unchanged across phases; crossing pedestrian's lateral position shifts across the lane."
 }}
 
-Extract and convert the following scenario into the exact JSON format requested. Output ONLY the raw JSON object. You are strictly forbidden from truncating the text or using placeholders like .... Do not stop generating until every key is populated and the final closing brace of the JSON is output.
+Example 3 (single ego, multiple adversarials of mixed types):
+{{
+    "scenario": "The ego vehicle drives straight while an adversarial car cuts in from an adjacent lane and a pedestrian steps into the roadway ahead.",
+    "ego": {
+            "object": "Car",
+            "behavior": "The car travels straight forward along its lane and reacts to nearby road users."
+        },
+    "adversarials": [
+        {
+            "object": "Car",
+            "behavior": "The car changes into the ego lane and continues forward ahead of the ego vehicle."
+        },
+        {
+            "object": "Pedestrian",
+            "behavior": "The pedestrian enters the roadway from the roadside and moves across the ego path."
+        }
+    ],
+    "spatial_relation": "On a multi-lane road, the ego starts in one lane, an adversarial car begins in an adjacent lane beside the ego, and a pedestrian is positioned near the roadside ahead of the ego.",
+    "requirements_and_restrictions": "Initial spacing is defined among the ego, the cut-in car, and the pedestrian; the scenario terminates after the ego has passed both adversarials.",
+    "road_side_structures": [],
+    "temporary_modifications": [],
+    "reasoning_chain": "1. Actors: centered car is ego; remaining dynamic entities are adversarials. 2. Enumeration: one Car and one Pedestrian => adversarials length 2. 3. Chronology: initial car beside ego and pedestrian roadside; midpoint car merges ahead while pedestrian enters road; ending both remain distinct threats/actors. 4. Evidence: car's lateral offset to ego shrinks (lane change); pedestrian's position moves from curb into lane."
+}}
+
+Extract and convert the following scenario into the exact JSON format requested. Output ONLY the raw JSON object. You are strictly forbidden from truncating the text or using placeholders like .... Do not stop generating until every key is populated and the final closing brace of the JSON is output. Be especially careful to list every adversarial entity as a separate array item when multiple adversarials are present.
