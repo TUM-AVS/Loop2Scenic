@@ -40,12 +40,11 @@ class CriticAgent(BaseAgent):
             req_file = self.vlm_service.load_media(query.video_path)
             contents.append(types.Part.from_uri(file_uri=req_file.uri, mime_type=req_file.mime_type))
 
-        # 2. Build Generated Scenario
+        # 2. Build Generated Scenario (video only).
+        # Do not pass scenario.description: adapted sims are not guaranteed to match any
+        # caption, and scoring should be original query vs generated video.
         contents.append(types.Part.from_text(text="\nGenerated Scenario:\n"))
-        
-        if scenario.description:
-            contents.append(types.Part.from_text(text=f"Text Description: {scenario.description}\n"))
-            
+
         if scenario.video_path:
             contents.append(types.Part.from_text(text="Scenario Video:\n"))
             scen_file = self.vlm_service.load_media(scenario.video_path)
@@ -54,8 +53,9 @@ class CriticAgent(BaseAgent):
         # 3. THE RECENCY HOOK (Crucial for adherence)
         # Always end the multimodal array with a text instruction reminding it of the goal.
         final_reminder = (
-            "\nBased on the videos and descriptions provided above, please execute your reasoning "
-            "and output the final JSON evaluation object exactly as requested in the system instructions."
+            "\nFirst summarize the Target Requirement, then observe only the Generated Scenario "
+            "BEV video (no generated caption), compare them per the 7 perspectives, and output "
+            "the final JSON evaluation object exactly as requested in the system instructions."
         )
         contents.append(types.Part.from_text(text=final_reminder))
 
