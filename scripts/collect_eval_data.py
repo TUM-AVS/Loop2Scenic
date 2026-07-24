@@ -16,6 +16,15 @@ SOURCE_PATH = Path("/home/dellpro2/chenli/ads-mrag/ads-mrag/data/chat2scenic")
 EVAL_PATH = Path("/home/dellpro2/chenli/ads-mrag/ads-mrag/data/eval")
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BENCHMARK_PATH = REPO_ROOT / "data" / "benchmark"
+BENCHMARK_SAMPLE_125_PATH = REPO_ROOT / "data" / "benchmark_sample_125"
+BENCHMARK_SAMPLE_LIST_PATH = REPO_ROOT / "data" / "benchmark_sample_125.txt"
+BENCHMARK_MODALITIES = (
+    "image-only",
+    "text-image",
+    "text-only",
+    "text-video",
+    "video-only",
+)
 EVAL_272_PATH = REPO_ROOT / "data" / "272eval"
 INFERENCE_TEXT_ONLY_PATH = REPO_ROOT / "data" / "inference_data" / "text-only"
 INFERENCE_TEXT_IMAGE_PATH = REPO_ROOT / "data" / "inference_data" / "text-image"
@@ -811,8 +820,127 @@ def collect_cuda_oom_rerun_benchmark(
     }
 
 
+def sample_benchmark_modality_names(
+    benchmark_root: Path | str = BENCHMARK_PATH,
+    output_txt: Path | str = BENCHMARK_SAMPLE_LIST_PATH,
+    sample_size: int = 25,
+    modalities: tuple[str, ...] = BENCHMARK_MODALITIES,
+    seed: int = 42,
+) -> Path:
+    """
+    Randomly sample ``sample_size`` scenario subfolders from each modality
+    under ``benchmark_root`` and write ``category/scenario_id`` lines to a txt.
+
+    Example line:
+        text-only/NHTSA_Crash_15
+    """
+    benchmark_root = Path(benchmark_root)
+    output_txt = Path(output_txt)
+    if not benchmark_root.is_dir():
+        raise NotADirectoryError(f"Benchmark root does not exist: {benchmark_root}")
+
+    rng = random.Random(seed)
+    lines: list[str] = []
+
+    for modality in modalities:
+        modality_dir = benchmark_root / modality
+        if not modality_dir.is_dir():
+            raise FileNotFoundError(f"Modality folder not found: {modality_dir}")
+
+        scenario_names = sorted(
+            subfolder.name for subfolder in modality_dir.iterdir() if subfolder.is_dir()
+        )
+        if len(scenario_names) < sample_size:
+            raise ValueError(
+                f"{modality}: need at least {sample_size} scenarios, found {len(scenario_names)}"
+            )
+
+        sampled = sorted(rng.sample(scenario_names, sample_size))
+        for scenario_id in sampled:
+            lines.append(f"{modality}/{scenario_id}")
+        print(f"[OK] {modality}: sampled {len(sampled)} / {len(scenario_names)}")
+
+    output_txt.parent.mkdir(parents=True, exist_ok=True)
+    output_txt.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"Wrote {len(lines)} sample name(s) to {output_txt}")
+    return output_txt
+
+
+def export_benchmark_sample_from_txt(
+    sample_txt: Path | str = BENCHMARK_SAMPLE_LIST_PATH,
+    benchmark_root: Path | str = BENCHMARK_PATH,
+    dest_root: Path | str = BENCHMARK_SAMPLE_125_PATH,
+    overwrite: bool = True,
+) -> dict[str, list[str]]:
+    """
+    Read a sample list of ``category/scenario_id`` lines and copy matching
+    folders into ``dest_root`` while preserving modality categories.
+
+    Example:
+        text-only/NHTSA_Crash_15
+          -> data/benchmark_sample_125/text-only/NHTSA_Crash_15/
+    """
+    sample_txt = Path(sample_txt)
+    benchmark_root = Path(benchmark_root)
+    dest_root = Path(dest_root)
+
+    if not sample_txt.is_file():
+        raise FileNotFoundError(f"Sample list not found: {sample_txt}")
+    if not benchmark_root.is_dir():
+        raise NotADirectoryError(f"Benchmark root does not exist: {benchmark_root}")
+
+    copied: list[str] = []
+    missing_source: list[str] = []
+    skipped_existing: list[str] = []
+    invalid_lines: list[str] = []
+
+    for raw_line in sample_txt.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+
+        parts = line.split("/", 1)
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            invalid_lines.append(line)
+            print(f"[INVALID] {line}")
+            continue
+
+        category, scenario_id = parts
+        label = f"{category}/{scenario_id}"
+        source = benchmark_root / category / scenario_id
+        target = dest_root / category / scenario_id
+
+        if not source.is_dir():
+            missing_source.append(label)
+            print(f"[MISSING] {source}")
+            continue
+
+        if target.exists():
+            if not overwrite:
+                skipped_existing.append(label)
+                print(f"[SKIP] {target} already exists")
+                continue
+            shutil.rmtree(target)
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(source, target)
+        copied.append(label)
+        print(f"[OK] {source} -> {target}")
+
+    print(
+        f"Benchmark sample export: {len(copied)} copied, "
+        f"{len(missing_source)} missing, {len(skipped_existing)} skipped, "
+        f"{len(invalid_lines)} invalid"
+    )
+    return {
+        "copied": copied,
+        "missing_source": missing_source,
+        "skipped_existing": skipped_existing,
+        "invalid_lines": invalid_lines,
+    }
+
+
 if __name__ == "__main__":
-    collect_cuda_oom_rerun_benchmark(
-    "eval/results/e2e_20260720_230115_C22/batch_results.csv",
-    dest_root="data/C22_cuda_oom_rerun",)
+    sample_benchmark_modality_names()
+    export_benchmark_sample_from_txt()
     pass
