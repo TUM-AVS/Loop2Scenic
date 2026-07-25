@@ -57,13 +57,15 @@ class ScenarioWorkflow:
         self.workflow.add_node("output_best_scenario", self.output_best_scenario)
         self.workflow.add_node("human_review", self.human_review)
 
-        # 2. add static edges (no VLM critic: simulate → return scenario)
+        # Ablation: no VLM critic / repair loop on the main path.
+        # retrieve base → output immediately (skip simulate + evaluate_with_vlm).
+        # interpret/adapt/simulate remain only for optional human-feedback retries.
         self.workflow.add_edge(START, "embed_query")
         self.workflow.add_edge("embed_query", "retrieve_base_scenario")
-        self.workflow.add_edge("retrieve_base_scenario", "run_simulation")
-        self.workflow.add_edge("run_simulation", "output_best_scenario")
+        self.workflow.add_edge("retrieve_base_scenario", "output_best_scenario")
         self.workflow.add_edge("interpret", "adapt_code")
         self.workflow.add_edge("adapt_code", "run_simulation")
+        self.workflow.add_edge("run_simulation", "output_best_scenario")
         self.workflow.add_edge("output_best_scenario", "human_review")
 
         # 3. add dynamic edges
@@ -419,13 +421,13 @@ class ScenarioWorkflow:
         current_scenic_code_error = current_scenic_scenario.error
         header_settings = state.get("header_settings", None)
 
-        # 2. adapt the code: debug on sim error; otherwise regenerate from DSL
-        #    (no VLM critic — evaluation_result may be None)
+        # 2. adapt the code: debug on sim error; otherwise regenerate from DSL.
+        #    With critic disabled, evaluation_result is usually None → treat as {}.
         coder_llm_before = self._snapshot_service_metrics(getattr(self.coder, "llm_service", None))
         adapted_scenic_code = current_scenic_code
         adapt_warnings: list[str] = []
         try:
-            if current_scenic_code_error or not current_evaluation_result:
+            if current_scenic_code_error:
                 if hasattr(self.coder, "last_debug_failure"):
                     self.coder.last_debug_failure = None
                 adapted_scenic_code = self.coder.debug_code(
@@ -437,7 +439,7 @@ class ScenarioWorkflow:
             else:
                 adapted_scenic_code = self.coder.adapt_code(
                     current_scenic_code,
-                    current_evaluation_result,
+                    current_evaluation_result or {},
                     scenario_dsl,
                     header_settings,
                 )
@@ -494,9 +496,11 @@ class ScenarioWorkflow:
         scenic_scenarios_list = state.get("scenic_scenarios_list", []) or []
         current = state.get("current_scenic_scenario")
 
-        # Prefer the scenario just simulated (no VLM critic scoring).
+        # Ablation / no-critic path: return the current retrieved (or adapted) scenario.
         if current and current.scenic_code and current.error is None:
-            self.logger.info(f"🏆 Returning current scenario (no critic): {current.scenario_id}")
+            self.logger.info(
+                f"🏆 Returning current scenario (no critic ablation): {current.scenario_id}"
+            )
             return {
                 "messages": [
                     {
@@ -508,34 +512,6 @@ class ScenarioWorkflow:
                     }
                 ],
                 "best_scenario": current,
-            }
-
-        # Prefer any scored candidate if present (legacy / optional critic).
-        best_scenario = None
-        best_score = -1.0
-        for scenario in scenic_scenarios_list:
-            if (
-                scenario.score is not None
-                and scenario.score > best_score
-                and scenario.error is None
-                and scenario.scenic_code
-            ):
-                best_score = scenario.score
-                best_scenario = scenario
-
-        if best_scenario:
-            self.logger.info(f"🏆 Returning best scenario: {best_scenario.scenario_id}")
-            return {
-                "messages": [
-                    {
-                        "role": "assistant",
-                        "content": (
-                            f"Best scenario id is {best_scenario.scenario_id}, "
-                            f"scenic code is {best_scenario.scenic_code}"
-                        ),
-                    }
-                ],
-                "best_scenario": best_scenario,
             }
 
         # Fall back to the retrieved base scenario (even if sim had errors).

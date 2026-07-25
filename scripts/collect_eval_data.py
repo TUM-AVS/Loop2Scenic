@@ -941,6 +941,7 @@ def export_benchmark_sample_from_txt(
 
 
 if __name__ == "__main__":
-    sample_benchmark_modality_names()
-    export_benchmark_sample_from_txt()
-    pass
+    collect_cuda_oom_rerun_benchmark(
+    "eval/results/e2e_20260725_124154/batch_results.csv",
+    dest_root="data/rerun",
+    )
