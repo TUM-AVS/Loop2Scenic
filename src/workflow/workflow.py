@@ -456,9 +456,14 @@ class ScenarioWorkflow:
         coder_llm_after = self._snapshot_service_metrics(getattr(self.coder, "llm_service", None))
         coder_llm_delta = self._delta_metrics(coder_llm_before, coder_llm_after)
 
-        # 3. update the scenic scenarios list with the adapted scenario
+        # 3. update the scenic scenarios list with the adapted scenario.
+        # Description is intentionally omitted: VLM eval compares the original query
+        # against the generated video only (adapted code/video need not match any text caption).
         adpated_scenario_id = f"{current_scenic_scenario.scenario_id}_adapted_{generation_count + 1}"
-        adapted_scenic_scenario = ScenicScenario(scenario_id=adpated_scenario_id, scenic_code=adapted_scenic_code) # the description from previous scenario will not be used
+        adapted_scenic_scenario = ScenicScenario(
+            scenario_id=adpated_scenario_id,
+            scenic_code=adapted_scenic_code,
+        )
         scenic_scenarios_list = state.get("scenic_scenarios_list", [])
         scenic_scenarios_list.append(adapted_scenic_scenario)
         result: Dict = {

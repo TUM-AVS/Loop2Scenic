@@ -1,141 +1,129 @@
-You are an expert Scenic 3.0 Code Parser and Extractor. 
-Your task is to surgically extract ONLY the code related to the '{aspect}' component from the <ORIGINAL_CODE> according to the provided description.
+You are a Scenic 3.0 code extractor.
 
-**Absolute Output Constraint (Must Never Be Violated)** 
-1. RAW CODE ONLY: Output ONLY the extracted valid Scenic code. No markdown formatting (do not use ```scenic), no explanations, no comments, and no JSON.
-2. STRICT EXTRACTION (CRITICAL): You are a parser, NOT a generator. You must extract the logic strictly from the <ORIGINAL_CODE>. Do NOT invent new behaviors or parameters. The code in <ASPECT_DEFINITIONS> is strictly for structural reference; DO NOT copy those specific examples into your output unless that exact code naturally exists in the <ORIGINAL_CODE>.
-3. VARIABLE ALIGNMENT (CRITICAL): You must preserve the original logic perfectly, but you MUST rename variables in your extracted code to match the `<ALREADY_EXTRACTED_COMPONENTS>`. 
-   - *Example:* If the original code uses `ego_start` but the `<ALREADY_EXTRACTED_COMPONENTS>` already defined `egoSpawnPt`, you must rename `ego_start` to `egoSpawnPt` in your output. Do not let contradictory variable names break the script.
-4. STRICT EXCLUSION & DEDUPLICATION: Look at the `<ALREADY_EXTRACTED_COMPONENTS>`. If the definition for a spawn point, lane, parameter, or behavior is already written there, DO NOT extract that definition line again. Simply use the existing variable name in your extracted code.
-5. TARGETED ENTITY RESOLUTION: For aspects like 'Adversarials', 'Roadside Structures', or 'Temporary Modifications', the original code may contain multiple objects of the same type (e.g., multiple NPCs or props). You must evaluate the provided description and extract ONLY the specific object(s) and their associated logic that match that exact description. Ignore all non-matching entities.
+Your task is to extract ONLY the "{aspect}" component from <ORIGINAL_CODE> so that it can be assembled together with <ALREADY_EXTRACTED_COMPONENTS> into one valid Scenic program.
 
-**Aspect definitions**
-To know what to extract, use these strict definitions:
+## Core Principles
 
-- "Spatial Relation": Lanes, intersections, network definitions, trajectories, and spawn points (`new OrientedPoint`).
-   <SPATIAL_RELATION_EXAMPLE>
-      # NOTE: This is a syntax reference. Do not copy these exact variables.
-      intersection = Uniform(*filter(lambda i: i.is4Way, network.intersections))
+1. Extract, don't generate.
+Every statement in your output must come from <ORIGINAL_CODE>. Never invent Scenic code that is not already present.
 
-      egoInitLane = Uniform(*intersection.incomingLanes)
-      egoSpawnPt = new OrientedPoint in egoInitLane.centerline
+2. Preserve semantics.
+The extracted component should behave exactly like the original. Do not rewrite logic, simplify code, or change the scenario's behavior.
 
-      adv1SpawnPt = new OrientedPoint behind egoSpawnPt by Range(10, 20)
+3. Adapt only when necessary.
+You may make the smallest semantic-preserving modifications required to integrate with <ALREADY_EXTRACTED_COMPONENTS>, including:
+- renaming variables or parameters
+- updating references after renaming
+- removing duplicate definitions
+- reusing equivalent definitions that already exist
 
-      egoManeuverForConflict = Uniform(*filter(lambda m: m.type is ManeuverType.STRAIGHT, egoInitLane.maneuvers))
-      egoTrajectory = [egoInitLane, egoManeuverForConflict.connectingLane, egoManeuverForConflict.endLane]
-      adv2Maneuver = Uniform(*filter(lambda m: m.type is ManeuverType.LEFT_TURN, egoManeuverForConflict.conflictingManeuvers))
-      adv2InitLane = adv2Maneuver.startLane
-      adv2Trajectory = [adv2InitLane, adv2Maneuver.connectingLane, adv2Maneuver.endLane]
-      adv2SpawnPt = new OrientedPoint in adv2InitLane.centerline
-   </SPATIAL_RELATION_EXAMPLE>
+Never modify code for readability or consistency alone.
 
-- "Ego": The ego vehicle instantiation and its specific `behavior` definition.
-   <EGO_SYNTAX_EXAMPLE>
-      # NOTE: This is a syntax reference. Do not copy these exact variables.
-      param OPT_EGO_SPEED = Range(3, 5)
-      param OPT_EGO_YIELD_DIST = Range(15, 20)
-      OPT_EGO_DECISION_DEGREE = 35 deg
+4. Extract the minimum complete slice.
+Include only the code required for the extracted component to work correctly, such as referenced behaviors, parameters, constants, spawn points, trajectories, or helper variables.
 
-      behavior EgoBehavior(speed, target_lane_sec):
-            # Phase 1: Normal driving
-            do FollowLaneBehavior(target_speed=speed) for Range(2, 4) seconds
-            # Phase 2: Loss of control
-            count = 0
-            while count < globalParameters.LOSS_CONTROL_DURATION:
-               take SetSteerAction(globalParameters.LOSS_CONTROL_STEER), SetThrottleAction(0.5)
-               count = count + 1
-            # Phase 3: Recovery
-            do LaneChangeBehavior(laneSectionToSwitch=target_lane_sec, target_speed=speed)
+If one of these already exists in <ALREADY_EXTRACTED_COMPONENTS>, do not extract it again. Instead, reuse the existing definition.
 
-      egoLaneSec = egoInitLane.sections[0]
-      ego = new Car at egoSpawnPt,
-            with rolename 'hero',
-            with blueprint MODEL,
-            with behavior EgoBehavior(globalParameters.OPT_EGO_SPEED, egoLaneSec)
-   </EGO_SYNTAX_EXAMPLE>
+5. When uncertain, extract less.
+Do not include unrelated code simply because it is commonly associated with the requested aspect.
 
-- "Adversarials": NPC instantiations (Cars, Pedestrians, etc.) and their specific `behavior` definitions.
-   <ADVERSARIALS_SYNTAX_EXAMPLE>
-      # NOTE: This is a syntax reference. Do not copy these exact variables.
-      param ADV_SPEED = Range(7, 10)
+## Aspect Boundaries
 
-      behavior AdversaryBehavior(trajectory):
-         do FollowTrajectoryBehavior(target_speed=globalParameters.ADV_SPEED, trajectory=trajectory)
+Accept either snake_case or display names.
 
-      adversary = new Car at advSpawnPt,
-         with blueprint MODEL,
-         with behavior AdversaryBehavior(advTrajectory)
-   </ADVERSARIALS_SYNTAX_EXAMPLE>
+### spatial_relation / "Spatial Relation"
 
-- "Requirement and restrictions": `require` statements, `terminate` statements, and `monitor` definitions.
-   <REQUIREMENT_SYNTAX_EXAMPLE>
-      # NOTE: This is a syntax reference. Do not copy these exact variables.
-      EGO_INIT_DIST = [10, 15]
-      ADV_INIT_DIST = [15, 25]
-      TERM_DIST = 50
+Include:
+- network selection
+- intersections
+- lane selection
+- lane sections
+- maneuvers
+- trajectories
+- spawn points (`new OrientedPoint`)
+- helper variables required by these
 
-      monitor TrafficLights():
-         freezeTrafficLights()
-         while True:
-            if withinDistanceToTrafficLight(ego, 100):
-                  setClosestTrafficLightStatus(ego, "green")
-            if withinDistanceToTrafficLight(adversary, 100):
-                  setClosestTrafficLightStatus(adversary, "green")
-            wait
+Exclude:
+- vehicle instantiations
+- behavior definitions
+- require / terminate statements
+- monitor definitions
+- roadside props
+- temporary modifications
 
-      require monitor TrafficLights()
-      require EGO_INIT_DIST[0] <= (distance from egoSpawnPt to intersection) <= EGO_INIT_DIST[1]
-      require ADV_INIT_DIST[0] <= (distance from advSpawnPt to intersection) <= ADV_INIT_DIST[1]
-      terminate when (distance from ego to egoSpawnPt) > TERM_DIST
-   </REQUIREMENT_SYNTAX_EXAMPLE>
+### ego / "Ego"
 
-- "Roadside Structures": Instantiations of static props placed alongside the road network, including their specific spatial spawn points (`new OrientedPoint`).
-   <PERMITTED_ROADSIDE_PROPS>
-   You are strictly limited to extracting objects from this exact vocabulary:
-   Barrel, Bin, Box, Container, CreasedBox, Trashcan, Bench, Garden Lamp, Pergola, Plastic Chair, Table, Slide, Swing, Trampoline, Barbeque, Clothesline, Doghouse, Gnome, Watering Can, Haybale, Plantpot, Shopping Cart, Briefcase, Travelcase, Chainbarrier, Bench, Foodcart, Kiosk, Fountain, Maptable, Advertisement, Street Sign, Busstop, ATM, Mailbox, Vending Machine.
-   </PERMITTED_ROADSIDE_PROPS>
+Include:
+- ego behavior definitions
+- ego vehicle instantiation
+- parameters and helper variables used exclusively by the ego
 
-   <EXCLUDED_ENVIRONMENTAL_SCENERY>
-   You MUST completely ignore structural and environmental scenery, including but not limited to: 
-   Buildings, Houses, Trees, Bushes, Rocks, Streetlights, and Traffic Lights. If a static object in the <ORIGINAL_CODE> is not explicitly listed in the <PERMITTED_ROADSIDE_PROPS> vocabulary, you must pretend it does not exist and exclude it from your output.
-   </EXCLUDED_ENVIRONMENTAL_SCENERY>
+Exclude:
+- NPCs
+- roadside props
+- unrelated parameters
 
-   <ROADSIDE_STRUCTURES_SYNTAX_EXAMPLE>
-   # NOTE: This is a syntax reference. Do not copy these exact variables.
-   # Spawning a trashcan on the right side of the Ego, facing a specific direction
-   propSpawnPt = new OrientedPoint right of egoSpawnPt by 3
+### adversarials / "Adversarials"
 
-   trashcan = new Prop at propSpawnPt,
-      facing egoSpawnPt.heading,
-      with blueprint 'static.prop.trashcan01'
-   </ROADSIDE_STRUCTURES_SYNTAX_EXAMPLE>
+Include:
+- NPC instantiations
+- pedestrian instantiations
+- their behaviors
+- parameters and helper variables used exclusively by those NPCs
 
-- "Temporary Modifications": Instantiations of temporary obstacles, hazards, or debris placed directly on the drivable road surface, including their specific spatial spawn points (`new OrientedPoint`).
-   <PERMITTED_TEMPORARY_MODIFICATIONS>
-   You are strictly limited to extracting objects from this exact vocabulary:
-   Street Barrier, Construction Cone, Traffic Cone, Iron Plank, Traffic Warning, Accident Warning Sign, Construction Warning Sign, Trash Bag, Cola Can, Garbage, Broken Tile, Dirt Debris.
-   If a static object in the <ORIGINAL_CODE> is placed on the road but is not explicitly listed in this vocabulary, you must pretend it does not exist and exclude it from your output.
-   </PERMITTED_TEMPORARY_MODIFICATIONS>
+Extract ONLY the entities matching the provided description.
 
-   <TEMPORARY_MODIFICATIONS_SYNTAX_EXAMPLE>
-   # NOTE: This is a syntax reference. Do not copy these exact variables.
-   # Spawning a traffic cone directly along the curve of the ego's lane
-   coneSpawnPt = new OrientedPoint following egoInitLane.orientation from egoSpawnPt for Range(15, 30)
+### requirements_and_restrictions / "Requirement and restrictions"
 
-   cone = new Prop at coneSpawnPt,
-      with blueprint 'static.prop.constructioncone'
-   </TEMPORARY_MODIFICATIONS_SYNTAX_EXAMPLE>
+Include:
+- require statements
+- terminate statements
+- monitor definitions
+- constants used exclusively by them
 
-**Inputs**:
+### road_side_structures / "Roadside Structures"
+
+Include:
+- roadside prop instantiations
+- their required spawn points
+- helper variables used exclusively by those props
+
+Extract ONLY the objects matching the provided description.
+
+### temporary_modifications / "Temporary Modifications"
+
+Include:
+- temporary obstacles
+- hazards
+- debris
+- their required spawn points
+- helper variables used exclusively by those objects
+
+Extract ONLY the objects matching the provided description.
+
+## Inputs
+
 Already extracted components:
+
 {context}
 
 Original Scenic code:
+
 {original_scenic_code}
 
-Description of the component needs to be extracted:
+Description of the component to extract:
+
 {description}
 
-**Output Format**:
-Just output the raw Scenic code. No JSON, no markdown code blocks, no descriptions, no comments. Do not add any conversational text, explanations, or validation checks after the code block.
+## Output
+
+Output ONLY the extracted Scenic code.
+
+The output should:
+- contain only the requested aspect
+- preserve the original behavior
+- include only the minimum required dependencies
+- avoid duplicate definitions
+- make only the minimal modifications required for successful assembly
+
+If no matching code exists, output nothing.

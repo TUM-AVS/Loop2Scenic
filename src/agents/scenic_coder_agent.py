@@ -8,7 +8,7 @@ from tests.test_utils import test_video_recording
 from .base_agent import BaseAgent
 from src.services import BaseLLMModel, MilvusVectorStore, BaseEmbeddingModel, get_embedder, get_llm_service
 from src.prompt import load_prompt
-from typing import Dict, Any, List
+from typing import Any, Dict, List
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +85,22 @@ param weather = '{weather}'
         """
         return header
 
+    @staticmethod
+    def _component_desc_to_text(description: Any) -> str:
+        """Serialize a DSL component description (str or dict) into embed/prompt text."""
+        if description is None:
+            return ""
+        if isinstance(description, str):
+            return description
+        if isinstance(description, dict):
+            obj = description.get("object", "") or ""
+            detail = description.get("behavior") or description.get("position") or ""
+            text = f"{obj}: {detail}".strip(": ").strip()
+            if text:
+                return text
+            return " ".join(str(v) for v in description.values() if v)
+        return str(description)
+
     def get_snippets(self, text: str, comp_type: str) -> List[str]:
         # comp_type mapping
         if comp_type == "spatial_relation":
@@ -100,7 +116,8 @@ param weather = '{weather}'
         elif comp_type == "requirements_and_restrictions":
             comp_type = "Requirement and restrictions"
         try:
-            query_embedding = self.snippets_embedder.encode([{"text": text}])[0]
+            query_text = self._component_desc_to_text(text)
+            query_embedding = self.snippets_embedder.encode([{"text": query_text}])[0]
             if hasattr(query_embedding, "tolist"): query_embedding = query_embedding.tolist()
             similar_snippets = self.vector_store.similarity_search_snippets(
                 query_embedding=query_embedding, k=3, component_type=comp_type
@@ -168,6 +185,7 @@ param weather = '{weather}'
         """
         Generate a component based on the description and the retrieved components.
         """
+        description = self._component_desc_to_text(description)
         snippets = self.get_snippets(text=description, comp_type=aspect)
         context = self.build_context(retrieved_components)
         
@@ -183,6 +201,7 @@ param weather = '{weather}'
         """
         Extract a component based on the original scenic code and the retrieved components.
         """
+        description = self._component_desc_to_text(description)
         context = self.build_context(retrieved_components)
         extract_prompt = load_prompt("component_generator_extract").format(
             aspect=aspect, 
