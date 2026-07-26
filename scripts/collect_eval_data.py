@@ -811,8 +811,151 @@ def collect_cuda_oom_rerun_benchmark(
     }
 
 
+def parse_vlm_score_cases_from_batch_csv(
+    batch_results_csv: Path | str,
+    *,
+    min_score: float = 70.0,
+) -> list[dict[str, str]]:
+    """
+    Read an e2e ``batch_results.csv`` and return rows with
+    ``best_vlm_eval_score >= min_score``.
+
+    Returns a de-duplicated list of dicts with keys:
+    - category
+    - ground_truth
+    - best_vlm_eval_score
+    """
+    csv_path = Path(batch_results_csv)
+    if not csv_path.is_file():
+        raise FileNotFoundError(f"Batch results CSV not found: {csv_path}")
+
+    seen: set[tuple[str, str]] = set()
+    cases: list[dict[str, str]] = []
+
+    with csv_path.open(newline="", encoding="utf-8") as csvfile:
+        reader = csv.DictReader(csvfile)
+        required = {"category", "ground_truth", "best_vlm_eval_score"}
+        if not reader.fieldnames or not required.issubset(set(reader.fieldnames)):
+            raise ValueError(
+                f"CSV must contain columns {sorted(required)}; got {reader.fieldnames}"
+            )
+
+        for row in reader:
+            raw_score = (row.get("best_vlm_eval_score") or "").strip()
+            if not raw_score:
+                continue
+            try:
+                score = float(raw_score)
+            except ValueError:
+                continue
+            if score < min_score:
+                continue
+
+            category = (row.get("category") or "").strip()
+            ground_truth = (row.get("ground_truth") or "").strip()
+            if not category or not ground_truth:
+                continue
+
+            key = (category, ground_truth)
+            if key in seen:
+                continue
+            seen.add(key)
+            cases.append(
+                {
+                    "category": category,
+                    "ground_truth": ground_truth,
+                    "best_vlm_eval_score": f"{score:.2f}",
+                }
+            )
+
+    return cases
+
+
+def collect_vlm_score_benchmark(
+    batch_results_csv: Path | str,
+    *,
+    benchmark_root: Path | str = BENCHMARK_PATH,
+    dest_root: Path | str = REPO_ROOT / "data" / "benchmark_vlm70",
+    min_score: float = 70.0,
+    overwrite: bool = True,
+) -> dict[str, list[str]]:
+    """
+    Collect scenarios with ``best_vlm_eval_score >= min_score`` and copy the
+    matching benchmark subfolders.
+
+    For each qualifying CSV row:
+      source: ``<benchmark_root>/<category>/<ground_truth>/``
+      dest:   ``<dest_root>/<category>/<ground_truth>/``
+
+    Returns:
+        {
+            "selected_cases": ["text-only/foo", ...],
+            "copied": [...],
+            "missing_source": [...],
+            "skipped_existing": [...],
+        }
+    """
+    benchmark_root = Path(benchmark_root)
+    dest_root = Path(dest_root)
+    if not benchmark_root.is_dir():
+        raise NotADirectoryError(f"Benchmark root does not exist: {benchmark_root}")
+
+    cases = parse_vlm_score_cases_from_batch_csv(
+        batch_results_csv,
+        min_score=min_score,
+    )
+
+    copied: list[str] = []
+    missing_source: list[str] = []
+    skipped_existing: list[str] = []
+    case_labels: list[str] = []
+
+    for case in cases:
+        category = case["category"]
+        ground_truth = case["ground_truth"]
+        label = f"{category}/{ground_truth}"
+        case_labels.append(label)
+
+        source = benchmark_root / category / ground_truth
+        target = dest_root / category / ground_truth
+
+        if not source.is_dir():
+            missing_source.append(label)
+            print(f"[MISSING] {source}")
+            continue
+
+        if target.exists():
+            if not overwrite:
+                skipped_existing.append(label)
+                print(f"[SKIP] {target} already exists")
+                continue
+            shutil.rmtree(target)
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(source, target)
+        copied.append(label)
+        print(
+            f"[OK] score={case['best_vlm_eval_score']} {source} -> {target}"
+        )
+
+    print(
+        f"VLM>={min_score:g} collect: {len(copied)} copied, "
+        f"{len(missing_source)} missing, {len(skipped_existing)} skipped "
+        f"(from {len(case_labels)} unique case(s))"
+    )
+
+    return {
+        "selected_cases": case_labels,
+        "copied": copied,
+        "missing_source": missing_source,
+        "skipped_existing": skipped_existing,
+    }
+
+
 if __name__ == "__main__":
     collect_cuda_oom_rerun_benchmark(
-    "eval/results/e2e_20260720_230115_C22/batch_results.csv",
-    dest_root="data/C22_cuda_oom_rerun",)
-    pass
+        "ads-mrag/eval/results/e2e_20260726_151606_kimi-k2.6-vlm90/batch_results.csv",
+        dest_root="data/vlm70rerun",
+        cuda_token="CUDA",
+        overwrite=True,
+    )

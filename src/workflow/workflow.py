@@ -190,7 +190,7 @@ class ScenarioWorkflow:
                 best_score = scenario.score
                 best_scenario = scenario
         
-        if count >= max_count or (best_scenario and best_score >= 70):
+        if count >= max_count or (best_scenario and best_score >= 90):
             self.logger.info(f"🚦 ROUTER: Best score {best_score} or max count {count}/{max_count} reached. Sending to User.")
             return "output_best_scenario"
         else:
