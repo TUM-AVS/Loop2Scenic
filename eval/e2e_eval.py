@@ -21,6 +21,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from src.app import ChatbotWorkflow
+from src.config import get_config
 from src.schema import MultimodalQuery
 
 from e2e_metrics import extract_vlm_llm_metrics_rows, normalize_model_metrics_blob
@@ -31,6 +32,30 @@ FOLDER_PATH = str(BENCHMARK_ROOT)
 
 _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"}
 _VIDEO_EXTS = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
+
+
+def _sanitize_model_tag(name: str) -> str:
+    """Make a model id safe for directory names (e.g. ``qwen3-vl:32b`` → ``qwen3-vl-32b``)."""
+    cleaned = (name or "").strip()
+    for ch in (":", "/", "\\", " ", ".", "@"):
+        cleaned = cleaned.replace(ch, "-")
+    while "--" in cleaned:
+        cleaned = cleaned.replace("--", "-")
+    return cleaned.strip("-_") or "unknown"
+
+
+def _results_run_dirname(llm_model: Optional[str], vlm_model: Optional[str]) -> str:
+    """Build ``e2e_<timestamp>_<model(s)>`` results folder name."""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    llm_tag = _sanitize_model_tag(llm_model or "")
+    vlm_tag = _sanitize_model_tag(vlm_model or "")
+    if llm_tag == vlm_tag or not vlm_model:
+        model_part = llm_tag
+    elif not llm_model:
+        model_part = vlm_tag
+    else:
+        model_part = f"{llm_tag}_llm_{vlm_tag}_vlm"
+    return f"e2e_{timestamp}_{model_part}"
 
 
 def _resolve_media_path(subfolder: Path, preferred_name: str, extensions: set[str]) -> Optional[str]:
@@ -211,8 +236,16 @@ class EvalE2EWorkflow:
         self.folder_path = Path(folder_path)
         self.config_path = config_path
         self.logger = logging.getLogger(__name__)
+        self.config = get_config(config_path)
         self.chatbot_workflow = ChatbotWorkflow()
         self.workflow = self.chatbot_workflow.initialize_system(config_path=config_path)
+
+    def _default_results_root(self) -> Path:
+        """``eval/results/e2e_<timestamp>_<llm/vlm model>/``."""
+        llm_model = getattr(getattr(self.config, "llm", None), "model", None)
+        vlm_model = getattr(getattr(self.config, "vlm", None), "model", None)
+        dirname = _results_run_dirname(llm_model, vlm_model)
+        return Path(__file__).resolve().parent / "results" / dirname
 
     def build_multimodal_queries(
         self,
@@ -493,8 +526,7 @@ class EvalE2EWorkflow:
         n_records = len(query_records)
 
         if results_root is None:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            results_root = Path(__file__).resolve().parent / "results" / f"e2e_{timestamp}"
+            results_root = self._default_results_root()
         results_root = Path(results_root)
         results_root.mkdir(parents=True, exist_ok=True)
 
@@ -766,8 +798,8 @@ class EvalE2EWorkflow:
         """
         Run e2e evaluation for each modality folder under ``benchmark_root``.
 
-        Uses one shared ``eval/results/e2e_<timestamp>/`` tree and one CSV:
-          - results: ``e2e_<ts>/<category>/<scenario>/...``
+        Uses one shared ``eval/results/e2e_<timestamp>_<model>/`` tree and one CSV:
+          - results: ``e2e_<ts>_<model>/<category>/<scenario>/...``
           - CSV: ``batch_results.csv`` with a ``category`` column
 
         If ``categories`` is None, auto-detect which known modality folders exist
@@ -805,8 +837,7 @@ class EvalE2EWorkflow:
                 f"Expected one or more of: {[c.value for c in BENCHMARK_CATEGORIES]}"
             )
 
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        results_root = Path(__file__).resolve().parent / "results" / f"e2e_{timestamp}"
+        results_root = self._default_results_root()
         results_root.mkdir(parents=True, exist_ok=True)
         output_csv_path = results_root / "batch_results.csv"
 
