@@ -521,6 +521,22 @@ class ScenarioWorkflow:
         coder_llm_before = self._snapshot_service_metrics(getattr(self.coder, "llm_service", None))
         adapted_scenic_code = current_scenic_code
         adapt_warnings: list[str] = []
+        # First-round base scenario scored < 50 → discard extract path; regenerate all components.
+        FIRST_ROUND_FULL_GEN_SCORE_THRESHOLD = 50
+        base_score = current_scenic_scenario.score
+        force_generate_all = (
+            generation_count == 0
+            and base_score is not None
+            and float(base_score) < FIRST_ROUND_FULL_GEN_SCORE_THRESHOLD
+        )
+        if force_generate_all:
+            self.logger.info(
+                "🔁 First-round VLM score %.2f < %d: regenerating all components "
+                "(not extracting from base scenario %s)",
+                float(base_score),
+                FIRST_ROUND_FULL_GEN_SCORE_THRESHOLD,
+                current_scenic_scenario.scenario_id,
+            )
         try:
             if current_scenic_code_error or not current_evaluation_result:
                 if hasattr(self.coder, "last_debug_failure"):
@@ -537,6 +553,7 @@ class ScenarioWorkflow:
                     current_evaluation_result,
                     scenario_dsl,
                     header_settings,
+                    force_generate_all=force_generate_all,
                 )
             if not adapted_scenic_code:
                 warning = "Coder returned empty scenic code; keeping previous script"
@@ -553,9 +570,14 @@ class ScenarioWorkflow:
         coder_llm_after = self._snapshot_service_metrics(getattr(self.coder, "llm_service", None))
         coder_llm_delta = self._delta_metrics(coder_llm_before, coder_llm_after)
 
-        # 3. update the scenic scenarios list with the adapted scenario
+        # 3. update the scenic scenarios list with the adapted scenario.
+        # Description is intentionally omitted: VLM eval compares the original query
+        # against the generated video only (adapted code/video need not match any text caption).
         adpated_scenario_id = f"{current_scenic_scenario.scenario_id}_adapted_{generation_count + 1}"
-        adapted_scenic_scenario = ScenicScenario(scenario_id=adpated_scenario_id, scenic_code=adapted_scenic_code) # the description from previous scenario will not be used
+        adapted_scenic_scenario = ScenicScenario(
+            scenario_id=adpated_scenario_id,
+            scenic_code=adapted_scenic_code,
+        )
         scenic_scenarios_list = state.get("scenic_scenarios_list", [])
         scenic_scenarios_list.append(adapted_scenic_scenario)
         result: Dict = {

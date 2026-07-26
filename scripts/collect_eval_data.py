@@ -16,6 +16,15 @@ SOURCE_PATH = Path("/home/dellpro2/chenli/ads-mrag/ads-mrag/data/chat2scenic")
 EVAL_PATH = Path("/home/dellpro2/chenli/ads-mrag/ads-mrag/data/eval")
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BENCHMARK_PATH = REPO_ROOT / "data" / "benchmark"
+BENCHMARK_SAMPLE_125_PATH = REPO_ROOT / "data" / "benchmark_sample_125"
+BENCHMARK_SAMPLE_LIST_PATH = REPO_ROOT / "data" / "benchmark_sample_125.txt"
+BENCHMARK_MODALITIES = (
+    "image-only",
+    "text-image",
+    "text-only",
+    "text-video",
+    "video-only",
+)
 EVAL_272_PATH = REPO_ROOT / "data" / "272eval"
 INFERENCE_TEXT_ONLY_PATH = REPO_ROOT / "data" / "inference_data" / "text-only"
 INFERENCE_TEXT_IMAGE_PATH = REPO_ROOT / "data" / "inference_data" / "text-image"
