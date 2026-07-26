@@ -963,7 +963,7 @@ def collect_vlm_score_benchmark(
 
 if __name__ == "__main__":
     collect_cuda_oom_rerun_benchmark(
-        "ads-mrag/eval/results/e2e_20260726_151606_kimi-k2.6-vlm90/batch_results.csv",
+        "eval/results/e2e_20260726_151606_kimi-k2.6-vlm90/batch_results.csv",
         dest_root="data/vlm70rerun",
         cuda_token="CUDA",
         overwrite=True,
