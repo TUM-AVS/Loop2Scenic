@@ -190,7 +190,7 @@ class ScenarioWorkflow:
                 best_score = scenario.score
                 best_scenario = scenario
         
-        if count >= max_count or (best_scenario and best_score >= 70):
+        if count >= max_count or (best_scenario and best_score >= 90):
             self.logger.info(f"🚦 ROUTER: Best score {best_score} or max count {count}/{max_count} reached. Sending to User.")
             return "output_best_scenario"
         else:
@@ -521,6 +521,22 @@ class ScenarioWorkflow:
         coder_llm_before = self._snapshot_service_metrics(getattr(self.coder, "llm_service", None))
         adapted_scenic_code = current_scenic_code
         adapt_warnings: list[str] = []
+        # First-round base scenario scored < 50 → discard extract path; regenerate all components.
+        FIRST_ROUND_FULL_GEN_SCORE_THRESHOLD = 50
+        base_score = current_scenic_scenario.score
+        force_generate_all = (
+            generation_count == 0
+            and base_score is not None
+            and float(base_score) < FIRST_ROUND_FULL_GEN_SCORE_THRESHOLD
+        )
+        if force_generate_all:
+            self.logger.info(
+                "🔁 First-round VLM score %.2f < %d: regenerating all components "
+                "(not extracting from base scenario %s)",
+                float(base_score),
+                FIRST_ROUND_FULL_GEN_SCORE_THRESHOLD,
+                current_scenic_scenario.scenario_id,
+            )
         try:
             if current_scenic_code_error or not current_evaluation_result:
                 if hasattr(self.coder, "last_debug_failure"):
@@ -537,6 +553,7 @@ class ScenarioWorkflow:
                     current_evaluation_result,
                     scenario_dsl,
                     header_settings,
+                    force_generate_all=force_generate_all,
                 )
             if not adapted_scenic_code:
                 warning = "Coder returned empty scenic code; keeping previous script"
