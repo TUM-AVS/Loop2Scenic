@@ -72,9 +72,9 @@ simulation:
   carla:
     # Set to your CARLA LinuxNoEditor directory (required for --auto-start-carla)
     # binary_dir: "/home/avsaw1/chenli/CARLA_0.9.16"
-    # binary_dir: "/home/dellpro2/caiwang/carla/Dist/CARLA_Shipping_294096eb1/LinuxNoEditor"
+    binary_dir: "/home/dellpro2/caiwang/carla/Dist/CARLA_Shipping_294096eb1/LinuxNoEditor"
     # binary_dir: "/home/avsaw1/chenli/CARLA_0.9.16"   # on alienware
-    binary_dir: "/home/mifcom2/chenli2/carla_0.9.16"
+    # binary_dir: "/home/mifcom2/chenli2/carla_0.9.16"
     cmd: "./CarlaUE4.sh -quality-level=High -nosound -RenderOffScreen -carla-rpc-port=8200"
     host: localhost
     port: 8200
@@ -94,7 +94,7 @@ simulation:
     workdir: Scenic
     map_root: Scenic/assets/maps/CARLA
     version: 3
-    conda_env: ads_mrag
+    conda_env: chenli
     scenic2_conda_env: scenic2.0
     scenic3_venv_activate: null
     duration_sec: 25

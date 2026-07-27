@@ -37,7 +37,7 @@ mkdir -p "$LOG_DIR"
 
 # Smallest → largest (Ollama on-disk Q4 sizes / param scale).
 CONFIGS=(
-  "$CONFIG_DIR/config_devstral_small2.yaml"   # ~15GB, 24B
+  # "$CONFIG_DIR/config_devstral_small2.yaml"   # ~15GB, 24B
   "$CONFIG_DIR/config_gemma4_31b.yaml"        # ~20GB, 31B
   "$CONFIG_DIR/config_qwen3vl32b.yaml"        # ~21GB, 32B
   "$CONFIG_DIR/config_qwen36_35b.yaml"        # ~24GB, 35B
