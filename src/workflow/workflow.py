@@ -509,9 +509,30 @@ class ScenarioWorkflow:
         generation_count = state.get("generation_count", 0)
         scenario_dsl = state.get("scenario_dsl", {}) # aim dsl
         current_scenic_scenario = state.get("current_scenic_scenario", None)
-        if not current_scenic_scenario or not current_scenic_scenario.scenic_code or not scenario_dsl:
-            self.logger.error("No current scenic scenario or scenic code or aim dsl provided")
-            return state
+        missing: list[str] = []
+        if not current_scenic_scenario:
+            missing.append("current_scenic_scenario")
+        elif not current_scenic_scenario.scenic_code:
+            missing.append("scenic_code")
+        if not scenario_dsl:
+            missing.append("scenario_dsl")
+        if missing:
+            # Critical: still advance generation_count so the VLM router can hit
+            # MAX_COUNT and exit. Returning unchanged state caused infinite loops
+            # when DSL parse failed but the base scenario kept scoring < 90.
+            new_count = max(int(generation_count) + 1, MAX_COUNT)
+            warning = (
+                "adapt_code skipped; missing "
+                + ", ".join(missing)
+                + f" (generation_count {generation_count} -> {new_count})"
+            )
+            self.logger.error(warning)
+            return {
+                "generation_count": new_count,
+                "messages": [
+                    {"role": "assistant", "content": f"[workflow_warning] {warning}"}
+                ],
+            }
         current_scenic_code = current_scenic_scenario.scenic_code
         current_evaluation_result = current_scenic_scenario.evaluation_result
         current_scenic_code_error = current_scenic_scenario.error
