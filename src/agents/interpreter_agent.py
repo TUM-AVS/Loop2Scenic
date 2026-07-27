@@ -1,5 +1,5 @@
 
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import logging
 
 from google.genai import types
@@ -14,11 +14,19 @@ from src.schema import MultimodalQuery, ScenarioDocument, ScenicScenario, Header
 
 logger = logging.getLogger(__name__)
 
+_JSON_RETRY_HINT = (
+    "Your previous reply was not valid JSON (for example it used double braces "
+    "`{{ ... }}` or included extra text). Reply again with ONLY one valid JSON "
+    "object using single braces `{ ... }`. No markdown fences, no commentary."
+)
+
+
 class InterpreterAgent(BaseAgent):
-    def __init__(self, vlm_service: BaseVLMModel):
+    def __init__(self, vlm_service: BaseVLMModel, json_parse_max_attempts: int = 3):
         super().__init__()
         self.prompt_template = load_prompt("describe_in_layer_model")
         self.vlm_service = vlm_service
+        self.json_parse_max_attempts = max(1, int(json_parse_max_attempts))
 
     def process(self, state: dict) -> dict:
         return state
@@ -80,6 +88,58 @@ class InterpreterAgent(BaseAgent):
             logger.error("Failed to parse JSON, returning None")
             return None
 
+    def _chat_for_json(
+        self,
+        contents: List[Any],
+        system_instruction: str,
+        *,
+        context: str,
+    ) -> Dict[str, Any] | None:
+        """Call VLM and retry when the response is not parseable JSON."""
+        call_contents = list(contents)
+        last_raw: str | None = None
+        for attempt in range(1, self.json_parse_max_attempts + 1):
+            response = self.vlm_service.chat_with_content(
+                contents=call_contents,
+                system_instruction=system_instruction,
+            )
+            last_raw = response if isinstance(response, str) else str(response)
+            json_response = clean_and_parse_json(response)
+            if json_response:
+                if attempt > 1:
+                    logger.info(
+                        "%s: parsed JSON on retry attempt %d/%d",
+                        context,
+                        attempt,
+                        self.json_parse_max_attempts,
+                    )
+                return json_response
+
+            logger.warning(
+                "%s: JSON parse failed on attempt %d/%d; retrying VLM call",
+                context,
+                attempt,
+                self.json_parse_max_attempts,
+            )
+            if attempt < self.json_parse_max_attempts:
+                preview = (last_raw or "")[:500]
+                call_contents = list(contents) + [
+                    types.Part.from_text(
+                        text=(
+                            f"{_JSON_RETRY_HINT}\n\n"
+                            f"Previous invalid output (truncated):\n{preview}"
+                        )
+                    )
+                ]
+
+        logger.error(
+            "%s: failed to parse JSON after %d attempt(s). Last raw: %s",
+            context,
+            self.json_parse_max_attempts,
+            (last_raw or "")[:1000],
+        )
+        return None
+
     def generate_dsl_from_user_query(self, user_query: MultimodalQuery) -> Tuple[DSL | None, str | None]:
         """
         Generate a DSL (Domain-Specific Language) in json format from the natural language user query.
@@ -109,9 +169,12 @@ class InterpreterAgent(BaseAgent):
             video_file = self.vlm_service.load_media(video)
             contents.append(types.Part.from_uri(file_uri=video_file.uri, mime_type=video_file.mime_type))
 
-        # 3. Call the VLM service and process response
-        response = self.vlm_service.chat_with_content(contents=contents, system_instruction=system_instruction)
-        json_response = clean_and_parse_json(response) # clean the response and parse it as a JSON object
+        # 3. Call the VLM service (retry on invalid JSON) and process response
+        json_response = self._chat_for_json(
+            contents,
+            system_instruction,
+            context="generate_dsl_from_user_query",
+        )
         dsl = DSL(**json_response) if json_response else None
 
         # 4. Flatten the DSL into text
@@ -162,13 +225,15 @@ class InterpreterAgent(BaseAgent):
                 video_file = self.vlm_service.load_media(user_feedback.video_path)
                 contents.append(types.Part.from_uri(file_uri=video_file.uri, mime_type=video_file.mime_type))
 
-            response = self.vlm_service.chat_with_content(contents=contents, system_instruction=system_instruction)
-            json_response = clean_and_parse_json(response)
+            json_response = self._chat_for_json(
+                contents,
+                system_instruction,
+                context="generate_dsl_from_user_feedback",
+            )
             if json_response:
                 return json_response
-            else:
-                logger.error("Failed to parse JSON, returning None")
-                return None
+            logger.error("Failed to parse JSON, returning None")
+            return None
         except Exception as e:
             logger.error(f"Failed to generate DSL from user feedback: {e}")
             return None

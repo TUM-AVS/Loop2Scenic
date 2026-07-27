@@ -600,6 +600,14 @@ def strip_code_fence_markers(raw_text: str) -> str:
     return text
 
 
+def _unwrap_doubled_json_braces(text: str) -> str:
+    """Normalize model outputs that wrap JSON in ``{{ ... }}`` instead of ``{ ... }``."""
+    stripped = text.strip()
+    if stripped.startswith("{{") and stripped.endswith("}}"):
+        return "{" + stripped[2:-2].strip() + "}"
+    return stripped
+
+
 def parse_raw_text_to_json_dict(raw_text: str | Dict[str, Any] | List[Any]) -> Dict[str, Any] | None:
     """
     Parse raw text/object into a JSON dictionary.
@@ -611,7 +619,7 @@ def parse_raw_text_to_json_dict(raw_text: str | Dict[str, Any] | List[Any]) -> D
         logger.error("Expected JSON object (dict), but got JSON array (list).")
         return None
 
-    cleaned_text = strip_code_fence_markers(raw_text)
+    cleaned_text = _unwrap_doubled_json_braces(strip_code_fence_markers(raw_text))
 
     try:
         parsed = json.loads(cleaned_text)
@@ -622,8 +630,9 @@ def parse_raw_text_to_json_dict(raw_text: str | Dict[str, Any] | List[Any]) -> D
     except json.JSONDecodeError:
         match = re.search(r"[\{\[][\s\S]*[\}\]]", cleaned_text)
         if match:
+            candidate = _unwrap_doubled_json_braces(match.group(0))
             try:
-                parsed = json.loads(match.group(0))
+                parsed = json.loads(candidate)
                 if isinstance(parsed, dict):
                     return parsed
                 logger.error(f"Expected JSON object (dict), but got {type(parsed).__name__}.")
