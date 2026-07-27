@@ -27,6 +27,8 @@ from src.utils import (
 )
 from src.agents import InterpreterAgent, ScenicCoderAgent, CriticAgent
 from src.services import Retriever, BaseEmbeddingModel
+import re
+import uuid
 
 class ScenarioWorkflow:
     def __init__(
@@ -594,7 +596,10 @@ class ScenarioWorkflow:
         # 3. update the scenic scenarios list with the adapted scenario.
         # Description is intentionally omitted: VLM eval compares the original query
         # against the generated video only (adapted code/video need not match any text caption).
-        adpated_scenario_id = f"{current_scenic_scenario.scenario_id}_adapted_{generation_count + 1}"
+        # Use a query-derived id (not the retrieved base id) so generated candidates are
+        # clearly separated from the library scenario used for retrieval/fallback.
+        query_id = self._derive_query_id(state.get("user_query"))
+        adpated_scenario_id = f"{query_id}_adapted_{generation_count + 1}"
         adapted_scenic_scenario = ScenicScenario(
             scenario_id=adpated_scenario_id,
             scenic_code=adapted_scenic_code,
@@ -686,6 +691,43 @@ class ScenarioWorkflow:
                 }
             ],
         }
+
+    def _derive_query_id(self, user_query: MultimodalQuery | None) -> str:
+        """
+        Build a filesystem-safe id for generated (adapted) scenarios from the query.
+
+        Preference order:
+        1) parent folder of video_path / image_path (e.g. benchmark ground_truth name)
+        2) text prefix before ';' (common ``id;description`` format)
+        3) short sanitized text slug
+        4) random fallback
+        """
+        if user_query is not None:
+            for path_value in (user_query.video_path, user_query.image_path):
+                if path_value:
+                    parent_name = Path(str(path_value)).parent.name.strip()
+                    if parent_name and parent_name.lower() not in {
+                        "video",
+                        "code",
+                        "logs",
+                        "temp",
+                        ".",
+                    }:
+                        return self._sanitize_scenario_id(parent_name)
+
+            text = (user_query.text or "").strip()
+            if text:
+                if ";" in text:
+                    return self._sanitize_scenario_id(text.split(";", 1)[0])
+                return self._sanitize_scenario_id(text[:64])
+
+        return f"query_{uuid.uuid4().hex[:8]}"
+
+    @staticmethod
+    def _sanitize_scenario_id(raw: str) -> str:
+        cleaned = re.sub(r"[^\w.\-]+", "_", str(raw).strip())
+        cleaned = cleaned.strip("._-")
+        return cleaned or f"query_{uuid.uuid4().hex[:8]}"
 
     def _fallback_base_scenario(
         self,
