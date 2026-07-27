@@ -238,6 +238,12 @@ You must NEVER use if, filter, or conditional expressions whose condition depend
 - any property of a random object
 - any comparison involving a random object
 
+10. Parameter Declaration Rule
+Scenic has two distinct kinds of top-level constants — do not confuse them.
+- `param NAME = value` declares a GLOBAL PARAMETER; it must be accessed elsewhere as `globalParameters.NAME` (never as a bare `NAME`). Use `param` only for values meant to be externally tunable or resampled per scenario (e.g. distances given as `Range(...)`).
+- `NAME = value` (no `param` keyword) declares an ORDINARY CONSTANT; it must be referenced directly as `NAME` (never as `globalParameters.NAME`).
+- Never write `globalParameters.NAME` unless you can see an exact `param NAME = ...` line for that name in your own output. If unsure whether a name should be a `param`, declare it yourself with `param NAME = ...` rather than guessing.
+
 
 **Illustrative Examples (Structural Reference Only)**
 All identifiers below are placeholders and must NOT be reused unless explicitly defined.

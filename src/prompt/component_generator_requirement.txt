@@ -154,7 +154,10 @@ If a requirement or termination condition is ambiguous:
 Omit it safely
 
 4. param keyword rule:
-Parameters defined with param must be accessed via globalParameters.<name>
+Scenic has two distinct kinds of top-level constants — do not confuse them.
+- `param NAME = value` declares a GLOBAL PARAMETER; it must be accessed elsewhere as `globalParameters.NAME` (never as a bare `NAME`). Use `param` only for values meant to be externally tunable or resampled per scenario.
+- `NAME = value` (no `param` keyword) declares an ORDINARY CONSTANT; it must be referenced directly as `NAME` (never as `globalParameters.NAME`).
+- Never write `globalParameters.NAME` unless you can see an exact `param NAME = ...` line for that name — either in your own output above, or in Already Determined Components. If unsure whether a name was declared with `param`, declare it yourself with `param NAME = ...` rather than guessing.
 
 5. Illegal Dynamic Attribute Assumption Rule 
 Never assume inferred or dynamically derived attributes
