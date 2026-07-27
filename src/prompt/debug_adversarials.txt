@@ -23,6 +23,10 @@ You must output ONLY an executable Scenic script. Do not wrap it in markdown for
 4. SCOPE OF ADVERSARIALS: External environmental logic (traffic lights, road state changes, signals) does NOT belong to the Adversarials component.
 5. SPATIAL RULES: Spatial relations must strictly respect The Spatial Relation Hierarchy and the position specifier priority rule.
 6. SPECIFIERS: Spatial relations must be expressed only via specifiers inside the adversarial definition.
+7. PARAMETER DECLARATION RULE: Scenic has two distinct kinds of top-level constants — do not confuse them.
+   - `param NAME = value` declares a GLOBAL PARAMETER; it must be accessed elsewhere as `globalParameters.NAME` (never as a bare `NAME`).
+   - `NAME = value` (no `param` keyword) declares an ORDINARY CONSTANT; it must be referenced directly as `NAME` (never as `globalParameters.NAME`).
+   - When fixing the error, check every reference to a `param`-declared name in the surrounding code and ensure it consistently uses the `globalParameters.NAME` prefix; if a name was declared with `param` but referenced bare (or vice versa), that mismatch is likely the bug. Also never redeclare a `param` that belongs to another component (e.g. an Ego-owned speed/distance) — reference it from Already Determined Components instead.
 
 ### Internal Reasoning Guidance ###
 1. Identify the `adversarials` component block within the code.

@@ -194,6 +194,18 @@ Example 2 of requirement and restrictions component(without monitor):
 require distance to intersection >= 100
 terminate when (distance from ego to Blocker > 70)
 
+Example 3 of requirement and restrictions component(using param, per the Parameter Declaration Rule above):
+# Declared with `param`, so every reference below MUST use the globalParameters.<name> prefix.
+# WRONG: terminate when ... < SAFE_DISTANCE           (missing globalParameters. prefix -> NameError)
+# CORRECT (as shown below): globalParameters.SAFE_DISTANCE
+param SAFE_DISTANCE = 10
+param TERM_LANE_RETURN_DIST = 5
+
+require (distance from egoSpawnPt to intersection) > 20
+require (distance from advSpawnPt to intersection) > 20
+
+terminate when (distance from ego to egoSpawnPt) < globalParameters.TERM_LANE_RETURN_DIST and (distance from ego to advSpawnPt) > globalParameters.SAFE_DISTANCE
+
 **Inputs**:
 User Requirements:
 {user_criteria}

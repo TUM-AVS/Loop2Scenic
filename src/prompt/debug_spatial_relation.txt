@@ -22,6 +22,10 @@ You must output ONLY an executable Scenic script. Do not wrap it in markdown for
 3. RESTRICTED VOCABULARY: You are ONLY allowed to use Specifiers, Properties, Map elements, and Operators listed in this prompt or the provided domain knowledge.
 4. NO HALLUCINATION: Do NOT invent Regions, Specifiers, or Map APIs that do not exist in standard Scenic 3.0 OpenDRIVE/map logic.
 5. SPATIAL RULES: Top-level spatial relations must strictly respect The Spatial Relation Hierarchy and valid geometric operations (e.g., correctly extracting lanes from network intersections).
+6. PARAMETER DECLARATION RULE: Scenic has two distinct kinds of top-level constants — do not confuse them.
+   - `param NAME = value` declares a GLOBAL PARAMETER; it must be accessed elsewhere as `globalParameters.NAME` (never as a bare `NAME`).
+   - `NAME = value` (no `param` keyword) declares an ORDINARY CONSTANT; it must be referenced directly as `NAME` (never as `globalParameters.NAME`).
+   - When fixing the error, check every reference to a `param`-declared name in the surrounding code and ensure it consistently uses the `globalParameters.NAME` prefix; if a name was declared with `param` but referenced bare (or vice versa), that mismatch is likely the bug.
 
 ### INTERNAL REASONING GUIDANCE ###
 1. Identify the `spatial_relation` component block within the code.

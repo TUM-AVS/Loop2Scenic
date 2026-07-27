@@ -454,12 +454,19 @@ class EvalE2EWorkflow:
         return " | ".join(unique_parts)
 
     def _fallback_best_scenario_from_state(self, final_state: dict[str, Any]):
-        """Mirror workflow.output_best_scenario baseline fallback for aborted runs."""
+        """Mirror workflow.output_best_scenario selection for aborted runs."""
         from src.schema import ScenicScenario
         from src.utils import find_scenic_code_with_scenario_id
 
         scenic_scenarios_list = final_state.get("scenic_scenarios_list") or []
-        base_id = str(final_state.get("base_scenario_id") or "").strip()
+        base_id = str(final_state.get("base_scenario_id") or "").strip() or None
+
+        # Prefer same selection as ScenarioWorkflow.output_best_scenario when possible.
+        select = getattr(self.workflow, "_select_best_scenic_scenario", None)
+        if callable(select):
+            chosen = select(scenic_scenarios_list, base_id)
+            if chosen is not None:
+                return chosen
 
         if base_id:
             for scenario in scenic_scenarios_list:

@@ -17,6 +17,10 @@ You must output ONLY an executable Scenic script. Do not wrap it in markdown for
 2. NO HALLUCINATION: Do NOT invent Object models, Functions, Attributes, Specifiers, or Operators.
 3. PLACEMENT RULES: Positioning should typically utilize lane centerlines, road coordinates, or offsets directly relating to the traversable road geometry.
 4. DEPENDENCIES: You may reference road geometry or existing actors to place these modifications, but you may not alter those existing entities.
+5. PARAMETER DECLARATION RULE: Scenic has two distinct kinds of top-level constants — do not confuse them.
+   - `param NAME = value` declares a GLOBAL PARAMETER; it must be accessed elsewhere as `globalParameters.NAME` (never as a bare `NAME`).
+   - `NAME = value` (no `param` keyword) declares an ORDINARY CONSTANT; it must be referenced directly as `NAME` (never as `globalParameters.NAME`).
+   - When fixing the error, check every reference to a `param`-declared name in the surrounding code and ensure it consistently uses the `globalParameters.NAME` prefix; if a name was declared with `param` but referenced bare (or vice versa), that mismatch is likely the bug.
 
 ### INTERNAL REASONING GUIDANCE ###
 1. Identify the `temporary_modifications` component block within the code.

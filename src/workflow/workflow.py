@@ -628,21 +628,77 @@ class ScenarioWorkflow:
             ]
         return result
 
+    @staticmethod
+    def _is_successfully_compiled(scenario: ScenicScenario) -> bool:
+        """True when the scenario has Scenic code and no simulation/compile error."""
+        return bool(getattr(scenario, "scenic_code", None)) and getattr(scenario, "error", None) is None
+
+    @staticmethod
+    def _is_adapted_scenario(scenario: ScenicScenario, base_id: str | None) -> bool:
+        sid = getattr(scenario, "scenario_id", None) or ""
+        if not sid or "_adapted_" not in sid:
+            return False
+        if base_id and sid == base_id:
+            return False
+        return True
+
+    def _select_best_scenic_scenario(
+        self,
+        scenic_scenarios_list: list,
+        base_id: str | None,
+    ) -> ScenicScenario | None:
+        """
+        Pick the best scored, successfully compiled scenario.
+
+        Highest VLM score wins. On a tie, prefer the last adapted scenario over the
+        base (and over earlier adapted ones).
+        """
+        best_scenario = None
+        best_score = -1.0
+        best_index = -1
+        best_is_adapted = False
+
+        for i, scenario in enumerate(scenic_scenarios_list):
+            if not self._is_successfully_compiled(scenario):
+                continue
+            if scenario.score is None:
+                continue
+
+            score = float(scenario.score)
+            is_adapted = self._is_adapted_scenario(scenario, base_id)
+            take = False
+            if best_scenario is None or score > best_score:
+                take = True
+            elif score == best_score and is_adapted and (
+                not best_is_adapted or i > best_index
+            ):
+                # Same score as current best → prefer last adapted over base/earlier.
+                take = True
+
+            if take:
+                best_scenario = scenario
+                best_score = score
+                best_index = i
+                best_is_adapted = is_adapted
+
+        if best_scenario is not None:
+            return best_scenario
+
+        # No scored candidate: still prefer the last successfully compiled adapted.
+        last_adapted = None
+        for scenario in scenic_scenarios_list:
+            if self._is_adapted_scenario(scenario, base_id) and self._is_successfully_compiled(
+                scenario
+            ):
+                last_adapted = scenario
+        return last_adapted
+
     def output_best_scenario(self, state: ScenarioWorkflowState) -> Dict:
         log_workflow_state(self.logger, "output_best_scenario", state)
 
         scenic_scenarios_list = state.get("scenic_scenarios_list", []) or []
-        best_scenario = None
-        best_score = -1.0
-        for scenario in scenic_scenarios_list:
-            if (
-                scenario.score is not None
-                and scenario.score > best_score
-                and scenario.error is None
-                and scenario.scenic_code
-            ):
-                best_score = scenario.score
-                best_scenario = scenario
+        base_id = state.get("base_scenario_id")
+        best_scenario = self._select_best_scenic_scenario(scenic_scenarios_list, base_id)
 
         if best_scenario:
             self.logger.info(f"🏆 Returning best scenario: {best_scenario.scenario_id}")
@@ -659,11 +715,11 @@ class ScenarioWorkflow:
                 "best_scenario": best_scenario,
             }
 
-        # No scored/error-free candidate — fall back to the retrieved base scenario.
+        # No successfully compiled adapted scenario — fall back to the retrieved base.
         fallback = self._fallback_base_scenario(state, scenic_scenarios_list)
         if fallback:
             self.logger.warning(
-                "No scored best scenario; falling back to base scenario: %s "
+                "No successfully compiled adapted scenario; falling back to base: %s "
                 "(error=%s, score=%s)",
                 fallback.scenario_id,
                 getattr(fallback, "error", None),

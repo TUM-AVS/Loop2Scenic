@@ -97,7 +97,10 @@ Distance-based guard condition
 If a requirement or termination condition is ambiguous:
 Omit it safely
 4. param keyword rule:
-Parameters defined with param must be accessed via globalParameters.<name>
+Scenic has two distinct kinds of top-level constants — do not confuse them.
+- `param NAME = value` declares a GLOBAL PARAMETER; it must be accessed elsewhere as `globalParameters.NAME` (never as a bare `NAME`). Use `param` only for values meant to be externally tunable or resampled per scenario.
+- `NAME = value` (no `param` keyword) declares an ORDINARY CONSTANT; it must be referenced directly as `NAME` (never as `globalParameters.NAME`).
+- Never write `globalParameters.NAME` unless you can see an exact `param NAME = ...` line for that name in the code being debugged. If unsure whether a name was declared with `param`, declare it yourself with `param NAME = ...` rather than guessing.
 5. Illegal Dynamic Attribute Assumption Rule 
 Never assume inferred or dynamically derived attributes
 If such a condition is desired, omit it
@@ -132,7 +135,19 @@ Example 2 of requirement and restrictions component(without monitor):
 require distance to intersection >= 100
 terminate when (distance from ego to Blocker > 70)
 
-### Inputs ###: 
+Example 3 of requirement and restrictions component(using param, per the param keyword rule above):
+# Declared with `param`, so every reference below MUST use the globalParameters.<name> prefix.
+# WRONG: terminate when ... < SAFE_DISTANCE           (missing globalParameters. prefix -> NameError)
+# CORRECT (as shown below): globalParameters.SAFE_DISTANCE
+param SAFE_DISTANCE = 10
+param TERM_LANE_RETURN_DIST = 5
+
+require (distance from egoSpawnPt to intersection) > 20
+require (distance from advSpawnPt to intersection) > 20
+
+terminate when (distance from ego to egoSpawnPt) < globalParameters.TERM_LANE_RETURN_DIST and (distance from ego to advSpawnPt) > globalParameters.SAFE_DISTANCE
+
+### Inputs ###:
 Scenic code to debug:
 {scenic_code}
 
