@@ -820,6 +820,41 @@ def collect_cuda_oom_rerun_benchmark(
     }
 
 
+def collect_milvus_exception_rerun(
+    batch_results_csv: Path | str,
+    *,
+    benchmark_root: Path | str = BENCHMARK_PATH,
+    dest_root: Path | str = REPO_ROOT / "data" / "rerun",
+    error_token: str = "MilvusException",
+    overwrite: bool = True,
+) -> dict[str, list[str]]:
+    """
+    Collect MilvusException failures from an e2e batch CSV and copy matching
+    benchmark subfolders into ``data/rerun`` (or ``dest_root``).
+
+    Reuses the same filter/copy logic as ``collect_cuda_oom_rerun_benchmark``,
+    but defaults to token ``MilvusException`` and destination ``data/rerun``.
+
+    For each CSV row where ``error_message`` contains ``error_token``:
+      source: ``<benchmark_root>/<category>/<ground_truth>/``
+      dest:   ``<dest_root>/<category>/<ground_truth>/``
+    """
+    result = collect_cuda_oom_rerun_benchmark(
+        batch_results_csv,
+        benchmark_root=benchmark_root,
+        dest_root=dest_root,
+        cuda_token=error_token,
+        overwrite=overwrite,
+    )
+    # Keep a clearer key name for callers of this helper.
+    result["milvus_exception_cases"] = result.pop("cuda_oom_cases")
+    print(
+        f"MilvusException rerun collect -> {Path(dest_root)}: "
+        f"{len(result['copied'])} copied"
+    )
+    return result
+
+
 def sample_benchmark_modality_names(
     benchmark_root: Path | str = BENCHMARK_PATH,
     output_txt: Path | str = BENCHMARK_SAMPLE_LIST_PATH,

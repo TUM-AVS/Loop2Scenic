@@ -108,7 +108,7 @@ class GeminiModel(BaseLLMModel):
                 max_output_tokens=self.max_tokens,
                 thinking_config=self.types.ThinkingConfig(thinking_budget=128)
             )
-        elif self._model_name == "gemini-3-flash-preview" or self._model_name == "gemini-3-flash" or self._model_name == "gemini-3-flash-lite" or self._model_name == "gemini-3.1-flash-lite-preview":
+        elif self._model_name == "gemini-3-flash-preview" or self._model_name == "gemini-3-flash" or self._model_name == "gemini-3.1-flash-lite" or self._model_name == "gemini-3.1-flash-lite-preview":
             config = self.types.GenerateContentConfig(
                 temperature=self.temperature,
                 max_output_tokens=self.max_tokens,
