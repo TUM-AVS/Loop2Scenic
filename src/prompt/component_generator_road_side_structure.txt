@@ -9,7 +9,7 @@ Output raw Scenic code only.
 **Hard constraints**
 1. SPATIAL PLACEMENT: Roadside Structures are static props placed ALONGSIDE the drivable road network (e.g., on sidewalks or curbs). They must NOT be spawned directly on the drivable road surface.
 2. OPERATOR RESTRICTION: You are ONLY allowed to use operators listed in the <Available Specifier> <AVAILABLE_BOOLEAN_OPERATORS> and <AVAILABLE_SCALAR_OPERATORS> sections.
-3. REFERENCE ALIGNMENT: You MUST use the exact object, point, and region variable names defined in <ALREADY_DETERMINED_COMPONENTS> to determine your new structure's relative spawn point.
+3. REFERENCE ALIGNMENT: You MUST use the exact object, point, and region variable names defined in the Already Determined Components section to determine your new structure's relative spawn point.
 4. NO HALLUCINATIONS: Do NOT invent objects, attributes, functions, operators, or structural shortcuts that do not exist in Scenic 3.0 or the provided lists.
 5. USE THE PROP CLASS: You must instantiate these static objects using the `Prop` class (e.g., `new Prop at...`), and you MUST NOT assign behaviors to them.
 
@@ -18,9 +18,9 @@ Output raw Scenic code only.
 Identify the requested roadside structure and its desired position from the User Requirements.
 
 2. Examine Already Determined Components
-Cross-reference the <ALREADY_DETERMINED_COMPONENTS> to find the existing spatial variables (e.g., lanes, intersections, ego spawn points) needed to place this new structure.
+Cross-reference the Already Determined Components section to find the existing spatial variables (e.g., lanes, intersections, ego spawn points) needed to place this new structure.
 
-3. Select the correct CARLA blueprint from the <BLUEPRINT_MAPPING> vocabulary.
+3. Select the correct CARLA blueprint from the Blueprint mapping section below.
 
 4. Define the spawn point (`new OrientedPoint ...`) using valid Scenic specifiers.
 
@@ -198,7 +198,7 @@ User Requirements:
 Already Determined Components (context only, do not redefine):
 {ready_components}
 
-Example of requirement and restrictions reference component:
+Example of road side structure reference component:
 {reference_components}
 
 **Output Format**:

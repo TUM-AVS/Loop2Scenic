@@ -131,13 +131,13 @@ trafficWarning = new Prop at trafficWarningSpawnPt,
     with blueprint 'static.prop.trafficwarning',
     with allowCollisions True
 
-Example 2 of road side structure
+Example 2 of temporary modifications
 # The traffic cone is on the right lane of the ego car and ahead of the ego car
-trafficCone = new Prop at ego offset by (5 @ 5), 
+trafficCone = new Prop at ego offset by (5 @ 5),
     with blueprint 'static.prop.trafficcone01',
     with allowCollisions True
 
-Example 3 of road side structure
+Example 3 of temporary modifications
 # The Construction Warning Sign is placed near to the intersection
 constructionWarningSign = new Prop at intersection offset by (1 @ 0), 
     with blueprint 'static.prop.warningconstruction',

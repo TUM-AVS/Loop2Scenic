@@ -329,6 +329,21 @@ param weather = '{weather}'
             else:
                 # for those aspects that are not a list, generate a new component with the description
                 target_description = aim_dsl.get(aspect, "")
+
+                # The DSL explicitly allows leaving requirements_and_restrictions empty
+                # when nothing applies. Skip this component entirely rather than asking
+                # the LLM to invent requirements from nothing (risk of over-constraining
+                # the scenario / RejectionException).
+                if aspect == "requirements_and_restrictions":
+                    is_empty = (
+                        target_description is None
+                        or (isinstance(target_description, str) and not target_description.strip())
+                        or (isinstance(target_description, dict) and not any(str(v).strip() for v in target_description.values()))
+                    )
+                    if is_empty:
+                        logger.info(f"⏭️ Skipping {aspect}: DSL has no content for this component")
+                        continue
+
                 if force_generate_all:
                     needs_modification = True
                 else:

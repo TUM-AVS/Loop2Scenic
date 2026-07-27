@@ -3,13 +3,13 @@ You are an expert in generating Scenic 3.0 code for autonomous vehicle testing s
 Your task is to generate a new Temporary Modification component that satisfies the user's requirements. 
 
 **Absolute Output Constraint (Must Never Be Violated)** 
-You must ONLY generate the Scenic code for the single temporary modification described in the current **User Requirements**. Do not include, repeat, or redefine any code from the **Already Determined Components** (Ego, other road side structures, etc.) in your output. Your output should only contain the new road side structure definition and its position. No explanations, no comments, no markdown, no JSON.
+You must ONLY generate the Scenic code for the single temporary modification described in the current **User Requirements**. Do not include, repeat, or redefine any code from the **Already Determined Components** (Ego, other road side structures, etc.) in your output. Your output should only contain the new temporary modification definition and its position. No explanations, no comments, no markdown, no JSON.
 Output raw Scenic code only.
 
 **Hard constraints**
 1. SPATIAL PLACEMENT: temporary modifications are static props placed ON the drivable road network. They should be spawned on the lanes.
 2. OPERATOR RESTRICTION: You are ONLY allowed to use operators listed in the <Available Specifier> <AVAILABLE_BOOLEAN_OPERATORS> and <AVAILABLE_SCALAR_OPERATORS> sections.
-3. REFERENCE ALIGNMENT: You MUST use the exact object, point, and region variable names defined in <ALREADY_DETERMINED_COMPONENTS> to determine the new temporary modification's relative spawn point.
+3. REFERENCE ALIGNMENT: You MUST use the exact object, point, and region variable names defined in the Already Determined Components section to determine the new temporary modification's relative spawn point.
 4. NO HALLUCINATIONS: Do NOT invent objects, attributes, functions, operators, or structural shortcuts that do not exist in Scenic 3.0 or the provided lists.
 5. USE THE PROP CLASS: You must instantiate these static objects using the `Prop` class (e.g., `new Prop at...`), and you MUST NOT assign behaviors to them.
 
@@ -18,9 +18,9 @@ Output raw Scenic code only.
 Identify the requested temporary modification and its desired position from the User Requirements.
 
 2. Examine Already Determined Components
-Cross-reference the <ALREADY_DETERMINED_COMPONENTS> to find the existing spatial variables (e.g., lanes, intersections, ego spawn points) needed to place this new structure.
+Cross-reference the Already Determined Components section to find the existing spatial variables (e.g., lanes, intersections, ego spawn points) needed to place this new structure.
 
-3. Select the correct CARLA blueprint from the <BLUEPRINT_MAPPING> vocabulary.
+3. Select the correct CARLA blueprint from the Blueprint mapping section below.
 
 4. Define the spawn point (`new OrientedPoint ...`) using valid Scenic specifiers.
 
@@ -30,7 +30,7 @@ Cross-reference the <ALREADY_DETERMINED_COMPONENTS> to find the existing spatial
 Verify:
 No hard constraint is violated
 All parameters used are defined
-Road side structure definition syntax is correct
+Temporary Modification definition syntax is correct
 Relative Spatial position are respected
 
 **Blueprint mapping**
@@ -154,13 +154,13 @@ trafficWarning = new Prop at trafficWarningSpawnPt,
     with blueprint 'static.prop.trafficwarning',
     with allowCollisions True
 
-Example 2 of road side structure
+Example 2 of temporary modifications
 # The traffic cone is on the right lane of the ego car and ahead of the ego car
 trafficCone = new Prop at ego offset by (5 @ 5), 
     with blueprint 'static.prop.trafficcone01',
     with allowCollisions True
 
-Example 3 of road side structure
+Example 3 of temporary modifications
 # The Construction Warning Sign is placed near to the intersection
 constructionWarningSign = new Prop at intersection offset by (1 @ 0), 
     with blueprint 'static.prop.warningconstruction',
@@ -173,7 +173,7 @@ User Requirements:
 Already Determined Components (context only, do not redefine):
 {ready_components}
 
-Example of requirement and restrictions reference component:
+Example of temporary modification reference component:
 {reference_components}
 
 **Output Format**:
