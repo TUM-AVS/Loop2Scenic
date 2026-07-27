@@ -211,13 +211,28 @@ param weather = '{weather}'
         extracted = self.generate_and_clean(extract_prompt)
         return extracted
 
-    def adapt_code(self, original_scenic_code: str, evaluation_result: Dict[str, Any], aim_dsl: Dict[str, Any], header_settings: Any) -> str:
+    def adapt_code(
+        self,
+        original_scenic_code: str,
+        evaluation_result: Dict[str, Any],
+        aim_dsl: Dict[str, Any],
+        header_settings: Any,
+        force_generate_all: bool = False,
+    ) -> str:
         """
         Adapt the original scenic code to the aim DSL using a 'Generation + Assemble' architecture.
         Each component is generated in isolation (to allow for heavy grammar instructions) 
         and then assembled into the final script.
+
+        If force_generate_all is True, every DSL component is regenerated (no extract from
+        the base scenario). Used when the first-round critic score is too low.
         """
         logger.info("🚀 Starting Generation + Assemble Scenic pipeline...")
+        if force_generate_all:
+            logger.info(
+                "🔁 force_generate_all=True: regenerating all components from DSL "
+                "(skipping extract from base scenario)"
+            )
 
         """ The order of the components: 
         header
@@ -286,7 +301,11 @@ param weather = '{weather}'
                 # DSL is the source of truth for what to generate/extract.
                 for idx, description in enumerate(description_list):
                     # Missing flag → treat as mismatch (needs generation).
-                    matched = eval_flags[idx] if idx < len(eval_flags) else False
+                    matched = (
+                        False
+                        if force_generate_all
+                        else (eval_flags[idx] if idx < len(eval_flags) else False)
+                    )
                     if not matched:
                         new_code = self.generate_component(aspect, description, retrieved_components)
                     else:
@@ -310,7 +329,10 @@ param weather = '{weather}'
             else:
                 # for those aspects that are not a list, generate a new component with the description
                 target_description = aim_dsl.get(aspect, "")
-                needs_modification = not (evaluation_result or {}).get(aspect, True)
+                if force_generate_all:
+                    needs_modification = True
+                else:
+                    needs_modification = not (evaluation_result or {}).get(aspect, True)
                 new_code = None
                 if needs_modification:
                     # generate a new component with the description

@@ -1,5 +1,12 @@
 from .base import BaseLLMModel
-from .providers import AnthropicModel, DeepSeekModel, GeminiModel, OpenAIModel, QwenAPIModel
+from .providers import (
+    AnthropicModel,
+    DeepSeekModel,
+    GeminiModel,
+    OllamaModel,
+    OpenAIModel,
+    QwenAPIModel,
+)
 
 __all__ = [
     "BaseLLMModel",
@@ -8,6 +15,7 @@ __all__ = [
     "QwenAPIModel",
     "DeepSeekModel",
     "AnthropicModel",
+    "OllamaModel",
     "get_llm_service",
 ]
 
@@ -27,8 +35,10 @@ def get_llm_service(provider: str, **kwargs) -> BaseLLMModel:
         return DeepSeekModel(**kwargs)
     elif normalized_provider in {"anthropic", "claude", "sonnet"}:
         return AnthropicModel(**kwargs)
+    elif normalized_provider == "ollama":
+        return OllamaModel(**kwargs)
     else:
         raise ValueError(
             f"Unsupported provider: {provider}. "
-            f"Supported: openai, gemini, qwen, deepseek, anthropic"
+            f"Supported: openai, gemini, qwen, deepseek, anthropic, ollama"
         )

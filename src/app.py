@@ -56,6 +56,8 @@ def _initialize_llm_service(config, logger: logging.Logger):
         "max_tokens": config.llm.max_tokens,
         "api_key": config.llm.api_key,
     }
+    if getattr(config.llm, "base_url", None):
+        llm_kwargs["base_url"] = config.llm.base_url
     llm_service = get_llm_service(**llm_kwargs)
     logger.info("LLM service initialized.")
     return llm_service
@@ -73,6 +75,8 @@ def _initialize_vlm_service(config, logger: logging.Logger):
     }
     if config.vlm.model_path:
         vlm_kwargs["model_path"] = config.vlm.model_path
+    if getattr(config.vlm, "base_url", None):
+        vlm_kwargs["base_url"] = config.vlm.base_url
     vlm_service = get_vlm_service(**vlm_kwargs)
     logger.info("VLM service initialized.")
     return vlm_service

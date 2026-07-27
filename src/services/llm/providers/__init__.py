@@ -3,6 +3,7 @@ from .GeminiModel import GeminiModel
 from .QwenAPIModel import QwenAPIModel
 from .DeepSeekModel import DeepSeekModel
 from .AnthropicModel import AnthropicModel
+from .OllamaModel import OllamaModel
 
 __all__ = [
     "OpenAIModel",
@@ -10,4 +11,5 @@ __all__ = [
     "QwenAPIModel",
     "DeepSeekModel",
     "AnthropicModel",
+    "OllamaModel",
 ]

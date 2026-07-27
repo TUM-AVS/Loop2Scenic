@@ -64,9 +64,10 @@ class RerankingConfig(BaseModel):
 
 
 class LLMConfig(BaseModel):
-    provider: str = "gemini"  # openai, anthropic, gemini
+    provider: str = "gemini"  # openai, anthropic, gemini, qwen, deepseek, ollama
     model: str = "gemini-2.5-pro"
     api_key: Optional[str] = None
+    base_url: Optional[str] = None  # e.g. http://10.147.17.29:11434 for ollama
     temperature: float = 0.7
     max_tokens: int = 4096
     streaming: bool = False
@@ -81,12 +82,17 @@ class LLMConfig(BaseModel):
                 self.api_key = os.getenv("GOOGLE_API_KEY")
             elif p == "anthropic":
                 self.api_key = os.getenv("ANTHROPIC_API_KEY")
+            elif p == "ollama":
+                self.api_key = os.getenv("OLLAMA_API_KEY") or "ollama"
+        if not self.base_url and self.provider.lower() == "ollama":
+            self.base_url = os.getenv("OLLAMA_URL") or None
         return self
 
 
 class VLMConfig(BaseModel):
-    provider: str = "gemini"  # qwen, openai, gemini
+    provider: str = "gemini"  # qwen, openai, gemini, ollama
     api_key: Optional[str] = None
+    base_url: Optional[str] = None  # e.g. http://10.147.17.29:11434 for ollama
     model_path: Optional[str] = None
     model: Optional[str] = "gemini-2.5-flash"
     temperature: float = 0.7
@@ -105,6 +111,10 @@ class VLMConfig(BaseModel):
                 self.api_key = os.getenv("OPENAI_API_KEY")
             elif p in {"qwen", "dashscope"}:
                 self.api_key = os.getenv("QWEN_API_KEY") or os.getenv("DASHSCOPE_API_KEY")
+            elif p == "ollama":
+                self.api_key = os.getenv("OLLAMA_API_KEY") or "ollama"
+        if not self.base_url and self.provider.lower() == "ollama":
+            self.base_url = os.getenv("OLLAMA_URL") or None
         return self
 
 

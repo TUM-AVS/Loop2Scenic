@@ -863,87 +863,107 @@ def sample_benchmark_modality_names(
     seed: int = 42,
 ) -> Path:
     """
-    Randomly sample ``sample_size`` scenario subfolders from each modality
-    under ``benchmark_root`` and write ``category/scenario_id`` lines to a txt.
+    Read an e2e ``batch_results.csv`` and return rows with
+    ``best_vlm_eval_score >= min_score``.
 
-    Example line:
-        text-only/NHTSA_Crash_15
+    Returns a de-duplicated list of dicts with keys:
+    - category
+    - ground_truth
+    - best_vlm_eval_score
     """
-    benchmark_root = Path(benchmark_root)
-    output_txt = Path(output_txt)
-    if not benchmark_root.is_dir():
-        raise NotADirectoryError(f"Benchmark root does not exist: {benchmark_root}")
+    csv_path = Path(batch_results_csv)
+    if not csv_path.is_file():
+        raise FileNotFoundError(f"Batch results CSV not found: {csv_path}")
 
-    rng = random.Random(seed)
-    lines: list[str] = []
+    seen: set[tuple[str, str]] = set()
+    cases: list[dict[str, str]] = []
 
-    for modality in modalities:
-        modality_dir = benchmark_root / modality
-        if not modality_dir.is_dir():
-            raise FileNotFoundError(f"Modality folder not found: {modality_dir}")
-
-        scenario_names = sorted(
-            subfolder.name for subfolder in modality_dir.iterdir() if subfolder.is_dir()
-        )
-        if len(scenario_names) < sample_size:
+    with csv_path.open(newline="", encoding="utf-8") as csvfile:
+        reader = csv.DictReader(csvfile)
+        required = {"category", "ground_truth", "best_vlm_eval_score"}
+        if not reader.fieldnames or not required.issubset(set(reader.fieldnames)):
             raise ValueError(
-                f"{modality}: need at least {sample_size} scenarios, found {len(scenario_names)}"
+                f"CSV must contain columns {sorted(required)}; got {reader.fieldnames}"
             )
 
-        sampled = sorted(rng.sample(scenario_names, sample_size))
-        for scenario_id in sampled:
-            lines.append(f"{modality}/{scenario_id}")
-        print(f"[OK] {modality}: sampled {len(sampled)} / {len(scenario_names)}")
+        for row in reader:
+            raw_score = (row.get("best_vlm_eval_score") or "").strip()
+            if not raw_score:
+                continue
+            try:
+                score = float(raw_score)
+            except ValueError:
+                continue
+            if score < min_score:
+                continue
 
-    output_txt.parent.mkdir(parents=True, exist_ok=True)
-    output_txt.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print(f"Wrote {len(lines)} sample name(s) to {output_txt}")
-    return output_txt
+            category = (row.get("category") or "").strip()
+            ground_truth = (row.get("ground_truth") or "").strip()
+            if not category or not ground_truth:
+                continue
+
+            key = (category, ground_truth)
+            if key in seen:
+                continue
+            seen.add(key)
+            cases.append(
+                {
+                    "category": category,
+                    "ground_truth": ground_truth,
+                    "best_vlm_eval_score": f"{score:.2f}",
+                }
+            )
+
+    return cases
 
 
-def export_benchmark_sample_from_txt(
-    sample_txt: Path | str = BENCHMARK_SAMPLE_LIST_PATH,
+def collect_vlm_score_benchmark(
+    batch_results_csv: Path | str,
+    *,
     benchmark_root: Path | str = BENCHMARK_PATH,
-    dest_root: Path | str = BENCHMARK_SAMPLE_125_PATH,
+    dest_root: Path | str = REPO_ROOT / "data" / "benchmark_vlm70",
+    min_score: float = 70.0,
     overwrite: bool = True,
 ) -> dict[str, list[str]]:
     """
-    Read a sample list of ``category/scenario_id`` lines and copy matching
-    folders into ``dest_root`` while preserving modality categories.
+    Collect scenarios with ``best_vlm_eval_score >= min_score`` and copy the
+    matching benchmark subfolders.
 
-    Example:
-        text-only/NHTSA_Crash_15
-          -> data/benchmark_sample_125/text-only/NHTSA_Crash_15/
+    For each qualifying CSV row:
+      source: ``<benchmark_root>/<category>/<ground_truth>/``
+      dest:   ``<dest_root>/<category>/<ground_truth>/``
+
+    Returns:
+        {
+            "selected_cases": ["text-only/foo", ...],
+            "copied": [...],
+            "missing_source": [...],
+            "skipped_existing": [...],
+        }
     """
-    sample_txt = Path(sample_txt)
     benchmark_root = Path(benchmark_root)
     dest_root = Path(dest_root)
-
-    if not sample_txt.is_file():
-        raise FileNotFoundError(f"Sample list not found: {sample_txt}")
     if not benchmark_root.is_dir():
         raise NotADirectoryError(f"Benchmark root does not exist: {benchmark_root}")
+
+    cases = parse_vlm_score_cases_from_batch_csv(
+        batch_results_csv,
+        min_score=min_score,
+    )
 
     copied: list[str] = []
     missing_source: list[str] = []
     skipped_existing: list[str] = []
-    invalid_lines: list[str] = []
+    case_labels: list[str] = []
 
-    for raw_line in sample_txt.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
+    for case in cases:
+        category = case["category"]
+        ground_truth = case["ground_truth"]
+        label = f"{category}/{ground_truth}"
+        case_labels.append(label)
 
-        parts = line.split("/", 1)
-        if len(parts) != 2 or not parts[0] or not parts[1]:
-            invalid_lines.append(line)
-            print(f"[INVALID] {line}")
-            continue
-
-        category, scenario_id = parts
-        label = f"{category}/{scenario_id}"
-        source = benchmark_root / category / scenario_id
-        target = dest_root / category / scenario_id
+        source = benchmark_root / category / ground_truth
+        target = dest_root / category / ground_truth
 
         if not source.is_dir():
             missing_source.append(label)
@@ -960,22 +980,28 @@ def export_benchmark_sample_from_txt(
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(source, target)
         copied.append(label)
-        print(f"[OK] {source} -> {target}")
+        print(
+            f"[OK] score={case['best_vlm_eval_score']} {source} -> {target}"
+        )
 
     print(
-        f"Benchmark sample export: {len(copied)} copied, "
-        f"{len(missing_source)} missing, {len(skipped_existing)} skipped, "
-        f"{len(invalid_lines)} invalid"
+        f"VLM>={min_score:g} collect: {len(copied)} copied, "
+        f"{len(missing_source)} missing, {len(skipped_existing)} skipped "
+        f"(from {len(case_labels)} unique case(s))"
     )
+
     return {
+        "selected_cases": case_labels,
         "copied": copied,
         "missing_source": missing_source,
         "skipped_existing": skipped_existing,
-        "invalid_lines": invalid_lines,
     }
 
 
 if __name__ == "__main__":
-    sample_benchmark_modality_names()
-    export_benchmark_sample_from_txt()
-    pass
+    collect_cuda_oom_rerun_benchmark(
+        "eval/results/e2e_20260726_151606_kimi-k2.6-vlm90/batch_results.csv",
+        dest_root="data/vlm70rerun",
+        cuda_token="CUDA",
+        overwrite=True,
+    )
