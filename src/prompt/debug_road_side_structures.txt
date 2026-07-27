@@ -17,6 +17,10 @@ You must output ONLY an executable Scenic script. Do not wrap it in markdown for
 2. NO DYNAMIC BEHAVIOR: Do NOT assign active driving behaviors, trajectories, or maneuvers to roadside structures.
 3. NO HALLUCINATION: Do NOT invent Object models, Functions, Attributes, Specifiers, or Operators.
 4. PLACEMENT RULES: Spatial positioning must logically reflect roadside placement (e.g., utilizing distances from the centerline, offset vectors, or sidewalk regions).
+5. PARAMETER DECLARATION RULE: Scenic has two distinct kinds of top-level constants — do not confuse them.
+   - `param NAME = value` declares a GLOBAL PARAMETER; it must be accessed elsewhere as `globalParameters.NAME` (never as a bare `NAME`).
+   - `NAME = value` (no `param` keyword) declares an ORDINARY CONSTANT; it must be referenced directly as `NAME` (never as `globalParameters.NAME`).
+   - When fixing the error, check every reference to a `param`-declared name in the surrounding code and ensure it consistently uses the `globalParameters.NAME` prefix; if a name was declared with `param` but referenced bare (or vice versa), that mismatch is likely the bug.
 
 ### INTERNAL REASONING GUIDANCE ###
 1. Identify the `road_side_structures` component block within the code.

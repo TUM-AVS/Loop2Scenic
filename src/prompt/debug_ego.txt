@@ -24,6 +24,10 @@ You must output ONLY an executable Scenic script. Do not wrap it in markdown for
 5. SPATIAL RULES: Spatial relations must strictly respect The Spatial Relation Hierarchy and the position specifier priority rule.
 6. SPECIFIERS: Spatial relations must be expressed only via specifiers inside the ego definition.
 7. HERO ROLE: When defining the ego vehicle, you MUST explicitly set its role name by including the exact statement: `with rolename 'hero'`.
+8. PARAMETER DECLARATION RULE: Scenic has two distinct kinds of top-level constants — do not confuse them.
+   - `param NAME = value` declares a GLOBAL PARAMETER; it must be accessed elsewhere as `globalParameters.NAME` (never as a bare `NAME`).
+   - `NAME = value` (no `param` keyword) declares an ORDINARY CONSTANT; it must be referenced directly as `NAME` (never as `globalParameters.NAME`).
+   - When fixing the error, check every reference to a `param`-declared name in the surrounding code and ensure it consistently uses the `globalParameters.NAME` prefix; if a name was declared with `param` but referenced bare (or vice versa), that mismatch is likely the bug. Also verify the blueprint variable is referenced as `MODEL`, never `EGO_MODEL`.
 
 ### Internal Reasoning Guidance ###
 1. Identify the `ego` component block within the code.

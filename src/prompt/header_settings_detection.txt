@@ -3,7 +3,7 @@ Your task is to analyze all provided user inputs to identify the following condi
 1. Weather conditions (rain, clear, cloudy, wet, etc.)
 2. Map type (urban, rural, highway, intersection)
 3. Time of day (noon, sunset, night, dawn)
-4. Vehicle model (e.g., "tesla", "audi", "lincoln", "truck", "motorcycle", "bike", "bicycle", "pedestrian")
+4. Vehicle model of the **ego** only (e.g., "tesla", "audi", "lincoln", "truck", "motorcycle", "bike", "bicycle", "pedestrian" when referring to the ego — never adversarials)
 Please actively look for visual evidence in any provided images or videos (e.g., visible raindrops, dark skies, dirt roads, specific car shapes) to confirm, supplement, or override the text description.
 
 ** Reasoning & Implementation Plan (Internal Guidance) **
@@ -25,14 +25,16 @@ Please actively look for visual evidence in any provided images or videos (e.g.,
    - Analyze text keywords and any visual evidence in the user input to determine the appropriate CARLA map.
    - Use the <Keywords to CARLA Map Mapping> section below to make your selection.
 
-4. Vehicle keywords:
-   - Detect the brand or type of vehicle.
-   - If a specific brand is mentioned (e.g., "Tesla"), use the corresponding blueprint.
-   - If a type is mentioned (e.g., "truck"), use the corresponding blueprint.
-   - Default to vehicle.lincoln.mkz_2017 if not specified.
+4. Ego vehicle keywords (EGO ONLY — ignore adversarials):
+   - Detect brand or type ONLY for the ego / hero / "the ego vehicle" / "I" / "self-driving car" being controlled.
+   - Do NOT use vehicle brand/type mentioned for other road users, oncoming cars, lead vehicles, crossing cars, or any adversarial agent.
+   - If the ego is an ordinary car / unspecified brand → vehicle.lincoln.mkz_2017 (default).
+   - If the ego is explicitly another type (e.g., truck, motorcycle, bike/bicycle, pedestrian) → use that matching blueprint.
+   - If a brand is explicitly the ego's (e.g., "the ego is a Tesla") → use that brand blueprint.
+   - Mentions like "a truck blocks the lane" or "a pedestrian crosses" refer to adversarials → do NOT change the ego blueprint.
 
 5. Confidence scoring:
-   - 1.0: Explicit mention (e.g., "rainy weather", "at intersection", "using a Tesla")
+   - 1.0: Explicit mention (e.g., "rainy weather", "at intersection", "the ego is a Tesla")
    - 0.8: Strong implication (e.g., "wet road conditions" implies recent rain)
    - 0.6: Moderate implication (e.g., "turning left" implies intersection)
    - 0.4: Weak implication or context-based guess
@@ -43,26 +45,27 @@ Please actively look for visual evidence in any provided images or videos (e.g.,
 - ClearSunset, CloudySunset, WetSunset, WetCloudySunset, SoftRainSunset, MidRainSunset, HardRainSunset
 
 ** Keywords to CARLA Map Mapping **
-- small/river/bridges/simple → Town01 (small, simple town layout with a river and several bridges)
+- small/river/bridges/simple/rural → Town01 (small, simple town layout with a river and several bridges)
 - small/residential/commercial → Town02 (small town combining residential and commercial buildings)
 - urban/roundabout/junctions → Town03 (larger urban map featuring a roundabout and complex, large junctions)
 - mountain/highway/figure-8 → Town04 (small town embedded in mountains with an infinite "figure of 8" highway)
 - grid/intersection/multiple-lanes → Town05 (squared-grid town with cross junctions and a bridge, ideal for lane changes)
-- rural/countryside/village → Town07 (rural environment with narrow roads, cornfields, barns, and barely any traffic lights)
 - downtown/urban/promenade → Town10HD (dense downtown urban environment with glossy skyscrapers, avenues, and an ocean promenade)
 
-** Common CARLA Blueprints **
-- "lincoln" or "car" (default) → vehicle.lincoln.mkz_2017
-- "tesla" → vehicle.tesla.model3
-- "audi" → vehicle.audi.tt
-- "truck" → vehicle.carlamotors.firetruck
-- "motorcycle" → vehicle.yamaha.yzf
-- "bike" or "bicycle" → vehicle.diamondback.century
-- "pedestrian" → walker.pedestrian.0001
+** Common CARLA Blueprints (for EGO only) **
+- "lincoln" or "car" / unspecified ego (default) → vehicle.lincoln.mkz_2017
+- "tesla" (ego is a Tesla) → vehicle.tesla.model3
+- "audi" (ego is an Audi) → vehicle.audi.tt
+- "truck" (only if ego is a truck) → vehicle.carlamotors.firetruck
+- "motorcycle" (only if ego is a motorcycle) → vehicle.yamaha.yzf
+- "bike" or "bicycle" (only if ego is a bicycle) → vehicle.diamondback.century
+- "pedestrian" (only if ego is a pedestrian) → walker.pedestrian.0001
+- Adversarial cars/trucks/pedestrians never set this field.
 
 ** Important **
 - If no specific setting is detected, use None for that field
 - Combine time of day with weather (e.g., "rainy" + "noon" = "SoftRainNoon")
+- blueprint is always for the ego vehicle; adversarial agents never affect it
 - Provide clear reasoning for your detection
 - Be conservative with confidence scores
 - Please combine all modalities user inputs to generate the output
@@ -76,11 +79,11 @@ User Requirements:
 {{
   "weather": "SoftRainNoon",
   "map_type": "rural",
-  "suggested_map": "Town07",
+  "suggested_map": "Town05",
   "time_of_day": "noon",
-  "blueprint": "vehicle.tesla.model3",
+  "blueprint": "vehicle.lincoln.mkz_2017",
   "confidence": 0.9,
-  "reasoning": "Query mentions 'rainy weather', 'rural area' and 'Tesla' at noon"
+  "reasoning": "Query mentions 'rainy weather' and 'rural area' at noon; ego vehicle brand not specified so default lincoln; 'truck' refers to an adversarial obstacle, not the ego"
 }}
 
 Now analyze the query and output JSON only:
