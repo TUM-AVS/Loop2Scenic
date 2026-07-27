@@ -35,6 +35,10 @@ The Spatial Relation Hierarchy
 The position specifier priority rule
 6. Spatial relations must be expressed only via specifiers inside the ego definition.
 7. When defining the ego vehicle, you MUST explicitly set its role name by including the statement: with rolename 'hero'.
+8. PARAMETER DECLARATION RULE: Scenic has two distinct kinds of top-level constants — do not confuse them.
+   - `param NAME = value` declares a GLOBAL PARAMETER; it must be accessed elsewhere as `globalParameters.NAME` (never as a bare `NAME`). Use `param` only for values meant to be externally tunable or resampled per scenario (e.g. speeds/distances given as `Range(...)`).
+   - `NAME = value` (no `param` keyword) declares an ORDINARY CONSTANT; it must be referenced directly as `NAME` (never as `globalParameters.NAME`).
+   - Never write `globalParameters.NAME` unless you can see an exact `param NAME = ...` line for that name — either in your own output above, or in Already Determined Components. If unsure whether a name was declared with `param`, declare it yourself with `param NAME = ...` rather than guessing.
 
 
 **Reasoning & Implementation Plan (Internal Guidance)**
@@ -330,28 +334,33 @@ and must NOT be reused unless explicitly defined in the current scenario context
 
 Example of ego component, which satisfies the user requirements "A car travels forward, attempts to change lanes to overtake a leading vehicle, and brakes to avoid collision":
 # Define the ego parameters
-param OPT_EGO_SAFETY_DISTANCE = Range(7, 9)  
+# OPT_EGO_SAFETY_DISTANCE and OPT_EGO_SPEED use `param` + Range(...) because they are meant to be
+# externally tunable/resampled per scenario, so they are accessed via globalParameters below.
+param OPT_EGO_SAFETY_DISTANCE = Range(7, 9)
 param OPT_EGO_SPEED = Range(6, 8)
+# OPT_OVERTAKE_DISTANCE is a fixed, non-tunable constant, so it is NOT declared with `param`
+# and is referenced directly below (never as globalParameters.OPT_OVERTAKE_DISTANCE).
 OPT_OVERTAKE_DISTANCE = 10
 # Define the ego behavior
-behavior EgoBehavior(ego_speed, overtake_distance, safety_distance, lane_change_target): 
+behavior EgoBehavior(ego_speed, overtake_distance, safety_distance, lane_change_target):
     try:
         do FollowLaneBehavior(target_speed=ego_speed) until (distance from self to LeadingAgent < overtake_distance)
         do LaneChangeBehavior(laneSectionToSwitch=lane_change_target, target_speed=ego_speed)
         do FollowLaneBehavior(target_speed=ego_speed)
     interrupt when withinDistanceToObjsInLane(self, safety_distance):
-        take SetBrakeAction(1)  
+        take SetBrakeAction(1)
 # Define the ego
-ego = new Car at egoSpawnPt, 
+# NOTE: the blueprint variable is always named MODEL (as defined by the header), never EGO_MODEL.
+ego = new Car at egoSpawnPt,
     with regionContainedIn egoLaneSec,
-    with blueprint EGO_MODEL,
+    with blueprint MODEL,
     with rolename 'hero',
     with behavior EgoBehavior(
         globalParameters.OPT_EGO_SPEED,
         OPT_OVERTAKE_DISTANCE,
         globalParameters.OPT_EGO_SAFETY_DISTANCE,
         targetLaneSec
-    ) 
+    )
 
 
 **Inputs**: 

@@ -12,6 +12,10 @@ Output raw Scenic code only.
 3. REFERENCE ALIGNMENT: You MUST use the exact object, point, and region variable names defined in the Already Determined Components section to determine the new temporary modification's relative spawn point.
 4. NO HALLUCINATIONS: Do NOT invent objects, attributes, functions, operators, or structural shortcuts that do not exist in Scenic 3.0 or the provided lists.
 5. USE THE PROP CLASS: You must instantiate these static objects using the `Prop` class (e.g., `new Prop at...`), and you MUST NOT assign behaviors to them.
+6. PARAMETER DECLARATION RULE: Scenic has two distinct kinds of top-level constants — do not confuse them.
+   - `param NAME = value` declares a GLOBAL PARAMETER; it must be accessed elsewhere as `globalParameters.NAME` (never as a bare `NAME`). Use `param` only for values meant to be externally tunable or resampled per scenario.
+   - `NAME = value` (no `param` keyword) declares an ORDINARY CONSTANT; it must be referenced directly as `NAME` (never as `globalParameters.NAME`).
+   - Never write `globalParameters.NAME` unless you can see an exact `param NAME = ...` line for that name — either in your own output above, or in Already Determined Components. If unsure, declare it yourself with `param NAME = ...` rather than guessing.
 
 ** Reasoning & Implementation Plan (Internal Guidance) **
 1. Understand the User Requirements

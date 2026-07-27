@@ -22,6 +22,11 @@ The position specifier priority rule
 (A property like position must not be specified multiple times with conflicting priorities.)
 5. Do not define spatial relation variables outside the adversarial definition.
 Use specifiers inside the adversarial definition only.
+6. PARAMETER DECLARATION RULE: Scenic has two distinct kinds of top-level constants — do not confuse them.
+   - `param NAME = value` declares a GLOBAL PARAMETER; it must be accessed elsewhere as `globalParameters.NAME` (never as a bare `NAME`). Use `param` only for values meant to be externally tunable or resampled per scenario (e.g. speeds/distances given as `Range(...)`).
+   - `NAME = value` (no `param` keyword) declares an ORDINARY CONSTANT; it must be referenced directly as `NAME` (never as `globalParameters.NAME`).
+   - Never write `globalParameters.NAME` unless you can see an exact `param NAME = ...` line for that name — either in your own output above, or in Already Determined Components. If unsure whether a name was declared with `param`, declare it yourself with `param NAME = ...` rather than guessing.
+   - Never redeclare a `param` that belongs to another component (e.g. an Ego-owned speed/distance). If you need to reference the Ego's speed, look for it in Already Determined Components instead of declaring your own `param OPT_EGO_...`.
 
 ** Reasoning & Implementation Plan (Internal Guidance) **
 
@@ -349,9 +354,11 @@ ped = new Pedestrian right of egoSpawnPt by 5,
     with behavior PedestrianBehavior()
 
 Example of adversarial component of a steering agent:
+# Do NOT declare a param owned by another component (e.g. do not redeclare the Ego's own speed
+# param here). This adversarial defines only its own params, scoped to itself.
 param OPT_ADV_DISTANCE = Range(60, 70)
-param OPT_EGO_SPEED = Range(1, 5)
-param OPT_ADV_SPEED = globalParameters.OPT_EGO_SPEED * Uniform(1.1, 1.2, 1.3)
+param OPT_ADV_REFERENCE_SPEED = Range(1, 5)
+param OPT_ADV_SPEED = globalParameters.OPT_ADV_REFERENCE_SPEED * Uniform(1.1, 1.2, 1.3)
 
 behavior WaitBehavior():
     while True:
