@@ -182,6 +182,123 @@ def _try_copy_temp_bev_to_eval_result(
         logger.warning("Could not copy BEV %s -> %s: %s", src, dest, exc)
 
 
+def _format_compact_payload(value: Any) -> str:
+    """Pretty-print feedback / evaluation payloads for the per-sample log."""
+    if value is None:
+        return "(none)"
+    if isinstance(value, str):
+        text = value.strip()
+        return text if text else "(none)"
+    try:
+        return json.dumps(value, ensure_ascii=False, indent=2, default=str)
+    except TypeError:
+        return str(value)
+
+
+def _write_compact_sample_log(
+    query_result_dir: Path,
+    *,
+    category_name: str,
+    ground_truth: str,
+    final_state: dict[str, Any],
+    best_scenario_id: str = "",
+    workflow_error: str = "",
+    logger: Optional[logging.Logger] = None,
+) -> Path:
+    """
+    Write a compact per-sample ``run.log`` under the eval result subfolder.
+
+    Walks ``scenic_scenarios_list`` in generation order and records, for each
+    candidate: scenic code, CARLA/sim error (if any), and VLM critic response.
+    """
+    query_result_dir.mkdir(parents=True, exist_ok=True)
+    log_path = query_result_dir / "run.log"
+
+    scenarios = list(final_state.get("scenic_scenarios_list") or [])
+    base_scenario_id = str(final_state.get("base_scenario_id") or "")
+    generation_count = final_state.get("generation_count", "")
+    best_id = (best_scenario_id or "").strip()
+    if not best_id:
+        best = final_state.get("best_scenario")
+        best_id = str(getattr(best, "scenario_id", "") or "").strip()
+
+    lines: list[str] = [
+        "=" * 80,
+        "E2E sample run log (compact)",
+        f"category: {category_name}",
+        f"ground_truth: {ground_truth}",
+        f"base_scenario_id: {base_scenario_id or '(none)'}",
+        f"best_scenario_id: {best_id or '(none)'}",
+        f"generation_count: {generation_count}",
+        f"candidates: {len(scenarios)}",
+        "=" * 80,
+        "",
+    ]
+    if workflow_error:
+        lines.extend(
+            [
+                "### Workflow error",
+                workflow_error.strip() or "(none)",
+                "",
+            ]
+        )
+
+    if not scenarios:
+        lines.append("(no scenic_scenarios_list entries)")
+    else:
+        for idx, scenario in enumerate(scenarios, start=1):
+            sid = str(getattr(scenario, "scenario_id", "") or "").strip() or f"candidate_{idx}"
+            markers: list[str] = []
+            if base_scenario_id and sid == base_scenario_id:
+                markers.append("base")
+            if best_id and sid == best_id:
+                markers.append("best")
+            marker_txt = f"  ({', '.join(markers)})" if markers else ""
+
+            scenic_code = getattr(scenario, "scenic_code", None) or ""
+            sim_error = getattr(scenario, "error", None)
+            score = getattr(scenario, "score", None)
+            feedback = getattr(scenario, "evaluation_feedback", None)
+            evaluation_result = getattr(scenario, "evaluation_result", None)
+
+            lines.extend(
+                [
+                    "-" * 80,
+                    f"[{idx}] scenario_id: {sid}{marker_txt}",
+                    "-" * 80,
+                    "",
+                    "### Scenic code",
+                    scenic_code.rstrip() if str(scenic_code).strip() else "(none)",
+                    "",
+                    "### CARLA / simulation error",
+                    (str(sim_error).strip() if sim_error else "(none)"),
+                    "",
+                    "### VLM critic score",
+                    ("(skipped — simulation error)" if sim_error and score is None else _format_compact_payload(score)),
+                    "",
+                    "### VLM critic feedback",
+                    (
+                        "(skipped — simulation error)"
+                        if sim_error and feedback in (None, "", {}, [])
+                        else _format_compact_payload(feedback)
+                    ),
+                    "",
+                    "### VLM evaluation_result",
+                    (
+                        "(skipped — simulation error)"
+                        if sim_error and evaluation_result in (None, "", {}, [])
+                        else _format_compact_payload(evaluation_result)
+                    ),
+                    "",
+                ]
+            )
+
+    log_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    if logger is not None:
+        logger.info("Wrote compact sample log: %s", log_path)
+    return log_path
+
+
 class QueryMode(str, Enum):
     TEXT_ONLY = "text-only"
     TEXT_IMAGE = "text-image"
@@ -717,6 +834,16 @@ class EvalE2EWorkflow:
                         logger=self.logger,
                         base_scenario_id=base_scenario_id,
                         final_state=final_state if isinstance(final_state, dict) else None,
+                    )
+
+                    _write_compact_sample_log(
+                        query_result_dir,
+                        category_name=category_name,
+                        ground_truth=str(ground_truth),
+                        final_state=final_state if isinstance(final_state, dict) else {},
+                        best_scenario_id=best_scenario_id,
+                        workflow_error=str(result.get("workflow_error") or ""),
+                        logger=self.logger,
                     )
                 except Exception as exc:
                     error_message = str(exc)

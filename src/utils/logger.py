@@ -62,7 +62,24 @@ def setup_logging(
     file_formatter = logging.Formatter(log_format, datefmt='%Y-%m-%d %H:%M:%S')
     file_handler.setFormatter(file_formatter)
     root_logger.addHandler(file_handler)
-    
+
+    # Keep app DEBUG, but silence HTTP clients that dump full request bodies
+    # (includes base64 image/video payloads for VLM evaluation).
+    for noisy in (
+        "openai",
+        "openai._base_client",
+        "httpx",
+        "httpcore",
+        "urllib3",
+        "http.client",
+        "dashscope",
+        "google_genai",
+        "google.genai",
+        "grpc",
+        "grpc._cython",
+    ):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+
     logging.info(f"Logging configured (Console: {level} | File: {log_path})")
 
 
