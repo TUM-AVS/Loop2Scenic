@@ -125,6 +125,11 @@ Behaviors can also be terminated when a condition is met or after a set number o
   e.g. do FollowLaneBehavior() until ...
   :param target_speed: Its unit is in m/s. By default, it is set to 10 m/s
   :param laneToFollow: If the lane to follow is different from the lane that the vehicle is on, this parameter can be used to specify that lane. By default, this variable will be set to None, which means that the vehicle will follow the lane that it is currently on.
+  :param is_oppositeTraffic: Set True ONLY while the ego is temporarily traveling against a lane's stored direction (e.g. after LaneChangeBehavior(..., is_oppositeTraffic=True) into the opposite lane for a bypass). Keep it True until the ego lane-changes back. Do NOT use True for a vehicle that was spawned on / naturally belongs to that lane and faces its normal heading — that causes CTE sign flip and swerving. After an opposite-lane change, ALWAYS chain:
+      do LaneChangeBehavior(oppLaneSec, is_oppositeTraffic=True, target_speed=...)
+      do FollowLaneBehavior(target_speed=..., is_oppositeTraffic=True) until <past obstacle>
+      do LaneChangeBehavior(originalLaneSec, is_oppositeTraffic=False, target_speed=...)
+    Omitting is_oppositeTraffic=True on the FollowLaneBehavior after the opposite LC makes the ego swerve back immediately.
   """
 5. FollowTrajectoryBehavior(target_speed: float = 10, trajectory: List[Lane] = None, turn_speed: float = None)
   """
