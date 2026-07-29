@@ -9,6 +9,9 @@ from ..base import BaseLLMModel
 
 logger = logging.getLogger(__name__)
 
+# Light thinking for Qwen / Kimi Scenic component codegen.
+_THINKING_BUDGET = 2048
+
 
 class QwenAPIModel(BaseLLMModel):
     """Qwen API model via OpenAI-compatible endpoint."""
@@ -48,7 +51,13 @@ class QwenAPIModel(BaseLLMModel):
             "completion_tokens": 0,
             "total_tokens": 0,
         }
-        logger.info("Initialized Qwen API model: %s, temperature: %s, max_tokens: %s", model, temperature, max_tokens)
+        logger.info(
+            "Initialized Qwen API model: %s, temperature: %s, max_tokens: %s, thinking_budget: %s",
+            model,
+            temperature,
+            max_tokens,
+            _THINKING_BUDGET,
+        )
 
     @retry(
         stop=stop_after_attempt(5),
@@ -63,17 +72,25 @@ class QwenAPIModel(BaseLLMModel):
         response_format = kwargs.get("response_format")
 
         start = time.perf_counter()
+        extra_body = {
+            "enable_thinking": True,
+            "thinking_budget": _THINKING_BUDGET,
+        }
+        user_extra = kwargs.get("extra_body")
+        if isinstance(user_extra, dict):
+            extra_body.update(user_extra)
+
         request_kwargs = {
             "model": self._model_name,
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
-            # "extra_body": {"enable_thinking": False},
+            "extra_body": extra_body,
             "timeout": kwargs.get("timeout", self.timeout),
             **{
                 k: v
                 for k, v in kwargs.items()
-                if k not in ["temperature", "max_tokens", "timeout", "response_format"]
+                if k not in ["temperature", "max_tokens", "timeout", "response_format", "extra_body"]
             },
         }
         if response_format is not None:

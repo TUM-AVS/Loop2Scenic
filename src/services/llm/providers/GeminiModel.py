@@ -23,7 +23,7 @@ class GeminiModel(BaseLLMModel):
         Args:
             model: Model name
             temperature: Sampling temperature
-            max_tokens: Maximum tokens to generate (Max 8192)
+            max_tokens: Maximum tokens to generate
             **kwargs: Additional Gemini client parameters
         """
         try:
@@ -36,9 +36,7 @@ class GeminiModel(BaseLLMModel):
         
         self._model_name = model
         self.temperature = kwargs.get('temperature', 0)
-        
-        # Enforce the strict 8k output limit to prevent API 503/504 hangs
-        self.max_tokens = min(kwargs.get('max_tokens', 4096), 8192)
+        self.max_tokens = kwargs.get('max_tokens', 4096)
         
         # Initialize the new Client architecture
         api_key = kwargs.get('api_key')
@@ -60,7 +58,7 @@ class GeminiModel(BaseLLMModel):
     # Built-in robust retry logic to catch network hiccups and temporary 503s
     @retry(
         stop=stop_after_attempt(5),
-        wait=wait_exponential(multiplier=5, min=10, max=120),
+        wait=wait_exponential(multiplier=1, min=2, max=20),
         before_sleep=lambda retry_state: logger.warning(f"⚠️ API Timeout or 503. Retrying in {retry_state.next_action.sleep} seconds...")
     )
     def chat(
@@ -94,21 +92,28 @@ class GeminiModel(BaseLLMModel):
             )
 
         # for different models, we need to set the thinking mode by different ways
+        # LLM Scenic codegen: light thinking (~2k).
         if self._model_name == "gemini-2.5-flash":
             config = self.types.GenerateContentConfig(
                 temperature=self.temperature,
                 max_output_tokens=self.max_tokens,
                 thinking_config=self.types.ThinkingConfig(
-                    thinking_budget=0  # This explicitly disables thinking
+                    thinking_budget=2048
                 )
             )
         elif self._model_name == "gemini-2.5-pro":
             config = self.types.GenerateContentConfig(
                 temperature=self.temperature,
                 max_output_tokens=self.max_tokens,
-                thinking_config=self.types.ThinkingConfig(thinking_budget=128)
+                thinking_config=self.types.ThinkingConfig(thinking_budget=2048)
             )
-        elif self._model_name == "gemini-3-flash-preview" or self._model_name == "gemini-3-flash" or self._model_name == "gemini-3-flash-lite" or self._model_name == "gemini-3.1-flash-lite-preview":
+        elif self._model_name in {
+            "gemini-3-flash-preview",
+            "gemini-3-flash",
+            "gemini-3-flash-lite",
+            "gemini-3.1-flash-lite",
+            "gemini-3.1-flash-lite-preview",
+        }:
             config = self.types.GenerateContentConfig(
                 temperature=self.temperature,
                 max_output_tokens=self.max_tokens,
@@ -119,6 +124,15 @@ class GeminiModel(BaseLLMModel):
                 temperature=self.temperature,
                 max_output_tokens=self.max_tokens,
                 thinking_config=self.types.ThinkingConfig(thinking_level="low")
+            )
+        else:
+            logger.warning(
+                "No model-specific GenerateContentConfig for %s; using default config",
+                self._model_name,
+            )
+            config = self.types.GenerateContentConfig(
+                temperature=self.temperature,
+                max_output_tokens=self.max_tokens,
             )
 
         request_lines = [

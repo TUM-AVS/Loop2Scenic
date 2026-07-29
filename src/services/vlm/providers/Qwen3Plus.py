@@ -27,9 +27,11 @@ DEFAULT_MODEL = "qwen3.6-plus"
 
 _MAX_INLINE_BYTES = 2 * 1024 * 1024  # 2 MiB
 # Prefer temporal coverage over per-frame fidelity (critic often sends 2 videos).
-_VIDEO_NUM_FRAMES = 8
+_VIDEO_NUM_FRAMES = 16
 _VIDEO_JPEG_QUALITY = 40
 _IMAGE_MAX_SIDE = 480
+# Moderate thinking for Qwen / Kimi VLM (perception + critic).
+_THINKING_BUDGET = 4096
 
 
 class Qwen3Plus(BaseVLMModel):
@@ -77,11 +79,13 @@ class Qwen3Plus(BaseVLMModel):
             "total_tokens": 0,
         }
         logger.info(
-            "Initialized Qwen VLM: %s (endpoint=%s, temperature=%s, max_tokens=%s)",
+            "Initialized Qwen VLM: %s (endpoint=%s, temperature=%s, max_tokens=%s, video_frames=%s, thinking_budget=%s)",
             self._model_name,
             base_url,
             temperature,
             max_tokens,
+            _VIDEO_NUM_FRAMES,
+            _THINKING_BUDGET,
         )
 
     @property
@@ -163,13 +167,21 @@ class Qwen3Plus(BaseVLMModel):
     ) -> str:
         messages = self._to_openai_messages(contents, system_instruction)
         messages = self._demote_video_modality(messages)
+        self._log_input_texts(messages)
         temperature = kwargs.pop("temperature", self.temperature)
         max_tokens = kwargs.pop("max_tokens", self.max_tokens)
         call_kwargs = {
             k: v
             for k, v in kwargs.items()
-            if k not in ("temperature", "max_tokens", "timeout", "response_format")
+            if k not in ("temperature", "max_tokens", "timeout", "response_format", "extra_body")
         }
+        extra_body = {
+            "enable_thinking": True,
+            "thinking_budget": _THINKING_BUDGET,
+        }
+        user_extra = kwargs.get("extra_body")
+        if isinstance(user_extra, dict):
+            extra_body.update(user_extra)
 
         start = time.perf_counter()
         response = None
@@ -181,7 +193,7 @@ class Qwen3Plus(BaseVLMModel):
                     messages=messages,
                     temperature=temperature,
                     max_tokens=max_tokens,
-                    # extra_body={"enable_thinking": True},
+                    extra_body=extra_body,
                     **call_kwargs,
                 )
                 break
@@ -224,6 +236,36 @@ class Qwen3Plus(BaseVLMModel):
         return dict(self._metrics)
 
     # ------------------------------------------------------------------ helpers
+
+    @staticmethod
+    def _log_input_texts(messages: list[dict[str, Any]]) -> None:
+        """Log all text payloads sent to the model (skip base64 image bodies)."""
+        n_images = 0
+        text_blocks: list[str] = []
+        for msg in messages:
+            role = msg.get("role", "?")
+            content = msg.get("content")
+            if isinstance(content, str):
+                text_blocks.append(f"[{role}] {content}")
+                continue
+            if not isinstance(content, list):
+                text_blocks.append(f"[{role}] {content!r}")
+                continue
+            for part in content:
+                if not isinstance(part, dict):
+                    continue
+                ptype = part.get("type")
+                if ptype == "text" or "text" in part:
+                    text_blocks.append(f"[{role}] {part.get('text', '')}")
+                elif ptype == "image_url" or "image_url" in part:
+                    n_images += 1
+        logger.info(
+            "Qwen VLM input: %d text block(s), %d image_url(s)",
+            len(text_blocks),
+            n_images,
+        )
+        for i, block in enumerate(text_blocks, start=1):
+            logger.info("Qwen VLM input text %d/%d:\n%s", i, len(text_blocks), block)
 
     @staticmethod
     def _classify_api_error(exc: Exception) -> str:

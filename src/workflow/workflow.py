@@ -404,26 +404,37 @@ class ScenarioWorkflow:
             self.logger.error("No scenario document found for id")
             return state
         
-        # 3. evaluate with vlm
+        # 3. evaluate with vlm (Target DSL + generated BEV video)
         critic_vlm_before = self._snapshot_service_metrics(getattr(self.critic, "vlm_service", None))
-        score, feedback, evaluation_result = self.critic.evaluate_with_vlm(original_query, scenario_document)
+        vlm_evaluation = self.critic.evaluate_with_vlm(
+            original_query,
+            scenario_document,
+            scenario_dsl=state.get("scenario_dsl"),
+        )
         critic_vlm_after = self._snapshot_service_metrics(getattr(self.critic, "vlm_service", None))
         critic_vlm_delta = self._delta_metrics(critic_vlm_before, critic_vlm_after)
-        self.logger.info(f"📊 VLM Score: {score}")
-        if feedback is None:
+        if not vlm_evaluation:
             self.logger.error("Failed to evaluate with VLM")
             return state
 
-        # 4. update the current scenario with the evaluation result
+        score = vlm_evaluation.get("score", 0)
+        feedback = vlm_evaluation.get("feedback", {})
+        self.logger.info(
+            "📊 VLM Score: %s (kpi_passed=%s)",
+            score,
+            vlm_evaluation.get("kpi_passed"),
+        )
+
+        # 4. Store the full critic payload on the scenario and graph state.
         current_scenic_scenario.score = score
         current_scenic_scenario.evaluation_feedback = feedback
-        current_scenic_scenario.evaluation_result = evaluation_result
+        current_scenic_scenario.evaluation_result = vlm_evaluation
         scenic_scenarios_list = state.get("scenic_scenarios_list", [])
         for scenario in scenic_scenarios_list:
             if scenario.scenario_id == current_scenic_scenario.scenario_id:
                 scenario.score = score
                 scenario.evaluation_feedback = feedback
-                scenario.evaluation_result = evaluation_result
+                scenario.evaluation_result = vlm_evaluation
                 break
         return {
             "scenic_scenarios_list": scenic_scenarios_list,

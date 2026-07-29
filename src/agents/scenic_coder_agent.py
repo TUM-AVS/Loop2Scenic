@@ -1,7 +1,7 @@
 import logging
 import re
 import time
-from src.schema import HeaderSetting
+from src.schema import HeaderSetting, get_comparison_evaluation
 from src.schema.header_setting import FOG_FREE_NIGHT_WEATHER, CUSTOM_NIGHT_WEATHER, WeatherParam
 from src.utils import clean_and_parse_json, setup_logging, strip_code_fence_markers
 from tests.test_utils import test_video_recording
@@ -148,11 +148,18 @@ MODEL = '{blueprint}'
 
     @staticmethod
     def _component_desc_to_text(description: Any) -> str:
-        """Serialize a DSL component description (str or dict) into embed/prompt text."""
+        """Serialize a DSL component description (str, dict, or list of dicts) into embed/prompt text."""
         if description is None:
             return ""
         if isinstance(description, str):
             return description
+        if isinstance(description, list):
+            parts = [
+                ScenicCoderAgent._component_desc_to_text(item)
+                for item in description
+                if item is not None and item != ""
+            ]
+            return "\n".join(f"- {part}" for part in parts if part)
         if isinstance(description, dict):
             obj = description.get("object", "") or ""
             detail = description.get("behavior") or description.get("position") or ""
@@ -161,6 +168,19 @@ MODEL = '{blueprint}'
                 return text
             return " ".join(str(v) for v in description.values() if v)
         return str(description)
+
+    @staticmethod
+    def _list_aspect_all_matched(eval_flags: Any) -> bool:
+        """True iff the whole list component can be extracted (every item matched)."""
+        if eval_flags is None or eval_flags == "":
+            return False
+        if isinstance(eval_flags, bool):
+            return eval_flags
+        if isinstance(eval_flags, list):
+            if not eval_flags:
+                return False
+            return all(bool(flag) for flag in eval_flags)
+        return bool(eval_flags)
 
     def get_snippets(self, text: str, comp_type: str) -> List[str]:
         # comp_type mapping
@@ -287,6 +307,14 @@ MODEL = '{blueprint}'
 
         If force_generate_all is True, every DSL component is regenerated (no extract from
         the base scenario). Used when the first-round critic score is too low.
+
+        List components (adversarials / road_side_structures / temporary_modifications):
+        - Generate path: create each DSL item one-by-one, then aggregate into one component string.
+        - Extract path: extract the whole component once from the base scenic code.
+
+        ``evaluation_result`` may be either:
+        - the full critic payload (``observed_dsl`` / ``evaluation`` / ``kpi_matches`` / ...), or
+        - a legacy flat comparison dict (``scenario`` / ``ego`` / ``adversarials`` / ...).
         """
         logger.info("🚀 Starting Generation + Assemble Scenic pipeline...")
         if force_generate_all:
@@ -294,6 +322,8 @@ MODEL = '{blueprint}'
                 "🔁 force_generate_all=True: regenerating all components from DSL "
                 "(skipping extract from base scenario)"
             )
+
+        comparison = get_comparison_evaluation(evaluation_result)
 
         """ The order of the components: 
         header
@@ -328,101 +358,113 @@ MODEL = '{blueprint}'
         
         list_aspects = ["adversarials", "road_side_structures", "temporary_modifications"]
         
-        # generate the components in the first generation order
         for aspect in generation_order:
             logger.info(f"🧩 Processing Component: {aspect}")
-            # deal with list aspects separately (eval is a list of booleans aligned to DSL entries)
             if aspect in list_aspects:
-                raw_descriptions = aim_dsl.get(aspect, [])
+                # DSL schema: Optional[List[Adversarial|RoadSideStructure|TemporaryModification]]
+                # each item is a dict with object + behavior/position.
+                raw_descriptions = aim_dsl.get(aspect)
                 if raw_descriptions is None or raw_descriptions == "":
                     description_list: list = []
                 elif isinstance(raw_descriptions, list):
-                    description_list = raw_descriptions
+                    description_list = [
+                        item for item in raw_descriptions if item is not None and item != ""
+                    ]
+                elif isinstance(raw_descriptions, dict):
+                    # Defensive: VLM sometimes returns a single object instead of a 1-element list.
+                    description_list = [raw_descriptions]
                 else:
                     description_list = [raw_descriptions]
 
-                raw_flags = evaluation_result.get(aspect, []) if evaluation_result else []
-                if raw_flags is None or raw_flags == "":
-                    eval_flags: list = []
-                elif isinstance(raw_flags, list):
-                    eval_flags = raw_flags
-                else:
-                    eval_flags = [raw_flags]
-
-                if len(eval_flags) != len(description_list):
-                    logger.warning(
-                        "Length mismatch for %s: DSL has %d description(s), "
-                        "evaluation has %d flag(s) — aligning to DSL length",
-                        aspect,
-                        len(description_list),
-                        len(eval_flags),
-                    )
-
-                generated_components = []
-                # DSL is the source of truth for what to generate/extract.
-                for idx, description in enumerate(description_list):
-                    # Missing flag → treat as mismatch (needs generation).
-                    matched = (
-                        False
-                        if force_generate_all
-                        else (eval_flags[idx] if idx < len(eval_flags) else False)
-                    )
-                    if not matched:
-                        new_code = self.generate_component(aspect, description, retrieved_components)
-                    else:
-                        new_code = self.extract_component(
-                            aspect, description, original_scenic_code, retrieved_components
-                        )
-                    if new_code:
-                        generated_components.append(new_code)
-                        retrieved_components[aspect] = generated_components
-                        logger.info(f"✅ Successfully generated {aspect} {idx+1}")
-                    else:
-                        logger.warning(f"⚠️ LLM returned empty code for {aspect} {idx+1}")
-
-                if len(eval_flags) > len(description_list):
-                    logger.warning(
-                        "Ignoring %d extra evaluation flag(s) for %s with no DSL description",
-                        len(eval_flags) - len(description_list),
-                        aspect,
-                    )
-                continue
-            else:
-                # for those aspects that are not a list, generate a new component with the description
-                target_description = aim_dsl.get(aspect, "")
-
-                # The DSL explicitly allows leaving requirements_and_restrictions empty
-                # when nothing applies. Skip this component entirely rather than asking
-                # the LLM to invent requirements from nothing (risk of over-constraining
-                # the scenario / RejectionException).
-                if aspect == "requirements_and_restrictions":
-                    is_empty = (
-                        target_description is None
-                        or (isinstance(target_description, str) and not target_description.strip())
-                        or (isinstance(target_description, dict) and not any(str(v).strip() for v in target_description.values()))
-                    )
-                    if is_empty:
-                        logger.info(f"⏭️ Skipping {aspect}: DSL has no content for this component")
-                        continue
+                if not description_list:
+                    logger.info(f"⏭️ Skipping {aspect}: DSL has no content for this component")
+                    continue
 
                 if force_generate_all:
                     needs_modification = True
                 else:
-                    needs_modification = not (evaluation_result or {}).get(aspect, True)
-                new_code = None
+                    needs_modification = not self._list_aspect_all_matched(
+                        (comparison or {}).get(aspect)
+                    )
+
                 if needs_modification:
-                    # generate a new component with the description
-                    new_code = self.generate_component(aspect, target_description, retrieved_components)
-                    logger.info(f"✅ Successfully generated {aspect}")
+                    # Generate each list item one-by-one, then aggregate into one component.
+                    piece_codes: list[str] = []
+                    for idx, description in enumerate(description_list):
+                        # Expose already-generated siblings so later items can reference them.
+                        retrieved_components[aspect] = piece_codes
+                        new_piece = self.generate_component(
+                            aspect, description, retrieved_components
+                        )
+                        if new_piece:
+                            piece_codes.append(new_piece)
+                            logger.info(
+                                "✅ Successfully generated %s item %d/%d",
+                                aspect,
+                                idx + 1,
+                                len(description_list),
+                            )
+                        else:
+                            logger.warning(
+                                "⚠️ LLM returned empty code for %s item %d/%d",
+                                aspect,
+                                idx + 1,
+                                len(description_list),
+                            )
+                    new_code = "\n\n".join(piece_codes) if piece_codes else ""
+                    action = "generated"
                 else:
-                    # extract the existing component
-                    new_code = self.extract_component(aspect, target_description, original_scenic_code, retrieved_components)
-                    logger.info(f"✅ Successfully extracted {aspect}")
+                    # Extract the whole component once from the original scenic code.
+                    new_code = self.extract_component(
+                        aspect, description_list, original_scenic_code, retrieved_components
+                    )
+                    action = "extracted"
+
                 if new_code:
                     retrieved_components[aspect] = new_code
-                    logger.info(f"✅ Successfully generated {aspect}")
+                    logger.info(
+                        "✅ Successfully %s aggregated %s (%d DSL item(s))",
+                        action,
+                        aspect,
+                        len(description_list),
+                    )
                 else:
-                    logger.warning(f"⚠️ LLM returned empty code for {aspect}")
+                    logger.warning(f"⚠️ Empty aggregated code for {aspect}")
+                    retrieved_components.pop(aspect, None)
+                continue
+
+            # Scalar aspects (spatial_relation, ego, requirements_and_restrictions)
+            target_description = aim_dsl.get(aspect, "")
+
+            # The DSL explicitly allows leaving requirements_and_restrictions empty
+            # when nothing applies. Skip this component entirely rather than asking
+            # the LLM to invent requirements from nothing (risk of over-constraining
+            # the scenario / RejectionException).
+            if aspect == "requirements_and_restrictions":
+                is_empty = (
+                    target_description is None
+                    or (isinstance(target_description, str) and not target_description.strip())
+                    or (isinstance(target_description, dict) and not any(str(v).strip() for v in target_description.values()))
+                )
+                if is_empty:
+                    logger.info(f"⏭️ Skipping {aspect}: DSL has no content for this component")
+                    continue
+
+            if force_generate_all:
+                needs_modification = True
+            else:
+                needs_modification = not (comparison or {}).get(aspect, True)
+            new_code = None
+            if needs_modification:
+                new_code = self.generate_component(aspect, target_description, retrieved_components)
+                logger.info(f"✅ Successfully generated {aspect}")
+            else:
+                new_code = self.extract_component(aspect, target_description, original_scenic_code, retrieved_components)
+                logger.info(f"✅ Successfully extracted {aspect}")
+            if new_code:
+                retrieved_components[aspect] = new_code
+            else:
+                logger.warning(f"⚠️ LLM returned empty code for {aspect}")
 
         # =========================================================
         # STEP 3: ASSEMBLE SCENARIO
@@ -447,14 +489,13 @@ MODEL = '{blueprint}'
             comp_data = retrieved_components[comp_type]
             
             if isinstance(comp_data, list):
-                # Unpack list of adversarials
+                # Backward-compatible: older per-item lists, if any remain.
                 for item in comp_data:
-                    if item.strip():
-                        code_parts.append(item.strip())
+                    if item and str(item).strip():
+                        code_parts.append(str(item).strip())
             else:
-                # Standard component
-                if comp_data.strip():
-                    code_parts.append(comp_data.strip())
+                if comp_data and str(comp_data).strip():
+                    code_parts.append(str(comp_data).strip())
                     
         assembled_code = "\n\n".join(code_parts)
         

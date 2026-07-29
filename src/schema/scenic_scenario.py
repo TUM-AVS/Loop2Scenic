@@ -9,7 +9,10 @@ class ScenicScenario(BaseModel):
     scenario_id: str
     description: Optional[str] = None
     scenic_code: str
-    error: Optional[str] = None # error message from the simulation recorder
+    error: Optional[str] = None  # error message from the simulation recorder
     score: Optional[float] = None
-    evaluation_feedback: Optional[str] = None
+    # Feedback sub-object from the critic (event_verification / per_item_notes), or legacy string.
+    evaluation_feedback: Optional[Any] = None
+    # Full critic payload: observed_dsl + evaluation + kpi_matches + kpi_passed + feedback + score.
+    # Legacy runs may still store only the flat comparison dict here.
     evaluation_result: Optional[Dict[str, Any]] = None

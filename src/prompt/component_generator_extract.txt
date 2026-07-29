@@ -71,7 +71,7 @@ Include:
 - their behaviors
 - parameters and helper variables used exclusively by those NPCs
 
-Extract ONLY the entities matching the provided description.
+Extract the COMPLETE adversarials component as one block: every adversarial entity that belongs to this aspect and matches the provided description (all of them together, not one-at-a-time).
 
 ### requirements_and_restrictions / "Requirement and restrictions"
 
@@ -86,20 +86,19 @@ Include:
 Include:
 - roadside prop instantiations
 - their required spawn points
-- helper variables used exclusively by those props
+- parameters and helpers used exclusively by those props
 
-Extract ONLY the objects matching the provided description.
+Extract the COMPLETE roadside-structures component as one block (all matching structures together).
 
 ### temporary_modifications / "Temporary Modifications"
 
 Include:
-- temporary obstacles
-- hazards
-- debris
+- temporary on-road prop instantiations
+- temporary obstacles, hazards, debris
 - their required spawn points
-- helper variables used exclusively by those objects
+- parameters and helpers used exclusively by those props/objects
 
-Extract ONLY the objects matching the provided description.
+Extract the COMPLETE temporary-modifications component as one block (all matching modifications together).
 
 ## Inputs
 

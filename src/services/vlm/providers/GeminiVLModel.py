@@ -29,7 +29,7 @@ class GeminiVLModel(BaseVLMModel):
         Args:
             model: Model name (e.g., gemini-1.5-pro, gemini-1.5-flash)
             temperature: Sampling temperature
-            max_tokens: Maximum tokens to generate (Max 8192)
+            max_tokens: Maximum tokens to generate
             api_key: Optional API key.
             **kwargs: Additional configuration
         """
@@ -43,7 +43,7 @@ class GeminiVLModel(BaseVLMModel):
         
         self._model_name = model
         self.temperature = temperature
-        self.max_tokens = min(max_tokens, 8192)
+        self.max_tokens = max_tokens
         
         self.default_instruction = "You are a helpful AI assistant."
         
@@ -62,9 +62,31 @@ class GeminiVLModel(BaseVLMModel):
             
         logger.info(f"Initialized Gemini VLM model: {model} using google-genai SDK with temperature {temperature} and max tokens {max_tokens}")
 
+    def _thinking_config(self):
+        """Moderate thinking for VLM perception / critic (~4k+)."""
+        name = self._model_name
+        if name.startswith("gemini-2.5"):
+            return self.types.ThinkingConfig(thinking_budget=4096)
+        if name.startswith("gemini-3"):
+            return self.types.ThinkingConfig(thinking_level="medium")
+        return None
+
+    def _generate_config(self, system_instruction: str, *, response_json: bool = False):
+        kwargs = {
+            "temperature": self.temperature,
+            "max_output_tokens": self.max_tokens,
+            "system_instruction": system_instruction,
+        }
+        thinking = self._thinking_config()
+        if thinking is not None:
+            kwargs["thinking_config"] = thinking
+        if response_json:
+            kwargs["response_mime_type"] = "application/json"
+        return self.types.GenerateContentConfig(**kwargs)
+
     @retry(
         stop=stop_after_attempt(5),
-        wait=wait_exponential(multiplier=5, min=10, max=120),
+        wait=wait_exponential(multiplier=1, min=2, max=20),
         before_sleep=lambda retry_state: logger.warning(f"⚠️ API Timeout or 503. Retrying in {retry_state.next_action.sleep} seconds...")
     )
     def chat(
@@ -80,11 +102,7 @@ class GeminiVLModel(BaseVLMModel):
 
         # Configure generation parameters including dynamic system instructions
         sys_instruct = instruction or self.default_instruction
-        config = self.types.GenerateContentConfig(
-            temperature=self.temperature,
-            max_output_tokens=self.max_tokens,
-            system_instruction=sys_instruct
-        )
+        config = self._generate_config(sys_instruct)
 
         contents = []
 
@@ -170,12 +188,7 @@ class GeminiVLModel(BaseVLMModel):
     ) -> str:
         """Chat with Gemini model using formatted content inputs."""
         sys_instruct = system_instruction or self.default_instruction
-        config = self.types.GenerateContentConfig(
-            temperature=self.temperature,
-            max_output_tokens=self.max_tokens,
-            system_instruction=sys_instruct,
-            response_mime_type="application/json"
-        )
+        config = self._generate_config(sys_instruct, response_json=True)
 
         start = time.perf_counter()
         response = self.client.models.generate_content(
