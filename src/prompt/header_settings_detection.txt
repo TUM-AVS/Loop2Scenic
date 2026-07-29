@@ -8,18 +8,20 @@ Please actively look for visual evidence in any provided images or videos (e.g.,
 
 ** Reasoning & Implementation Plan (Internal Guidance) **
 1. Detect Weather keywords:
-   - "rainy", "rain", "raining" with intensity:
+   - "rainy", "rain", "raining" with intensity (day/sunset only):
      * "light rain", "soft rain", "drizzle" → SoftRainNoon/SoftRainSunset
      * "rain", "rainy" (no modifier) → MidRainyNoon/MidRainSunset
      * "heavy rain", "hard rain", "downpour" → HardRainNoon/HardRainSunset
    - "clear", "sunny", "bright" → ClearNoon/ClearSunset
    - "cloudy", "overcast", "gray" → CloudyNoon/CloudySunset
    - "wet", "damp" (without active rain) → WetNoon/WetSunset
+   - If night (see time keywords): ignore rain/clear/cloudy night presets → CustomNight only
 
 2. Detect Time keywords:
-   - "noon", "midday", "daytime", "afternoon" or other daytime-related keywords → Noon
-   - "sunset", "dusk", "evening", "twilight", "night" or other night-related keywords → Sunset
-   - Default to Noon if not specified
+   - "noon", "midday", "daytime", "afternoon" or other daytime-related keywords → noon
+   - "sunset", "dusk", "evening", "twilight" → sunset
+   - "night", "midnight", "late night", "dark", "at night" → night
+   - Default to noon if not specified
 
 3. Detect Map keywords:
    - Analyze text keywords and any visual evidence in the user input to determine the appropriate CARLA map.
@@ -41,8 +43,12 @@ Please actively look for visual evidence in any provided images or videos (e.g.,
    - 0.0: No information detected
 
 ** Available Weather Options **
-- ClearNoon, CloudyNoon, WetNoon, WetCloudyNoon, SoftRainNoon, MidRainyNoon, HardRainNoon
-- ClearSunset, CloudySunset, WetSunset, WetCloudySunset, SoftRainSunset, MidRainSunset, HardRainSunset
+- Day (noon): ClearNoon, CloudyNoon, WetNoon, WetCloudyNoon, SoftRainNoon, MidRainyNoon, HardRainNoon
+- Sunset: ClearSunset, CloudySunset, WetSunset, WetCloudySunset, SoftRainSunset, MidRainSunset, HardRainSunset
+- Night: ALWAYS use CustomNight (never ClearNight / CloudyNight / SoftRainNight / etc.)
+  - CustomNight is a fog-free dark setting (sun down, fog_density=0) so BEV/recording stays usable.
+  - If rainy at night → still CustomNight (do not pick SoftRainNight / MidRainyNight / HardRainNight).
+  - If wet/cloudy at night → still CustomNight.
 
 ** Keywords to CARLA Map Mapping **
 - small/river/bridges/simple/rural → Town01 (small, simple town layout with a river and several bridges)
@@ -63,8 +69,11 @@ Please actively look for visual evidence in any provided images or videos (e.g.,
 - Adversarial cars/trucks/pedestrians never set this field.
 
 ** Important **
-- If no specific setting is detected, use None for that field
-- Combine time of day with weather (e.g., "rainy" + "noon" = "SoftRainNoon")
+- If no specific setting is detected, use null for that field (JSON null, not the string "None")
+- Combine time of day with weather for day/sunset (e.g., "rainy" + "noon" = "SoftRainNoon")
+- If time_of_day is night OR visual/text evidence is night → weather MUST be "CustomNight"
+- Do NOT output ClearNight / CloudyNight / WetNight / SoftRainNight / MidRainyNight / HardRainNight
+- Prefer a valid CARLA preset or CustomNight; never invent weather names
 - blueprint is always for the ego vehicle; adversarial agents never affect it
 - Provide clear reasoning for your detection
 - Be conservative with confidence scores
@@ -84,6 +93,17 @@ User Requirements:
   "blueprint": "vehicle.lincoln.mkz_2017",
   "confidence": 0.9,
   "reasoning": "Query mentions 'rainy weather' and 'rural area' at noon; ego vehicle brand not specified so default lincoln; 'truck' refers to an adversarial obstacle, not the ego"
+}}
+
+Night example:
+{{
+  "weather": "CustomNight",
+  "map_type": "urban",
+  "suggested_map": "Town05",
+  "time_of_day": "night",
+  "blueprint": "vehicle.lincoln.mkz_2017",
+  "confidence": 0.95,
+  "reasoning": "Scene is at night (dark sky / 'at night'); weather set to CustomNight for fog-free night"
 }}
 
 Now analyze the query and output JSON only:

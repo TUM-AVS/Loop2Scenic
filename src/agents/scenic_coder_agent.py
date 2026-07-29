@@ -2,6 +2,7 @@ import logging
 import re
 import time
 from src.schema import HeaderSetting
+from src.schema.header_setting import FOG_FREE_NIGHT_WEATHER, CUSTOM_NIGHT_WEATHER, WeatherParam
 from src.utils import clean_and_parse_json, setup_logging, strip_code_fence_markers
 from tests.test_utils import test_video_recording
 
@@ -11,6 +12,11 @@ from src.prompt import load_prompt
 from typing import Any, Dict, List
 
 logger = logging.getLogger(__name__)
+
+# Match param weather = 'X' or a single-level { ... } block (possibly multiline).
+_WEATHER_PARAM_RE = re.compile(
+    r"(?ms)^\s*param\s+weather\s*=\s*(?:\{[^{}]*\}|'[^']*'|\"[^\"]*\")",
+)
 
 # Define a static example of what a header looks like so the LLM knows what to look for
 header_format_example = """
@@ -35,26 +41,63 @@ class ScenicCoderAgent(BaseAgent):
     def process(self, state: dict) -> dict:
         return state
 
+    @staticmethod
+    def _format_weather_assignment(weather: WeatherParam) -> str:
+        """Format `param weather = ...` as a CARLA preset string or fog-free night dict."""
+        if isinstance(weather, dict):
+            items = ",\n    ".join(f"'{k}': {float(v)}" for k, v in weather.items())
+            return f"param weather = {{\n    {items},\n}}"
+        return f"param weather = '{weather}'"
+
+    @staticmethod
+    def _weather_label(weather: WeatherParam) -> str:
+        if isinstance(weather, dict):
+            return CUSTOM_NIGHT_WEATHER
+        return str(weather)
+
+    @classmethod
+    def _resolve_weather_param(cls, weather: Any) -> WeatherParam:
+        """Normalize weather: dict stays; CustomNight / *Night → fog-free dict."""
+        if isinstance(weather, dict) and weather:
+            return {k: float(v) for k, v in weather.items()}
+        text = cls._coerce_header_field(weather, default="ClearNoon")
+        lower = text.lower()
+        if (
+            lower == CUSTOM_NIGHT_WEATHER.lower()
+            or lower.endswith("night")
+            or "night" in lower
+        ):
+            return dict(FOG_FREE_NIGHT_WEATHER)
+        return text
+
     def replace_header(self, scenic_code: str, header_settings: HeaderSetting) -> str:
         """
         Replace the header of the scenic code with the header settings.
         Used after retrieving the base scenario from the vector store.
         """
-        map_file_path = header_settings.map_file_path if header_settings.map_file_path else "../../maps/Town05.xodr"
-        carla_map = header_settings.carla_map if header_settings.carla_map else "Town05"
-        blueprint = header_settings.blueprint if header_settings.blueprint else "vehicle.lincoln.mkz_2017"
-        weather = header_settings.weather if header_settings.weather else "ClearNoon"
+        map_file_path = self._coerce_header_field(
+            header_settings.map_file_path, default="../../maps/Town05.xodr"
+        )
+        carla_map = self._coerce_header_field(header_settings.carla_map, default="Town05")
+        blueprint = self._coerce_header_field(
+            header_settings.blueprint, default="vehicle.lincoln.mkz_2017"
+        )
+        weather = self._resolve_weather_param(header_settings.weather)
+        weather_assignment = self._format_weather_assignment(weather)
         replacements = [
             (r"(?m)^\s*param\s+map\s*=.*$", f"param map = localPath('{map_file_path}')"),
             (r"(?m)^\s*param\s+carla_map\s*=.*$", f"param carla_map = '{carla_map}'"),
             (r"(?m)^\s*MODEL\s*=.*$", f"MODEL = '{blueprint}'"),
-            (r"(?m)^\s*param\s+weather\s*=.*$", f"param weather = '{weather}'"),
         ]
         for pattern, repl in replacements:
             if re.search(pattern, scenic_code):
                 scenic_code = re.sub(pattern, repl, scenic_code, count=1)
             else:
                 scenic_code += "\n" + repl + "\n"
+        if _WEATHER_PARAM_RE.search(scenic_code):
+            scenic_code = _WEATHER_PARAM_RE.sub(weather_assignment, scenic_code, count=1)
+        else:
+            scenic_code += "\n" + weather_assignment + "\n"
         return scenic_code
 
     def generate_header(self, header_settings: HeaderSetting | None) -> str:
@@ -71,19 +114,37 @@ MODEL = 'vehicle.lincoln.mkz_2017'
 param weather = 'ClearNoon'
         """
         # if some of the fields are not provided, use the default values
-        map_file_path = header_settings.map_file_path if header_settings.map_file_path else "../../maps/Town05.xodr"
-        carla_map = header_settings.carla_map if header_settings.carla_map else "Town05"
-        blueprint = header_settings.blueprint if header_settings.blueprint else "vehicle.lincoln.mkz_2017"
-        weather = header_settings.weather if header_settings.weather else "ClearNoon"
+        map_file_path = self._coerce_header_field(
+            header_settings.map_file_path, default="../../maps/Town05.xodr"
+        )
+        carla_map = self._coerce_header_field(header_settings.carla_map, default="Town05")
+        blueprint = self._coerce_header_field(
+            header_settings.blueprint, default="vehicle.lincoln.mkz_2017"
+        )
+        weather = self._resolve_weather_param(header_settings.weather)
+        weather_label = self._weather_label(weather)
+        weather_assignment = self._format_weather_assignment(weather)
         header = f"""
-description = "Using map { map_file_path } with carla map { carla_map } and weather {weather}"
+description = "Using map { map_file_path } with carla map { carla_map } and weather {weather_label}"
 param map = localPath('{map_file_path}')
 param carla_map = '{carla_map}'
 model scenic.simulators.carla.model
 MODEL = '{blueprint}'
-param weather = '{weather}'
+{weather_assignment}
         """
         return header
+
+    @staticmethod
+    def _coerce_header_field(value: Any, *, default: str) -> str:
+        """Treat null / empty / literal 'None' as missing so CARLA never gets weather None."""
+        if value is None:
+            return default
+        if isinstance(value, dict):
+            return default
+        text = str(value).strip()
+        if not text or text.lower() in {"none", "null", "n/a", "na", "unknown"}:
+            return default
+        return text
 
     @staticmethod
     def _component_desc_to_text(description: Any) -> str:

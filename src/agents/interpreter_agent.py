@@ -11,6 +11,7 @@ from src.utils import clean_and_parse_json, flatten_dsl_to_text, to_safe_string
 from .base_agent import BaseAgent
 from src.prompt import load_prompt
 from src.schema import MultimodalQuery, ScenarioDocument, ScenicScenario, HeaderSetting
+from src.schema.header_setting import CUSTOM_NIGHT_WEATHER, FOG_FREE_NIGHT_WEATHER
 
 logger = logging.getLogger(__name__)
 
@@ -68,15 +69,20 @@ class InterpreterAgent(BaseAgent):
                 logger.warning("Low confidence in header settings detection, returning None to not to change the header")
                 return None
             else: 
-                suggested_map = json_response.get("suggested_map")
-                if not suggested_map or suggested_map is None:
-                    suggested_map = "Town05"
-                weather = json_response.get("weather")
-                if not weather or weather is None:
-                    weather = "ClearNoon"
-                blueprint = json_response.get("blueprint")
-                if not blueprint or blueprint is None:
-                    blueprint = "vehicle.lincoln.mkz_2017"
+                suggested_map = self._coerce_header_str(
+                    json_response.get("suggested_map"), default="Town05"
+                )
+                time_of_day = self._coerce_header_str(
+                    json_response.get("time_of_day"), default="noon"
+                )
+                weather = self._resolve_weather(
+                    json_response.get("weather"),
+                    time_of_day=time_of_day,
+                )
+                blueprint = self._coerce_header_str(
+                    json_response.get("blueprint"),
+                    default="vehicle.lincoln.mkz_2017",
+                )
                 header_settings = HeaderSetting(
                     carla_map=suggested_map,
                     map_file_path=f"../../maps/{suggested_map}.xodr",
@@ -87,6 +93,43 @@ class InterpreterAgent(BaseAgent):
         else:
             logger.error("Failed to parse JSON, returning None")
             return None
+
+    @staticmethod
+    def _coerce_header_str(value: Any, *, default: str) -> str:
+        """Normalize VLM header fields; treat null / 'None' / empty as missing."""
+        if value is None:
+            return default
+        text = str(value).strip()
+        if not text or text.lower() in {"none", "null", "n/a", "na", "unknown"}:
+            return default
+        return text
+
+    @classmethod
+    def _resolve_weather(cls, weather_raw: Any, *, time_of_day: str) -> Any:
+        """Map night detections to fog-free CustomNight dict; else CARLA preset string."""
+        if isinstance(weather_raw, dict) and weather_raw:
+            # Trust an explicit param dict from the VLM (rare); fill missing night keys.
+            merged = {**FOG_FREE_NIGHT_WEATHER, **{k: float(v) for k, v in weather_raw.items()}}
+            return merged
+
+        weather = cls._coerce_header_str(weather_raw, default="ClearNoon")
+        tod = (time_of_day or "noon").strip().lower()
+        weather_l = weather.lower()
+        is_night = (
+            tod in {"night", "midnight", "late night"}
+            or "night" in tod
+            or weather_l == CUSTOM_NIGHT_WEATHER.lower()
+            or weather_l.endswith("night")
+            or "night" in weather_l
+        )
+        if is_night:
+            logger.info(
+                "Night detected (time_of_day=%r, weather=%r) → fog-free CustomNight weather dict",
+                time_of_day,
+                weather,
+            )
+            return dict(FOG_FREE_NIGHT_WEATHER)
+        return weather
 
     def _chat_for_json(
         self,
