@@ -16,7 +16,7 @@ Output ONLY a valid JSON object with the following structure. Do NOT wrap the ou
             "behavior": "<A short description of the behavior of this specific Adversarial object>"
         }
     ],
-    "spatial_relation": "<A single short sentence defining the road type (e.g., straight road, highway, intersection) and the relative positioning of the ego AND EVERY adversarial entity within the environment.>",
+    "spatial_relation": "<One or two short sentences: name the road type (e.g., straight road, highway, intersection), then explicitly place the ego AND EVERY adversarial. Each placement may be relative to the ego, to road geometry (lanes, intersections, stop lines, cross-streets), or to another named adversarial — whichever anchor is clearest. Do not omit any adversarial.>",
     "requirements_and_restrictions": "<Describe any initial distance constraints (e.g., distance between the ego and the intersection) and termination conditions. Leave empty if none apply.>",
     "road_side_structures": [
         {
@@ -36,6 +36,7 @@ Output ONLY a valid JSON object with the following structure. Do NOT wrap the ou
 ** Strict Rules to Follow **
 - Cross-Reference Modalities: Use the image or video to visually confirm the static entities, road types, and initial spatial layouts.
 - Use the video to confirm the dynamic behaviors and trajectories of the Ego and ALL Adversarial objects over time.
+- Explicit Trajectories (CRITICAL): If the image/video/diagram shows an explicit trajectory — e.g., path arrows, curved motion arrows, dashed intended paths, tire marks, or a clearly drawn route — you MUST notice it and use it as primary evidence for that actor's behavior (straight, turn, reverse, merge, etc.). Do not ignore drawn trajectories or override them with a default assumption.
 - Subject-First Descriptions: Start descriptions with the subject (e.g., "The ego vehicle travels...", "A debris object remains...").
 - Separation of Concerns: Exclude spatial relations from the "Ego" and "Adversarials" components. Spatial data belongs ONLY in the "Spatial Relation" component.
 - Multiple Adversarials (CRITICAL):
@@ -53,7 +54,7 @@ Output ONLY a valid JSON object with the following structure. Do NOT wrap the ou
 Car, Motorcycle, Truck.
 
 ** Allowed Adversarial Objects **
-Car, NPCCar, Bicycle, Motorcycle, Truck, Pedestrian, Trash, Garbage, Container, CreasedBox, Case, Box, Gnome.
+Car, NPCCar, Bicycle, Motorcycle, Truck, Pedestrian, Gnome.
 
 ** Allowed Road Side Structure Objects **
 Barrel, Bin, Box, Container, CreasedBox, Trashcan, Bench, Garden Lamp, Pergola, Plastic Chair, Table, Slide, Swing, Trampoline, Barbeque, Clothesline, Doghouse, Gnome, Watering Can, Haybale, Plantpot, Shopping Cart, Briefcase, Travelcase, Chainbarrier, Bench, Foodcart, Kiosk, Fountain, Maptable, Advertisement, Street Sign, Busstop, ATM, Mailbox, Vending Machine.
@@ -63,102 +64,109 @@ Street Barrier, Construction Cone, Traffic Cone, Iron Plank, Traffic Warning, Ac
 
 ** Reasoning and Implementation plan **
 1. Identify the Actors: 
-You must explicitly classify all dynamic entities in the scene as either the Ego vehicle or an Adversary based on the following strict hierarchy:
+There is exactly one Ego vehicle. Classify every relevant entity as either that Ego or an Adversary, using this priority order (stop at the first rule that applies for Ego):
     - Explicit Labels: If the user text explicitly numbers or letters vehicles (e.g., "Vehicle A", "Vehicle B"), assign "Vehicle A" as the Ego and all others as Adversaries.
     - Camera Perspective: If no explicit labels exist, but the video/image is shot from a first-person dashboard or hood perspective, the camera-host vehicle is the Ego.
-    - Spatial Inference: If the perspective is a third-person drone or traffic camera view, the vehicle located nearest to the exact center of the frame is the Ego.
-    - Default Classification: Once the Ego is identified, all other active vehicles, pedestrians, cyclists, or dynamic entities MUST be classified as Adversaries.
+    - Spatial Inference: If the perspective is a third-person drone or traffic camera view, the vehicle nearest the exact center of the frame is the Ego.
+    - Two-Object Style Fallback: If only two candidate vehicles/objects are visible and none of the rules above apply (no usable text labels, no clear camera/center cue), the one with additional color, markings, or visual styling is the Ego; the other is an Adversary.
+    - Default Classification: Once the Ego is identified, every other visible entity whose type matches **Allowed Adversarial Objects** MUST be classified as an Adversary — including stationary ones (e.g., a parked Car or a standing Pedestrian).
 
 2. Enumerate All Adversarials Before Describing Them:
-    - Count every non-ego dynamic entity visible in the text/image/video.
-    - Assign each one a distinct array slot before writing behaviors.
-    - If two adversarials share the same object type (e.g., two Cars or two Pedestrians), still create two separate entries and differentiate them by behavior and role in the scene.
+    - Count every non-ego entity in the text/image/video that matches **Allowed Adversarial Objects**. Adversarials do not have to be moving: any listed type that is present counts, even if it stays still.
+    - If something appears visually and you are unsure whether it should be an adversarial, classify it as an adversarial first. Only place an object under `road_side_structures` or `temporary_modifications` when it clearly and explicitly matches **Allowed Road Side Structure Objects** or **Allowed Temporary Modifications Objects**; do not use those categories as a catch-all for ambiguous objects.
+    - Assign each adversarial a distinct array slot before writing behaviors.
+    - If two adversarials share the same object type (e.g., two Cars or two Pedestrians), still create two separate entries and differentiate them by behavior and role in the scene (including "remaining stationary" when that is their role).
     - Only after this enumeration is complete may you fill ego behavior, spatial_relation, and requirements.
 
-3. Conduct a Chronological Analysis: 
-Break the video sequence into three strict temporal phases: Initial (start), Midpoint, and Ending. Track the Ego AND EACH adversarial separately across the three phases. Deduce each adversarial's own behavior (e.g., accelerating, yielding, remaining stationary, crossing) from how THAT entity's position changes; do not assume all adversarials share one behavior.
+3. Conduct a Chronological Analysis (behaviors + relative positions are CRITICAL):
+Break the video (or image sequence) into three strict temporal phases: Initial (start), Midpoint, and Ending. Track the Ego AND EACH adversarial separately across the three phases.
+    - Identify each entity's true behavior from how THAT entity moves (or does not move). Do NOT default to "turning left/right" or assume the adversarial crosses the ego's path — only state a crossing/turn if the visual evidence clearly shows it.
+    - If an explicit trajectory is drawn or visible for an actor (arrows, curved paths, dashed routes, etc.), follow that trajectory when writing the behavior; treat it as higher priority than a generic guess.
+    - Cover a wide behavior vocabulary when supported by evidence, e.g.: drive straight / continue in lane, change lane (left or right), cut-in, cut-out, overtake, merge, yield / decelerate, accelerate, stop / remain stationary, reverse / back up, turn left, turn right, U-turn, cross an intersection or crosswalk, enter from a side road, exit to a side road.
+    - Write an independent behavior for every adversarial; do not copy the ego's maneuver onto adversarials, and do not assume all adversarials share one behavior.
+    - Relative position matters. In `spatial_relation`, explicitly place EACH adversarial using at least one clear anchor: relative to the ego (e.g., ahead / behind / left lane / right lane / oncoming), relative to road geometry (e.g., approaching an intersection, at a stop line, on a cross-street), or relative to another named adversarial. You do not need every anchor for every actor — pick the clearest one(s). Vague phrases like "nearby" without a reference are not enough.
 
 4. Ground Conclusions in Visual Evidence: 
-You must explicitly state the visual evidence that justifies your conclusions regarding dynamic behavior for the ego and for each adversarial. Do not guess; cite specific spatial cues (e.g., "Adversarial 1 decelerates because its distance to the intersection visibly decreases between Midpoint and Ending; Adversarial 2 stays fixed relative to the curb across all three phases").
+You must explicitly state the visual evidence that justifies (a) each actor's behavior and (b) each relative position. Do not guess; cite specific spatial/temporal cues, and if a trajectory is explicitly shown, cite that trajectory (e.g., "Adversarial 1 backs into the roadway because curved reverse arrows are drawn at its rear; Adversarial 2 continues straight because a straight arrow marks its lane; Adversarial 3 stays left of the ego with constant lateral offset and does not cross the ego's path").
 
 ** Examples **
-Example 1 (single ego, single adversarial):
+Example 1 (rural four-way intersection; cut-over / lane merge; drive straight — not a path-crossing turn):
 {{
-    "scenario": "The ego vehicle executes a right turn at a 3-way intersection while an adversarial vehicle proceeds straight ahead.",
-    "ego":  
-        {
-            "object": "Car",
-            "behavior": "The car turns right at the intersection and automatically decelerates to prevent collisions with nearby objects."
-        }
+    "scenario": "The ego vehicle travels straight through a rural four-way intersection while an adversarial car merges left from the adjacent right lane and continues straight ahead of the ego.",
+    "ego": {
+        "object": "Car",
+        "behavior": "The car travels straight forward through the intersection without turning."
+    },
     "adversarials": [
         {
             "object": "Car",
-            "behavior": "The car travels straight forward through the intersection."
+            "behavior": "The car changes lane left from the adjacent right lane into the ego's path and then continues straight ahead of the ego vehicle."
         }
     ],
-    "spatial_relation": "Both the ego and adversarial vehicles start on separate incoming lanes approaching a 3-way intersection.",
-    "requirements_and_restrictions": "Initial distances to the intersection are strictly defined for both vehicles, and the scenario terminates once the ego vehicle travels a specified distance beyond its spawn point.",
+    "spatial_relation": "At a rural four-way intersection with marked crosswalks, the ego approaches in its lane through the junction. The adversarial car starts in the adjacent right lane beside the ego, then ends ahead of the ego in the same through direction after the merge.",
+    "requirements_and_restrictions": "Traffic lights control the intersection. Initial spacing keeps the adversarial car beside the ego before the merge. The scenario terminates once the ego has cleared the intersection and both vehicles are continuing straight.",
     "road_side_structures": [
-    {
-        "object": "Kiosk",
-        "position": "Positioned on the right-hand sidewalk relative to the ego vehicle."
-    }
+        {
+            "object": "Street Sign",
+            "position": "Positioned at the near corner of the four-way intersection relative to the ego."
+        }
     ],
     "temporary_modifications": [
-    {
-        "object": "Street Barrier",
-        "position": "Placed exactly in the center of the ego vehicle's current lane."
-    }
+        {
+            "object": "Traffic Cone",
+            "position": "Placed on the shoulder next to the adversarial car's initial right lane before the merge."
+        }
     ],
-    "reasoning_chain": "1. Actors: The ego vehicle is identified from the first-person perspective; the adversarial is the vehicle in the opposing lane. 2. Chronological Analysis: Initially, both approach the 3-way intersection. At the midpoint, the ego initiates a right turn while the adversarial continues straight into the intersection. In the ending phase, the ego completes its turn while the adversarial clears the intersection. 3. Evidence: The ego's trajectory visually arcs 90 degrees right relative to the static lane markings, whereas the adversarial maintains a constant forward vector without deviation.",
+    "reasoning_chain": "1. Actors: blue styled car is ego; red car is adversarial. 2. Chronology: initial red car right of ego; midpoint merges left; ending both go straight with red ahead. 3. Evidence: lateral gap shrinks then red stays ahead on through path — merge/cut-over, not a turn across ego."
 }}
 
-Example 2 (single ego, multiple adversarials of the same type):
+Example 2 (same object type; stationary vs moving behaviors; positions relative to ego and crosswalk):
 {{
-    "scenario": "The ego vehicle encounters two pedestrians on the road, where one is standing still and the other is crossing the street.",
+    "scenario": "The ego vehicle drives straight on an urban road while one pedestrian stands still in-lane and another pedestrian crosses at a crosswalk ahead.",
     "ego": {
-            "object": "Car",
-            "behavior": "The car travels straight forward along its lane."
-        },
+        "object": "Car",
+        "behavior": "The car travels straight forward along its lane and decelerates for pedestrians ahead."
+    },
     "adversarials": [
         {
             "object": "Pedestrian",
-            "behavior": "The pedestrian remains completely stationary on the road."
+            "behavior": "The pedestrian remains completely stationary on the roadway."
         },
         {
             "object": "Pedestrian",
-            "behavior": "The pedestrian is actively crossing the road in front of the ego vehicle."
+            "behavior": "The pedestrian crosses the road at the crosswalk ahead of the ego vehicle."
         }
     ],
-    "spatial_relation": "The ego vehicle is positioned on a standard road lane, approaching two pedestrians located within its path: one stationary pedestrian ahead in-lane and one crossing pedestrian moving across the ego path.",
-    "requirements_and_restrictions": "The ego vehicle must spawn a set distance away from both pedestrians, and the scenario terminates once the ego vehicle has traveled safely past both of them.",
+    "spatial_relation": "On a straight urban lane, the ego approaches two pedestrians: one stationary pedestrian is ahead in the ego lane, and the crossing pedestrian is at the crosswalk further ahead of that stationary pedestrian.",
+    "requirements_and_restrictions": "The ego must spawn a certain distance before both pedestrians. The scenario terminates after the ego has passed both pedestrians safely.",
     "road_side_structures": [],
     "temporary_modifications": [],
-    "reasoning_chain": "1. Actors: Ego is the centered car; two non-ego pedestrians are adversarials (not merged). 2. Enumeration: adversarials length is 2. 3. Chronology: initial both pedestrians appear ahead; midpoint one stays fixed while the other crosses; ending ego passes both. 4. Evidence: stationary pedestrian's image location is unchanged across phases; crossing pedestrian's lateral position shifts across the lane."
+    "reasoning_chain": "1. Actors: centered car is ego; two pedestrians are separate adversarials. 2. Enumeration: adversarials length is 2. 3. Chronology: one stays fixed; the other crosses at midpoint. 4. Evidence: stationary pedestrian image location unchanged; crossing pedestrian shifts laterally across the lane."
 }}
 
-Example 3 (single ego, multiple adversarials of mixed types):
+Example 3 (backup from driveway; reverse into through traffic):
 {{
-    "scenario": "The ego vehicle drives straight while an adversarial car cuts in from an adjacent lane and a pedestrian steps into the roadway ahead.",
+    "scenario": "The ego vehicle travels straight on an urban roadway while an adversarial car reverses from a driveway or alley and turns into the ego's lane, leading to a collision.",
     "ego": {
-            "object": "Car",
-            "behavior": "The car travels straight forward along its lane and reacts to nearby road users."
-        },
+        "object": "Car",
+        "behavior": "The car travels straight forward along the main roadway."
+    },
     "adversarials": [
         {
             "object": "Car",
-            "behavior": "The car changes into the ego lane and continues forward ahead of the ego vehicle."
-        },
-        {
-            "object": "Pedestrian",
-            "behavior": "The pedestrian enters the roadway from the roadside and moves across the ego path."
+            "behavior": "The car reverses out of a side driveway or alley and turns into the main roadway, intersecting the ego vehicle's path."
         }
     ],
-    "spatial_relation": "On a multi-lane road, the ego starts in one lane, an adversarial car begins in an adjacent lane beside the ego, and a pedestrian is positioned near the roadside ahead of the ego.",
-    "requirements_and_restrictions": "Initial spacing is defined among the ego, the cut-in car, and the pedestrian; the scenario terminates after the ego has passed both adversarials.",
-    "road_side_structures": [],
+    "spatial_relation": "At an urban driveway or alley entrance onto a main roadway, the ego vehicle is traveling straight in its lane on the main road. The adversarial car starts in the side entrance beside the main roadway and backs into the ego's lane.",
+    "requirements_and_restrictions": "Clear daylight weather and a posted urban speed limit apply. Initial spacing places the ego approaching the driveway entrance while the adversarial car begins reversing from the side entrance. The scenario involves a conflict where the reversing path intersects the ego lane; it terminates after the interaction at that entrance.",
+    "road_side_structures": [
+        {
+            "object": "Street Sign",
+            "position": "Positioned near the alley entrance beside the backing adversarial car."
+        }
+    ],
     "temporary_modifications": [],
-    "reasoning_chain": "1. Actors: centered car is ego; remaining dynamic entities are adversarials. 2. Enumeration: one Car and one Pedestrian => adversarials length 2. 3. Chronology: initial car beside ego and pedestrian roadside; midpoint car merges ahead while pedestrian enters road; ending both remain distinct threats/actors. 4. Evidence: car's lateral offset to ego shrinks (lane change); pedestrian's position moves from curb into lane."
+    "reasoning_chain": "1. Actors: through-road car is ego; driveway car is adversarial. 2. Chronology: initial adversarial in side entrance, ego approaching; midpoint adversarial reverses/turns into road; ending paths intersect. 3. Evidence: curved reverse arrows at driveway vs straight arrow on main lane — backup into through traffic, not a forward merge."
 }}
 
-Extract and convert the following scenario into the exact JSON format requested. Output ONLY the raw JSON object. You are strictly forbidden from truncating the text or using placeholders like .... Do not stop generating until every key is populated and the final closing brace of the JSON is output. Be especially careful to list every adversarial entity as a separate array item when multiple adversarials are present.
+Extract and convert the following scenario into the exact JSON format requested. Output ONLY the raw JSON object. You are strictly forbidden from truncating the text or using placeholders like .... Do not stop generating until every key is populated and the final closing brace of the JSON is output. Be especially careful to list every adversarial entity as a separate array item when multiple adversarials are present. Only fill `road_side_structures` / `temporary_modifications` when matching objects are actually present; empty arrays remain valid when none appear.
