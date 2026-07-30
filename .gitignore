@@ -92,3 +92,10 @@ htmlcov/
 volumes/.env.bak
 .env.*
 volumes
+
+# local configs
+config/config.yaml
+config/config_RAG_ablation/
+config/config_ollama/
+config/config_generator_ablation/
+config/config_evaluator_ablation/
