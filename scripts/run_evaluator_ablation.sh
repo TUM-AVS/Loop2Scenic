@@ -2,6 +2,11 @@
 # Run the 5 VLM-evaluator ablation groups (G1–G5) via e2e_eval.py.
 # Continues to the next group even if a run fails.
 #
+# Results land under:
+#   eval/results/vlm_ablation/run_<timestamp>/<config_name>/
+# Logs:
+#   eval/results/vlm_ablation/logs/
+#
 # Usage (from repo root, or anywhere):
 #   bash scripts/run_evaluator_ablation.sh
 #   bash scripts/run_evaluator_ablation.sh --benchmark-root data/benchmark --limit 2
@@ -34,8 +39,11 @@ fi
 export PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:$PYTHONPATH}"
 
 CONFIG_DIR="$REPO_ROOT/config/config_evaluator_ablation"
-LOG_DIR="$REPO_ROOT/eval/results/evaluator_ablation_logs"
-mkdir -p "$LOG_DIR"
+RESULTS_BASE="$REPO_ROOT/eval/results/vlm_ablation"
+LOG_DIR="$RESULTS_BASE/logs"
+SWEEP_TS="$(date '+%Y%m%d_%H%M%S')"
+SWEEP_DIR="$RESULTS_BASE/run_${SWEEP_TS}"
+mkdir -p "$LOG_DIR" "$SWEEP_DIR"
 
 # Prompt structure (G1–G3) then modality (G4–G5).
 CONFIGS=(
@@ -47,19 +55,22 @@ CONFIGS=(
 )
 
 EXTRA_ARGS=("$@")
-MASTER_LOG="$LOG_DIR/run_$(date '+%Y%m%d_%H%M%S').log"
+MASTER_LOG="$LOG_DIR/run_${SWEEP_TS}.log"
 PASSED=0
 FAILED=0
 FAILED_NAMES=()
 
 echo "===== Evaluator ablation sweep start $(date '+%Y-%m-%d %H:%M:%S') =====" | tee -a "$MASTER_LOG"
 echo "Repo: $REPO_ROOT" | tee -a "$MASTER_LOG"
+echo "Sweep results: $SWEEP_DIR" | tee -a "$MASTER_LOG"
 echo "Extra args: ${EXTRA_ARGS[*]:-(none)}" | tee -a "$MASTER_LOG"
 echo "Master log: $MASTER_LOG" | tee -a "$MASTER_LOG"
 
 for cfg in "${CONFIGS[@]}"; do
   name="$(basename "$cfg" .yaml)"
-  run_log="$LOG_DIR/${name}_$(date '+%Y%m%d_%H%M%S').log"
+  group_results="$SWEEP_DIR/$name"
+  run_log="$LOG_DIR/${name}_${SWEEP_TS}.log"
+  mkdir -p "$group_results"
 
   if [[ ! -f "$cfg" ]]; then
     echo "[SKIP] missing config: $cfg" | tee -a "$MASTER_LOG"
@@ -71,14 +82,15 @@ for cfg in "${CONFIGS[@]}"; do
   echo "" | tee -a "$MASTER_LOG"
   echo "===== [$(date '+%H:%M:%S')] START $name =====" | tee -a "$MASTER_LOG"
   echo "Config: $cfg" | tee -a "$MASTER_LOG"
+  echo "Results: $group_results" | tee -a "$MASTER_LOG"
   echo "Run log: $run_log" | tee -a "$MASTER_LOG"
 
-  python eval/e2e_eval.py --config-path "$cfg" "${EXTRA_ARGS[@]}" \
+  python eval/e2e_eval.py --config-path "$cfg" --results-root "$group_results" "${EXTRA_ARGS[@]}" \
     > >(tee "$run_log") 2>&1
   status=$?
 
   if [[ $status -eq 0 ]]; then
-    echo "[OK] $name" | tee -a "$MASTER_LOG"
+    echo "[OK] $name -> $group_results" | tee -a "$MASTER_LOG"
     PASSED=$((PASSED + 1))
   else
     echo "[FAILED] $name (exit=$status); continuing" | tee -a "$MASTER_LOG"
@@ -90,6 +102,7 @@ done
 echo "" | tee -a "$MASTER_LOG"
 echo "===== Evaluator ablation sweep done $(date '+%Y-%m-%d %H:%M:%S') =====" | tee -a "$MASTER_LOG"
 echo "Passed: $PASSED  Failed: $FAILED" | tee -a "$MASTER_LOG"
+echo "Results root: $SWEEP_DIR" | tee -a "$MASTER_LOG"
 if (( FAILED > 0 )); then
   echo "Failed configs: ${FAILED_NAMES[*]}" | tee -a "$MASTER_LOG"
 fi

@@ -928,12 +928,15 @@ class EvalE2EWorkflow:
         *,
         benchmark_root: Path | str = BENCHMARK_ROOT,
         limit: Optional[int] = None,
+        results_root: Optional[Path | str] = None,
     ) -> Path:
         """
         Run e2e evaluation for each modality folder under ``benchmark_root``.
 
-        Uses one shared ``eval/results/e2e_<timestamp>_<model>/`` tree and one CSV:
-          - results: ``e2e_<ts>_<model>/<category>/<scenario>/...``
+        Uses one shared results tree and one CSV:
+          - default: ``eval/results/e2e_<timestamp>_<model>/``
+          - override with ``results_root``
+          - per-scenario: ``<results_root>/<category>/<scenario>/...``
           - CSV: ``batch_results.csv`` with a ``category`` column
 
         If ``categories`` is None, auto-detect which known modality folders exist
@@ -971,7 +974,10 @@ class EvalE2EWorkflow:
                 f"Expected one or more of: {[c.value for c in BENCHMARK_CATEGORIES]}"
             )
 
-        results_root = self._default_results_root()
+        if results_root is None:
+            results_root = self._default_results_root()
+        else:
+            results_root = Path(results_root)
         results_root.mkdir(parents=True, exist_ok=True)
         output_csv_path = results_root / "batch_results.csv"
 
@@ -1038,6 +1044,15 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Optional path to config YAML",
     )
+    parser.add_argument(
+        "--results-root",
+        type=Path,
+        default=None,
+        help=(
+            "Directory for batch_results.csv and per-scenario outputs. "
+            "Default: eval/results/e2e_<timestamp>_<model>/"
+        ),
+    )
     return parser.parse_args()
 
 
@@ -1056,5 +1071,6 @@ if __name__ == "__main__":
         categories=categories,
         benchmark_root=args.benchmark_root,
         limit=args.limit,
+        results_root=args.results_root,
     )
     print(f"Batch done. CSV: {output_csv}")
