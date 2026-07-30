@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Run the 5 VLM-evaluator ablation groups (G1–G5) via e2e_eval.py.
-# Continues to the next group even if a run fails.
+# Continues to the next group on ordinary failures, but ABORTS the whole sweep
+# immediately on CUDA out-of-memory (e2e_eval exit code 99, or OOM text in the log).
 #
 # Results land under:
 #   eval/results/vlm_ablation/run_<timestamp>/<config_name>/
@@ -89,6 +90,24 @@ for cfg in "${CONFIGS[@]}"; do
     > >(tee "$run_log") 2>&1
   status=$?
 
+  # Detect CUDA OOM via exit code (99) or log content (covers killed/init failures).
+  oom_hit=0
+  if [[ $status -eq 99 ]]; then
+    oom_hit=1
+  elif [[ -f "$run_log" ]] && grep -qiE \
+    'CUDA out of memory|CUDA_OOM|OutOfMemoryError|torch\.cuda\.OutOfMemoryError|hip out of memory|\[ABORT\].*CUDA' \
+    "$run_log"; then
+    oom_hit=1
+  fi
+
+  if [[ $oom_hit -eq 1 ]]; then
+    echo "[ABORT] CUDA OOM in $name (exit=$status); stopping remaining ablation groups" | tee -a "$MASTER_LOG"
+    echo "Partial results: $SWEEP_DIR" | tee -a "$MASTER_LOG"
+    echo "Run log: $run_log" | tee -a "$MASTER_LOG"
+    echo "Master log: $MASTER_LOG" | tee -a "$MASTER_LOG"
+    exit 99
+  fi
+
   if [[ $status -eq 0 ]]; then
     echo "[OK] $name -> $group_results" | tee -a "$MASTER_LOG"
     PASSED=$((PASSED + 1))
@@ -108,5 +127,5 @@ if (( FAILED > 0 )); then
 fi
 echo "Master log: $MASTER_LOG" | tee -a "$MASTER_LOG"
 
-# Exit 0 so a launcher/tmux session is not treated as aborted when some groups fail.
+# Exit 0 so a launcher/tmux session is not treated as aborted when some (non-OOM) groups fail.
 exit 0

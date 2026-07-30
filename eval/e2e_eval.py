@@ -33,6 +33,40 @@ FOLDER_PATH = str(BENCHMARK_ROOT)
 _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"}
 _VIDEO_EXTS = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
 
+# Distinctive exit code so sweep scripts can abort remaining groups on OOM.
+CUDA_OOM_EXIT_CODE = 99
+
+
+class CudaOutOfMemoryAbort(RuntimeError):
+    """Raised to stop the current e2e batch/sweep after a CUDA OOM."""
+
+
+def _is_cuda_oom_error(exc_or_msg: Any) -> bool:
+    """Return True if the exception/message looks like a CUDA/HIP out-of-memory failure."""
+    if exc_or_msg is None:
+        return False
+    # Prefer type check when torch is available.
+    try:
+        import torch
+
+        if isinstance(exc_or_msg, torch.cuda.OutOfMemoryError):
+            return True
+    except Exception:
+        pass
+
+    text = str(exc_or_msg).lower()
+    needles = (
+        "cuda_oom",
+        "cuda out of memory",
+        "torch.cuda.outofmemoryerror",
+        "outofmemoryerror",
+        "cuda error: out of memory",
+        "cudnn_status_alloc_failed",
+        "hip out of memory",
+        "out of memory on device",
+    )
+    return any(n in text for n in needles)
+
 
 def _sanitize_model_tag(name: str) -> str:
     """Make a model id safe for directory names (e.g. ``qwen3-vl:32b`` → ``qwen3-vl-32b``)."""
@@ -852,8 +886,15 @@ class EvalE2EWorkflow:
                         category_name,
                         ground_truth,
                     )
+                    if _is_cuda_oom_error(exc) or _is_cuda_oom_error(error_message):
+                        # Preserve the exception type for the abort path below.
+                        error_message = f"CUDA_OOM: {error_message}"
                 finally:
                     record_total_time_ms = (time.perf_counter() - record_start_time) * 1000.0
+
+                # Soft workflow failures can also be OOM (caught inside the graph).
+                if _is_cuda_oom_error(error_message) and not str(error_message).startswith("CUDA_OOM:"):
+                    error_message = f"CUDA_OOM: {error_message}"
 
                 self.logger.info(
                     "e2e run_batch: [%s] (%d/%d) writing CSV row ground_truth=%s error_message_len=%d",
@@ -907,6 +948,15 @@ class EvalE2EWorkflow:
                     f"[e2e_batch] [{category_name}] ({idx}/{n_records}) "
                     f"row flushed, csv size_bytes={size_after}"
                 )
+
+                if _is_cuda_oom_error(error_message):
+                    msg = (
+                        f"CUDA out of memory on category={category_name!r} "
+                        f"ground_truth={ground_truth!r}; aborting remaining e2e tasks."
+                    )
+                    self.logger.error(msg)
+                    print(f"[e2e_batch] [ABORT] {msg}")
+                    raise CudaOutOfMemoryAbort(msg)
 
         final_bytes = output_csv_path.stat().st_size
         self.logger.info(
@@ -1063,14 +1113,24 @@ if __name__ == "__main__":
         if args.categories is not None
         else None
     )
-    evaluator = EvalE2EWorkflow(
-        folder_path=args.benchmark_root,
-        config_path=args.config_path,
-    )
-    output_csv = evaluator.run_benchmark_categories(
-        categories=categories,
-        benchmark_root=args.benchmark_root,
-        limit=args.limit,
-        results_root=args.results_root,
-    )
-    print(f"Batch done. CSV: {output_csv}")
+    try:
+        evaluator = EvalE2EWorkflow(
+            folder_path=args.benchmark_root,
+            config_path=args.config_path,
+        )
+        output_csv = evaluator.run_benchmark_categories(
+            categories=categories,
+            benchmark_root=args.benchmark_root,
+            limit=args.limit,
+            results_root=args.results_root,
+        )
+        print(f"Batch done. CSV: {output_csv}")
+    except CudaOutOfMemoryAbort as exc:
+        print(f"[e2e_batch] [ABORT] {exc}", file=sys.stderr)
+        sys.exit(CUDA_OOM_EXIT_CODE)
+    except Exception as exc:
+        # Init-time / uncaught OOM should also abort with the distinctive code.
+        if _is_cuda_oom_error(exc):
+            print(f"[e2e_batch] [ABORT] CUDA OOM: {exc}", file=sys.stderr)
+            sys.exit(CUDA_OOM_EXIT_CODE)
+        raise
