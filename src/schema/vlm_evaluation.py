@@ -1,4 +1,4 @@
-"""Schema for the full VLM critic output (evaluate_with_vlm 3-stage pipeline)."""
+"""Schema for the full VLM critic output (vlm_eval/evaluate_with_vlm 3-stage pipeline)."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ class VLMKpiMatches(TypedDict, total=False):
 
 class VLMEvaluationResult(TypedDict, total=False):
     """
-    Full critic JSON from evaluate_with_vlm.txt.
+    Full critic JSON from vlm_eval/evaluate_with_vlm.txt.
 
     Stage 1 → observed_dsl
     Stage 2 → evaluation (per-field / boolean arrays)

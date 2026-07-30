@@ -57,6 +57,12 @@ vlm:
   temperature: 0 # Sampling temperature
   max_tokens: 16384 # Maximum tokens to generate
 
+# VLM evaluator (critic) settings — see config/config_evaluator_ablation/ for ablation groups
+critic:
+  prompt_name: vlm_eval/evaluate_with_vlm # relative to src/prompt/ (without .txt)
+  include_bev_video: true
+  include_scenic_code: false
+
 logging:
   level: INFO
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

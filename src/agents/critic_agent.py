@@ -16,10 +16,25 @@ logger = logging.getLogger(__name__)
 
 
 class CriticAgent(BaseAgent):
-    def __init__(self, vlm_service: BaseVLMModel):
+    def __init__(
+        self,
+        vlm_service: BaseVLMModel,
+        prompt_name: str = "vlm_eval/evaluate_with_vlm",
+        include_bev_video: bool = True,
+        include_scenic_code: bool = False,
+    ):
         super().__init__()
         self.vlm_service = vlm_service
-        self.prompt_template = load_prompt("evaluate_with_vlm")
+        self.prompt_name = prompt_name
+        self.include_bev_video = include_bev_video
+        self.include_scenic_code = include_scenic_code
+        self.prompt_template = load_prompt(prompt_name)
+        logger.info(
+            "CriticAgent prompt=%s include_bev_video=%s include_scenic_code=%s",
+            prompt_name,
+            include_bev_video,
+            include_scenic_code,
+        )
 
     def process(self, state: dict) -> dict:
         return state
@@ -31,7 +46,7 @@ class CriticAgent(BaseAgent):
         scenario_dsl: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
-        Run the 3-stage critic and return the full JSON payload:
+        Run the critic and return the full JSON payload:
 
         observed_dsl, evaluation, kpi_matches, kpi_passed, feedback, score
         """
@@ -69,23 +84,60 @@ class CriticAgent(BaseAgent):
                     types.Part.from_uri(file_uri=req_file.uri, mime_type=req_file.mime_type)
                 )
 
-        # 2. Generated Scenario (video only).
+        # 2. Generated Scenario modalities (ablation-controlled).
         contents.append(types.Part.from_text(text="\n***Generated Scenario:***\n"))
-        if scenario.video_path:
-            contents.append(types.Part.from_text(text="***Generated Scenario BEV Video:***\n"))
-            scen_file = self.vlm_service.load_media(scenario.video_path)
-            contents.append(
-                types.Part.from_uri(file_uri=scen_file.uri, mime_type=scen_file.mime_type)
-            )
+        attached_any = False
 
-        # 3. Recency reminder
+        if self.include_scenic_code:
+            if scenario.scenic_code:
+                contents.append(
+                    types.Part.from_text(
+                        text="***Generated Scenario Scenic Code:***\n"
+                        f"{scenario.scenic_code}\n"
+                    )
+                )
+                attached_any = True
+            else:
+                logger.warning(
+                    "Critic include_scenic_code=True but scenario has no scenic_code"
+                )
+
+        if self.include_bev_video:
+            if scenario.video_path:
+                contents.append(
+                    types.Part.from_text(text="***Generated Scenario BEV Video:***\n")
+                )
+                scen_file = self.vlm_service.load_media(scenario.video_path)
+                contents.append(
+                    types.Part.from_uri(file_uri=scen_file.uri, mime_type=scen_file.mime_type)
+                )
+                attached_any = True
+            else:
+                logger.warning(
+                    "Critic include_bev_video=True but scenario has no video_path"
+                )
+
+        if not attached_any:
+            logger.error(
+                "Critic has no generated-scenario modalities to attach "
+                "(include_scenic_code=%s, include_bev_video=%s)",
+                self.include_scenic_code,
+                self.include_bev_video,
+            )
+            return {}
+
+        # 3. Recency reminder (matches attached modalities)
+        modality_bits = []
+        if self.include_scenic_code:
+            modality_bits.append("Scenic code")
+        if self.include_bev_video:
+            modality_bits.append("BEV video")
+        modality_desc = " and ".join(modality_bits) if modality_bits else "generated scenario"
+
         final_reminder = (
-            "\nExecute the three stages in order: "
-            "(1) Perception — build Observed DSL from the Generated Scenario BEV video only; "
-            "(2) Verification — compare Observed DSL to Target DSL with per-field booleans "
-            "(list lengths must match Target DSL); "
-            "(3) Scoring — aggregate to 7 KPIs and final score. "
-            "Output the final JSON object exactly as requested in the system instructions."
+            f"\nEvaluate using the Target DSL and the Generated Scenario ({modality_desc}). "
+            "Follow the system instructions for this ablation setting, then "
+            "output the final JSON object exactly as requested."
         )
         contents.append(types.Part.from_text(text=final_reminder))
 

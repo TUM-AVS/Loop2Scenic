@@ -180,13 +180,21 @@ def _initialize_agents(
     vector_db,
     snippets_embedder,
     logger: logging.Logger,
+    config=None,
 ) -> Tuple[InterpreterAgent, ScenicCoderAgent, CriticAgent]:
     """Initialize all agents."""
     logger.info("Initializing Agents...")
 
     interpreter_agent = InterpreterAgent(vlm_service=vlm_service)
     scenic_coder_agent = ScenicCoderAgent(llm_service=shared_llm_service, vector_store=vector_db, snippets_embedder=snippets_embedder)
-    critic_agent = CriticAgent(vlm_service=vlm_service)
+    critic_kwargs = {}
+    if config is not None and getattr(config, "critic", None) is not None:
+        critic_kwargs = {
+            "prompt_name": config.critic.prompt_name,
+            "include_bev_video": config.critic.include_bev_video,
+            "include_scenic_code": config.critic.include_scenic_code,
+        }
+    critic_agent = CriticAgent(vlm_service=vlm_service, **critic_kwargs)
 
     logger.info("Agents initialized.")
     return interpreter_agent, scenic_coder_agent, critic_agent
@@ -248,6 +256,7 @@ class ChatbotWorkflow:
             vector_db=vector_db,
             snippets_embedder=snippets_embedder,
             logger=logger,
+            config=config,
         )
         workflow = _initialize_workflow(
             interpreter_agent=interpreter_agent,
