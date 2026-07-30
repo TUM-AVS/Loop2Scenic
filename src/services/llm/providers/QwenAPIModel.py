@@ -9,8 +9,9 @@ from ..base import BaseLLMModel
 
 logger = logging.getLogger(__name__)
 
-# Light thinking for Qwen / Kimi Scenic component codegen.
-_THINKING_BUDGET = 2048
+# Thinking off for Scenic codegen — thinking tends to over-constrain / hurt compile rate.
+_ENABLE_THINKING = False
+_THINKING_BUDGET = 0
 
 
 class QwenAPIModel(BaseLLMModel):
@@ -52,11 +53,11 @@ class QwenAPIModel(BaseLLMModel):
             "total_tokens": 0,
         }
         logger.info(
-            "Initialized Qwen API model: %s, temperature: %s, max_tokens: %s, thinking_budget: %s",
+            "Initialized Qwen API model: %s, temperature: %s, max_tokens: %s, enable_thinking: %s",
             model,
             temperature,
             max_tokens,
-            _THINKING_BUDGET,
+            _ENABLE_THINKING,
         )
 
     @retry(
@@ -73,9 +74,10 @@ class QwenAPIModel(BaseLLMModel):
 
         start = time.perf_counter()
         extra_body = {
-            "enable_thinking": True,
-            "thinking_budget": _THINKING_BUDGET,
+            "enable_thinking": _ENABLE_THINKING,
         }
+        if _ENABLE_THINKING and _THINKING_BUDGET > 0:
+            extra_body["thinking_budget"] = _THINKING_BUDGET
         user_extra = kwargs.get("extra_body")
         if isinstance(user_extra, dict):
             extra_body.update(user_extra)

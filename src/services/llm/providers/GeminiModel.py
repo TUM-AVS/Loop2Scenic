@@ -92,20 +92,21 @@ class GeminiModel(BaseLLMModel):
             )
 
         # for different models, we need to set the thinking mode by different ways
-        # LLM Scenic codegen: light thinking (~2k).
+        # LLM Scenic codegen: thinking disabled (better compile / sample rate).
         if self._model_name == "gemini-2.5-flash":
             config = self.types.GenerateContentConfig(
                 temperature=self.temperature,
                 max_output_tokens=self.max_tokens,
                 thinking_config=self.types.ThinkingConfig(
-                    thinking_budget=2048
+                    thinking_budget=0
                 )
             )
         elif self._model_name == "gemini-2.5-pro":
+            # 2.5-pro cannot fully disable thinking; use the minimum allowed budget.
             config = self.types.GenerateContentConfig(
                 temperature=self.temperature,
                 max_output_tokens=self.max_tokens,
-                thinking_config=self.types.ThinkingConfig(thinking_budget=2048)
+                thinking_config=self.types.ThinkingConfig(thinking_budget=128)
             )
         elif self._model_name in {
             "gemini-3-flash-preview",
@@ -117,9 +118,10 @@ class GeminiModel(BaseLLMModel):
             config = self.types.GenerateContentConfig(
                 temperature=self.temperature,
                 max_output_tokens=self.max_tokens,
-                thinking_config=self.types.ThinkingConfig(thinking_level="low")
+                thinking_config=self.types.ThinkingConfig(thinking_level="minimal")
             )
         elif self._model_name == "gemini-3.1-pro-preview":
+            # Pro cannot use minimal; lowest available is low.
             config = self.types.GenerateContentConfig(
                 temperature=self.temperature,
                 max_output_tokens=self.max_tokens,
