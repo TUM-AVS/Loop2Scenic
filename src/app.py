@@ -186,7 +186,21 @@ def _initialize_agents(
     logger.info("Initializing Agents...")
 
     interpreter_agent = InterpreterAgent(vlm_service=vlm_service)
-    scenic_coder_agent = ScenicCoderAgent(llm_service=shared_llm_service, vector_store=vector_db, snippets_embedder=snippets_embedder)
+    coder_kwargs = {}
+    if config is not None and getattr(config, "codegen", None) is not None:
+        coder_kwargs = {
+            "prompt_group": config.codegen.prompt_group,
+            "use_contextual": config.codegen.use_contextual,
+            "use_cot": config.codegen.use_cot,
+            "use_icl": config.codegen.use_icl,
+            "use_snippet_retrieval": config.codegen.use_snippet_retrieval,
+        }
+    scenic_coder_agent = ScenicCoderAgent(
+        llm_service=shared_llm_service,
+        vector_store=vector_db,
+        snippets_embedder=snippets_embedder,
+        **coder_kwargs,
+    )
     critic_kwargs = {}
     if config is not None and getattr(config, "critic", None) is not None:
         critic_kwargs = {

@@ -1,0 +1,4 @@
+cp=1
+cot=0
+icl=0
+snippets=0

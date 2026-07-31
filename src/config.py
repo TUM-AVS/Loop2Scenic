@@ -135,6 +135,35 @@ class CriticConfig(BaseModel):
     include_scenic_code: bool = False
 
 
+class CodegenConfig(BaseModel):
+    """Scenic component-generator (codegen) ablation settings.
+
+    Prompt groups live under ``src/prompt/gen_eval/`` (see MANIFEST.txt).
+    Factors: CP (contextual), CoT, ICL, snippet retrieval.
+
+      g1_zeroshot         — none (vanilla zeroshot)
+      g2_cp               — CP
+      g3_cp_cot           — CP + CoT
+      g4_cp_icl           — CP + ICL
+      g5_cp_icl_cot       — CP + ICL + CoT
+      g6_cp_snippets      — CP + snippets
+      g7_cp_cot_snippets  — CP + CoT + snippets
+
+    Empty ``prompt_group`` uses the legacy full prompts at
+    ``src/prompt/component_generator_*.txt`` (CP+CoT+ICL+snippets).
+    """
+
+    # Directory under src/prompt/ containing component_generator_*.txt
+    # e.g. "gen_eval/g1_zeroshot". Empty = legacy root prompts.
+    prompt_group: str = ""
+    # Runtime feature flags. When None, inferred from ``FLAGS.txt`` in the
+    # prompt group (or all-True for legacy root prompts).
+    use_contextual: Optional[bool] = None
+    use_cot: Optional[bool] = None
+    use_icl: Optional[bool] = None
+    use_snippet_retrieval: Optional[bool] = None
+
+
 class CarlaSimulationConfig(BaseModel):
     """CARLA server and connection settings for run_scenic_batch.sh."""
 
@@ -208,6 +237,7 @@ class Config(BaseModel):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     vlm: VLMConfig = Field(default_factory=VLMConfig)
     critic: CriticConfig = Field(default_factory=CriticConfig)
+    codegen: CodegenConfig = Field(default_factory=CodegenConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     simulation: SimulationConfig = Field(default_factory=SimulationConfig)
 

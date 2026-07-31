@@ -29,14 +29,77 @@ header_format_example = """
     param weather = 'ClearNoon'
     </header_example>"""
 
+# Aspect → component_generator_* stem (without .txt)
+_COMPONENT_PROMPT_STEMS = {
+    "adversarials": "component_generator_adv",
+    "ego": "component_generator_ego",
+    "requirements_and_restrictions": "component_generator_requirement",
+    "spatial_relation": "component_generator_spatial",
+    "road_side_structures": "component_generator_road_side_structure",
+    "temporary_modifications": "component_generator_temporary_modification",
+}
+
+
+def _load_codegen_flags(prompt_group: str) -> dict[str, bool]:
+    """Read FLAGS.txt from a gen_eval group; legacy root → all factors on."""
+    from pathlib import Path
+
+    defaults = {"cp": True, "cot": True, "icl": True, "snippets": True}
+    if not prompt_group or not prompt_group.strip():
+        return defaults
+
+    prompts_dir = Path(__file__).resolve().parent.parent / "prompt"
+    flags_path = prompts_dir / prompt_group.strip().lstrip("/") / "FLAGS.txt"
+    if not flags_path.is_file():
+        logger.warning("No FLAGS.txt for codegen group %r; using all-on defaults", prompt_group)
+        return defaults
+
+    parsed = dict(defaults)
+    for line in flags_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key = key.strip().lower()
+        if key in parsed:
+            parsed[key] = val.strip() in ("1", "true", "True", "yes")
+    return parsed
+
+
 class ScenicCoderAgent(BaseAgent):
-    def __init__(self, llm_service: BaseLLMModel, vector_store: MilvusVectorStore, snippets_embedder: BaseEmbeddingModel):
+    def __init__(
+        self,
+        llm_service: BaseLLMModel,
+        vector_store: MilvusVectorStore,
+        snippets_embedder: BaseEmbeddingModel,
+        prompt_group: str = "",
+        use_contextual: bool | None = None,
+        use_cot: bool | None = None,
+        use_icl: bool | None = None,
+        use_snippet_retrieval: bool | None = None,
+    ):
         super().__init__()
         self.llm_service = llm_service
         self.vector_store = vector_store
         self.snippets_embedder = snippets_embedder
         self.prompt_template = load_prompt("adapt_code")
         self.last_debug_failure: str | None = None
+        self.prompt_group = (prompt_group or "").strip().strip("/")
+        flags = _load_codegen_flags(self.prompt_group)
+        self.use_contextual = flags["cp"] if use_contextual is None else bool(use_contextual)
+        self.use_cot = flags["cot"] if use_cot is None else bool(use_cot)
+        self.use_icl = flags["icl"] if use_icl is None else bool(use_icl)
+        self.use_snippet_retrieval = (
+            flags["snippets"] if use_snippet_retrieval is None else bool(use_snippet_retrieval)
+        )
+        logger.info(
+            "ScenicCoderAgent codegen ablation: group=%r cp=%s cot=%s icl=%s snippets=%s",
+            self.prompt_group or "(legacy root)",
+            self.use_contextual,
+            self.use_cot,
+            self.use_icl,
+            self.use_snippet_retrieval,
+        )
 
     def process(self, state: dict) -> dict:
         return state
@@ -234,21 +297,12 @@ MODEL = '{blueprint}'
             return response.replace("```scenic", "").replace("```python", "").replace("```", "").strip()
 
     def get_prompt_for_component(self, aspect: str) -> str:
-        if aspect == "adversarials":
-            return load_prompt("component_generator_adv")
-        elif aspect == "ego":
-            return load_prompt("component_generator_ego")
-        elif aspect == "requirements_and_restrictions":
-            return load_prompt("component_generator_requirement")
-        elif aspect == "spatial_relation":
-            return load_prompt("component_generator_spatial")
-        elif aspect == "road_side_structures":
-            return load_prompt("component_generator_road_side_structure")
-        elif aspect == "temporary_modifications":
-            return load_prompt("component_generator_temporary_modification")
-        else:
+        stem = _COMPONENT_PROMPT_STEMS.get(aspect)
+        if stem is None:
             logger.error(f"Invalid aspect: {aspect}")
-            return load_prompt("component_generator_ego")
+            stem = "component_generator_ego"
+        prompt_name = f"{self.prompt_group}/{stem}" if self.prompt_group else stem
+        return load_prompt(prompt_name)
 
     def prepare_snippets(self, snippets: List[str]) -> str:
         """
@@ -267,13 +321,22 @@ MODEL = '{blueprint}'
         Generate a component based on the description and the retrieved components.
         """
         description = self._component_desc_to_text(description)
-        snippets = self.get_snippets(text=description, comp_type=aspect)
-        context = self.build_context(retrieved_components)
-        
+
+        if self.use_snippet_retrieval:
+            snippets = self.get_snippets(text=description, comp_type=aspect)
+            reference_components = self.prepare_snippets(snippets)
+        else:
+            reference_components = ""
+
+        if self.use_contextual:
+            context = self.build_context(retrieved_components)
+        else:
+            context = ""
+
         comp_prompt = self.get_prompt_for_component(aspect).format(
-            reference_components=self.prepare_snippets(snippets),
+            reference_components=reference_components,
             ready_components=context,
-            user_criteria=description
+            user_criteria=description,
         )
         new_code = self.generate_and_clean(comp_prompt)
         return new_code

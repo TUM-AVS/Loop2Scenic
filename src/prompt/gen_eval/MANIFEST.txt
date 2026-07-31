@@ -1,0 +1,73 @@
+Codegen ablation prompts (component generators)
+
+Factors:
+  CP       = contextual prompting (hard constraints + Scenic API/syntax + prior components)
+  CoT      = chain-of-thought / reasoning plan
+  ICL      = illustrative few-shot examples
+  snippets = retrieved code snippets
+
+Groups:
+  g1_zeroshot         — vanilla (no CP / CoT / ICL / snippets)
+  g2_cp               — + CP
+  g3_cp_cot           — CP + CoT
+  g4_cp_icl           — CP + ICL
+  g5_cp_icl_cot       — CP + ICL + CoT
+  g6_cp_snippets      — CP + snippets
+  g7_cp_cot_snippets  — CP + CoT + snippets
+
+g1_zeroshot: cp=False cot=False icl=False snippets=False
+  - component_generator_ego.txt (1094 chars)
+  - component_generator_adv.txt (1089 chars)
+  - component_generator_spatial.txt (1316 chars)
+  - component_generator_requirement.txt (1345 chars)
+  - component_generator_road_side_structure.txt (1078 chars)
+  - component_generator_temporary_modification.txt (1087 chars)
+
+g2_cp: cp=True cot=False icl=False snippets=False
+  - component_generator_ego.txt (15069 chars)
+  - component_generator_adv.txt (16286 chars)
+  - component_generator_spatial.txt (11246 chars)
+  - component_generator_requirement.txt (6717 chars)
+  - component_generator_road_side_structure.txt (9519 chars)
+  - component_generator_temporary_modification.txt (8409 chars)
+
+g3_cp_cot: cp=True cot=True icl=False snippets=False
+  - component_generator_ego.txt (16181 chars)
+  - component_generator_adv.txt (17802 chars)
+  - component_generator_spatial.txt (12457 chars)
+  - component_generator_requirement.txt (7791 chars)
+  - component_generator_road_side_structure.txt (10325 chars)
+  - component_generator_temporary_modification.txt (9222 chars)
+
+g4_cp_icl: cp=True cot=False icl=True snippets=False
+  - component_generator_ego.txt (16900 chars)
+  - component_generator_adv.txt (17658 chars)
+  - component_generator_spatial.txt (12145 chars)
+  - component_generator_requirement.txt (7964 chars)
+  - component_generator_road_side_structure.txt (10694 chars)
+  - component_generator_temporary_modification.txt (9450 chars)
+
+g5_cp_icl_cot: cp=True cot=True icl=True snippets=False
+  - component_generator_ego.txt (18012 chars)
+  - component_generator_adv.txt (19174 chars)
+  - component_generator_spatial.txt (13356 chars)
+  - component_generator_requirement.txt (9038 chars)
+  - component_generator_road_side_structure.txt (11500 chars)
+  - component_generator_temporary_modification.txt (10263 chars)
+
+g6_cp_snippets: cp=True cot=False icl=False snippets=True
+  - component_generator_ego.txt (15103 chars)
+  - component_generator_adv.txt (16320 chars)
+  - component_generator_spatial.txt (11280 chars)
+  - component_generator_requirement.txt (6751 chars)
+  - component_generator_road_side_structure.txt (9553 chars)
+  - component_generator_temporary_modification.txt (8443 chars)
+
+g7_cp_cot_snippets: cp=True cot=True icl=False snippets=True
+  - component_generator_ego.txt (16215 chars)
+  - component_generator_adv.txt (17836 chars)
+  - component_generator_spatial.txt (12491 chars)
+  - component_generator_requirement.txt (7825 chars)
+  - component_generator_road_side_structure.txt (10359 chars)
+  - component_generator_temporary_modification.txt (9256 chars)
+

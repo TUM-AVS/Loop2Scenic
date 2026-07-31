@@ -63,6 +63,24 @@ critic:
   include_bev_video: true
   include_scenic_code: false
 
+# Scenic component-generator ablation — prompts under src/prompt/gen_eval/
+# Factors: CP (contextual), CoT, ICL, snippet retrieval
+#   gen_eval/g1_zeroshot         — vanilla (no CP / CoT / ICL / snippets)
+#   gen_eval/g2_cp               — CP
+#   gen_eval/g3_cp_cot           — CP + CoT
+#   gen_eval/g4_cp_icl           — CP + ICL
+#   gen_eval/g5_cp_icl_cot       — CP + ICL + CoT
+#   gen_eval/g6_cp_snippets      — CP + snippets
+#   gen_eval/g7_cp_cot_snippets  — CP + CoT + snippets
+# Empty prompt_group = legacy full prompts at src/prompt/component_generator_*.txt
+codegen:
+  prompt_group: "" # e.g. gen_eval/g1_zeroshot
+  # Optional overrides (null = read FLAGS.txt from the group / all-on for legacy)
+  use_contextual: null
+  use_cot: null
+  use_icl: null
+  use_snippet_retrieval: null
+
 logging:
   level: INFO
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
