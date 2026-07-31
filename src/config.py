@@ -124,6 +124,17 @@ class LoggingConfig(BaseModel):
     file: str = "./logs/rag_pipeline.log"
 
 
+class CriticConfig(BaseModel):
+    """VLM evaluator (critic) ablation settings."""
+
+    # Prompt file stem under src/prompt/ (without .txt)
+    prompt_name: str = "vlm_eval/evaluate_with_vlm"
+    # Whether to attach the generated BEV video to the critic inputs
+    include_bev_video: bool = True
+    # Whether to attach the generated Scenic code to the critic inputs
+    include_scenic_code: bool = False
+
+
 class CarlaSimulationConfig(BaseModel):
     """CARLA server and connection settings for run_scenic_batch.sh."""
 
@@ -196,6 +207,7 @@ class Config(BaseModel):
     reranking: RerankingConfig = Field(default_factory=RerankingConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     vlm: VLMConfig = Field(default_factory=VLMConfig)
+    critic: CriticConfig = Field(default_factory=CriticConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     simulation: SimulationConfig = Field(default_factory=SimulationConfig)
 

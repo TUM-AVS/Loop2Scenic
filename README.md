@@ -236,6 +236,74 @@ simulation:
 
 Replace `/home/your_user/chenli2/carla_0.9.16` with the actual path on your machine.
 
+#### 7. Download scenarios and populate the vector database
+
+After CARLA is installed and Milvus is running (step 4), download the cleaned scenario dataset and ingest it into Milvus. You also need the Scenic code-snippet library for coder RAG.
+
+**7.1 Download scenarios with `gdown`**
+
+Install `gdown` if needed, then download the scenario archive from Google Drive and extract it into `data/scenarios`:
+
+```bash
+pip install -U gdown
+mkdir -p data/scenarios
+gdown "https://drive.google.com/file/d/1Mq6-lm5oRkBZ1EJNLMvBweoR4OK_ZUQX/view?usp=drive_link" \
+  -O data/200-cleaned-scenarios.zip
+unzip -o data/200-cleaned-scenarios.zip -d data/scenarios
+```
+
+After extraction, `data/scenarios/` should contain one folder per scenario (with description / video assets used by ingestion). If the zip unpacks into a single nested directory, move its contents up into `data/scenarios/`.
+
+**7.2 Ingest scenarios into the vector database**
+
+This writes to the collection named by `vector_db.collection_name` in `config/config.yaml` (for example `scenarios_qwen2b`), using the configured embedding model:
+
+```bash
+python scripts/ingest_local_scenarios.py --folder data/scenarios --reset
+```
+
+Omit `--reset` if you want to append to an existing collection instead of recreating it.
+
+**7.3 Ingest code snippets into the vector database**
+
+Ingest the Scenic component snippets into the collection named by `vector_db.snippets_collection_name` (default: `scenario_components`):
+
+```bash
+python scripts/insert_scenario_components.py
+```
+
+This loads `data/raw_snippets/recovered_scenario_components_with_subject.json` and inserts it into Milvus. Optional flags:
+
+```bash
+python scripts/insert_scenario_components.py \
+  --collection scenario_components \
+  --json data/raw_snippets/recovered_scenario_components_with_subject.json
+```
+
+> **Note:** If the snippets collection already exists, new items are **appended**. Drop the collection first if you want a clean rebuild.
+
+**7.4 Check vector database collection status**
+
+List all Milvus collections and their row counts:
+
+```bash
+python scripts/read_milvus_db.py
+```
+
+#### 8. Download the evaluation benchmark with `gdown`
+
+Download the benchmark archive from Google Drive and extract it into `data/benchmark` (used by end-to-end evaluation under `eval/`):
+
+```bash
+pip install -U gdown
+mkdir -p data/benchmark
+gdown "https://drive.google.com/file/d/1gG_E2jorwpHl4VY2NvN_xmVN97DogGG8/view?usp=drive_link" \
+  -O data/benchmark-20260720T074802Z-1-001.zip
+unzip -o data/benchmark-20260720T074802Z-1-001.zip -d data/benchmark
+```
+
+After extraction, `data/benchmark/` should contain the modality folders used by evaluation (for example `text-only`, `text-image`, `text-video`, `image-only`, `video-only`). If the zip unpacks into a single nested directory, move its contents up into `data/benchmark/`.
+
 
 
 ### Quick Start
