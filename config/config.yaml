@@ -36,7 +36,7 @@ reranking:
 
 llm:
   provider: qwen # Options: openai, gemini, qwen, deepseek, anthropic, ollama
-  model: kimi-k2.6
+  model: qwen3.6-flash
   # Examples:
   # - OpenAI: gpt-3.5-turbo, gpt-4, gpt-4-turbo-preview
   # - Anthropic/Sonnet: claude-3-5-sonnet-20241022, claude-3-7-sonnet-20250219
@@ -46,12 +46,12 @@ llm:
   # - Ollama: qwen3.6:35b, gemma4:31b, nemotron3:33b, ...
   #   base_url: http://10.147.17.29:11434   # optional; else OLLAMA_URL / OLLAMA_HOST
   temperature: 0
-  max_tokens: 8192
+  max_tokens: 32768
 
 vlm:
   provider: qwen # Options: qwen, openai, gemini, ollama
   model_path: None # Required for Qwen3VL, path to local model directory
-  model: kimi-k2.6 # For OpenAI Vision (e.g., "gpt-4-vision-preview", "gpt-4o")
+  model: qwen3.6-flash # For OpenAI Vision (e.g., "gpt-4-vision-preview", "gpt-4o")
   # - Ollama VLM: qwen3-vl:32b (or gemma4:31b, nemotron3:33b, ...)
   #   base_url: http://10.147.17.29:11434
   temperature: 0 # Sampling temperature
@@ -72,9 +72,9 @@ simulation:
   carla:
     # Set to your CARLA LinuxNoEditor directory (required for --auto-start-carla)
     # binary_dir: "/home/avsaw1/chenli/CARLA_0.9.16"
-    binary_dir: "/home/dellpro2/caiwang/carla/Dist/CARLA_Shipping_294096eb1/LinuxNoEditor"
+    # binary_dir: "/home/dellpro2/caiwang/carla/Dist/CARLA_Shipping_294096eb1/LinuxNoEditor"
     # binary_dir: "/home/avsaw1/chenli/CARLA_0.9.16"   # on alienware
-    # binary_dir: "/home/mifcom2/chenli2/carla_0.9.16"
+    binary_dir: "/home/mifcom2/chenli2/carla_0.9.16"
     cmd: "./CarlaUE4.sh -quality-level=High -nosound -RenderOffScreen -carla-rpc-port=8200"
     host: localhost
     port: 8200
@@ -94,7 +94,7 @@ simulation:
     workdir: Scenic
     map_root: Scenic/assets/maps/CARLA
     version: 3
-    conda_env: chenli
+    conda_env: ads-mrag
     scenic2_conda_env: scenic2.0
     scenic3_venv_activate: null
     duration_sec: 25
